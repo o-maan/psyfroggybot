@@ -1,0 +1,17 @@
+{
+  "name": "froggy-bot",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "bun run src/bot.ts",
+    "dev": "bun --watch run src/bot.ts"
+  },
+  "dependencies": {
+    "telegraf": "^4.15.3",
+    "dotenv": "^16.4.5",
+    "@huggingface/inference": "^2.6.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.24"
+  }
+} 
