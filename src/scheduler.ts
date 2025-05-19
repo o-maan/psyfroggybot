@@ -1,5 +1,5 @@
 import { Telegraf } from 'telegraf';
-import { generateMessage } from './llm';
+import { getMessage } from './messages';
 import { saveMessage, updateMessageResponse, getUserResponseStats } from './db';
 import fs from 'fs';
 import path from 'path';
@@ -7,9 +7,15 @@ import path from 'path';
 export class Scheduler {
   private bot: Telegraf;
   private reminderTimeouts: Map<number, NodeJS.Timeout> = new Map();
+  private users: Set<number> = new Set();
 
   constructor(bot: Telegraf) {
     this.bot = bot;
+  }
+
+  // Добавить пользователя в список рассылки
+  addUser(chatId: number) {
+    this.users.add(chatId);
   }
 
   // Получить случайную картинку из папки
@@ -25,11 +31,13 @@ export class Scheduler {
   // Отправить сообщение пользователю
   async sendDailyMessage(chatId: number) {
     try {
-      const message = await generateMessage();
+      console.log('📤 SENDING MESSAGE - Chat ID:', chatId);
+      const message = getMessage();
       const imagePath = this.getRandomImage();
       
       // Отправляем фото с подписью
       await this.bot.telegram.sendPhoto(chatId, { source: imagePath }, { caption: message });
+      console.log('✅ MESSAGE SENT - Chat ID:', chatId);
       
       // Сохраняем время отправки
       const sentTime = new Date().toISOString();
@@ -38,7 +46,7 @@ export class Scheduler {
       // Устанавливаем напоминание через 1.5 часа
       this.setReminder(chatId, sentTime);
     } catch (error) {
-      console.error('Ошибка при отправке сообщения:', error);
+      console.error('❌ ERROR SENDING MESSAGE - Chat ID:', chatId, error);
     }
   }
 
@@ -73,9 +81,12 @@ export class Scheduler {
 
     // Планируем отправку
     setTimeout(() => {
-      this.sendDailyMessage(/* chatId */);
+      // Отправляем сообщения всем пользователям
+      this.users.forEach(chatId => this.sendDailyMessage(chatId));
       // Планируем следующую отправку через 24 часа
-      setInterval(() => this.sendDailyMessage(/* chatId */), 24 * 60 * 60 * 1000);
+      setInterval(() => {
+        this.users.forEach(chatId => this.sendDailyMessage(chatId));
+      }, 24 * 60 * 60 * 1000);
     }, delay);
   }
 
@@ -85,6 +96,18 @@ export class Scheduler {
     if (timeout) {
       clearTimeout(timeout);
       this.reminderTimeouts.delete(chatId);
+    }
+  }
+
+  // Добавить разовую отправку сообщения
+  scheduleOneTimeMessage(chatId: number, targetTime: Date) {
+    const now = new Date();
+    const delay = targetTime.getTime() - now.getTime();
+    
+    if (delay > 0) {
+      setTimeout(() => {
+        this.sendDailyMessage(chatId);
+      }, delay);
     }
   }
 } 
