@@ -41,7 +41,7 @@ if (savedTokens) {
 
 // --- Express сервер для Google OAuth2 callback ---
 const app = express();
-const PORT = 3000;
+const PORT = process.env.WEBHOOK_PORT || 3000;
 
 app.get('/oauth2callback', async (req: Request, res: Response) => {
   const code = req.query.code as string;
@@ -93,7 +93,7 @@ bot.command('sendnow', async (ctx) => {
   const chatId = ctx.chat.id;
   const targetTime = new Date();
   targetTime.setHours(15, 38, 0, 0);
-  
+
   scheduler.scheduleOneTimeMessage(chatId, targetTime);
   await ctx.reply('Сообщение будет отправлено в 15:38!');
 });
@@ -170,7 +170,7 @@ bot.command('minimalTestLLM', async (ctx) => {
 bot.on('text', async (ctx) => {
   const message = ctx.message.text;
   console.log(message)
-  
+
   // Проверяем, похоже ли сообщение на код авторизации
   if (/^[0-9a-zA-Z/_-]{4,}$/.test(message)) {
     console.log('🔍 CODE AUTH - Chat ID:', ctx.chat.id);
@@ -178,7 +178,7 @@ bot.on('text', async (ctx) => {
       const tokens = await calendarService.getToken(message);
       savedTokens = tokens; // сохраняем токен в памяти
       await ctx.reply('Отлично! Доступ к календарю настроен.');
-      
+
       // Теперь можно получить события за вчера и сегодня
       const now = new Date();
       const yesterday = new Date(now);
@@ -215,9 +215,9 @@ bot.on('text', async (ctx) => {
 
 // Запускаем бота
 bot.launch()
-  console.log('\n🚀 Бот успешно запущен!\n📱 Для остановки нажмите Ctrl+C\n');
-  // Запускаем планировщик
-  scheduler.startDailySchedule();
+console.log('\n🚀 Бот успешно запущен!\n📱 Для остановки нажмите Ctrl+C\n');
+// Запускаем планировщик
+scheduler.startDailySchedule();
 
 // Обработка завершения работы
 process.once('SIGINT', () => bot.stop('SIGINT'));
