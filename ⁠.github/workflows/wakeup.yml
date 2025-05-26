@@ -1,0 +1,18 @@
+name: Wake Fly Bot
+
+on:
+  schedule:
+    # Каждый вечер в 19:30 по Минску (UTC+3)
+    - cron: '29 16 * * *'   # cron всегда в UTC!
+    - cron: '30 16 * * *'   # cron всегда в UTC!
+
+  workflow_dispatch:       # запуск вручную из UI
+
+jobs:
+  ping_bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call health-check endpoint
+        run: |
+          curl https://psy-froggy-bot.fly.dev/health
