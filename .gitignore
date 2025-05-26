@@ -160,3 +160,5 @@ dist
 .pnp.*
 
 .calendar_token.json
+
+*.db

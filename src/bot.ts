@@ -1,10 +1,12 @@
 import { Telegraf } from 'telegraf';
 import { config } from 'dotenv';
-import { Scheduler } from './scheduler';
-import { addUser, updateUserResponse } from './db';
-import { CalendarService } from './calendar';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { Scheduler } from './scheduler.ts';
+import { addUser, updateUserResponse } from './db.ts';
+import { CalendarService } from './calendar.ts';
+import { writeFileSync, readFileSync, existsSync, fstat } from 'fs';
 import express, { Request, Response } from 'express';
+import { generateMessage, minimalTestLLM } from './llm.ts';
+import { getMessage } from './messages.ts';
 
 // Загружаем переменные окружения
 config();
@@ -13,8 +15,8 @@ config();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
 // Создаем планировщик
-const scheduler = new Scheduler(bot);
 const calendarService = new CalendarService();
+const scheduler = new Scheduler(bot, calendarService);
 
 // Для хранения токена в памяти (и на диске)
 const TOKEN_PATH = './.calendar_token.json';
@@ -81,8 +83,9 @@ bot.command('start', async (ctx) => {
 // Обработка команды /test
 bot.command('test', async (ctx) => {
   const chatId = ctx.chat.id;
-  console.log('🔍 TEST COMMAND - Chat ID:', chatId);
-  await scheduler.sendDailyMessage(chatId);
+  const fromId = ctx.from?.id;
+  console.log('🔍 TEST COMMAND - Chat ID:', chatId, 'From ID:', fromId);
+  await scheduler.sendDailyMessage(fromId);
 });
 
 // Обработка команды /sendnow
@@ -98,7 +101,17 @@ bot.command('sendnow', async (ctx) => {
 // Обработка команды /fro
 bot.command('fro', async (ctx) => {
   const chatId = ctx.chat.id;
-  await scheduler.sendDailyMessage(chatId);
+  // Генерируем сообщение по тем же правилам, что и для 19:30
+  const message = await scheduler.generateScheduledMessage(chatId);
+  const imagePath = scheduler.getNextImage();
+  const caption = message.length > 1024 ? undefined : message;
+  await bot.telegram.sendPhoto(scheduler.CHANNEL_ID, { source: imagePath }, {
+    caption,
+    parse_mode: 'HTML'
+  });
+  if (message.length > 1024) {
+    await bot.telegram.sendMessage(scheduler.CHANNEL_ID, message, { parse_mode: 'HTML' });
+  }
 });
 
 // Обработка команды /remind
@@ -139,6 +152,18 @@ bot.command('calendar', async (ctx) => {
     authUrl + '\n\n' +
     'После авторизации вы получите код. Отправьте его мне.'
   );
+});
+
+
+// Команда для минимального теста LLM
+bot.command('minimalTestLLM', async (ctx) => {
+  await ctx.reply('Выполняю минимальный тест LLM...');
+  const result = await minimalTestLLM();
+  if (result) {
+    await ctx.reply('Ответ LLM:\n' + result);
+  } else {
+    await ctx.reply('Ошибка при выполнении минимального запроса к LLM.');
+  }
 });
 
 // Обработка текстовых сообщений
@@ -186,6 +211,7 @@ bot.on('text', async (ctx) => {
     await ctx.reply('Интересно, но не понятно! 😊');
   }
 });
+
 
 // Запускаем бота
 bot.launch()

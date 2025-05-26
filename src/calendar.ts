@@ -1,6 +1,9 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
+import { config } from 'dotenv';
+config();
+
 export class CalendarService {
   private oauth2Client: OAuth2Client;
   private calendar: any;
