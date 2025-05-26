@@ -1,4 +1,7 @@
-import { HfInference } from '@huggingface/inference';
+import { InferenceClient } from "@huggingface/inference";
+
+const client = new InferenceClient(process.env.HF_TOKEN);
+
 
 // Примеры текстов для генерации
 const examples = [
@@ -14,35 +17,70 @@ const examples = [
   "Надеюсь, ты хорошо отдохнул!"
 ];
 
-const hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
 
-export async function generateMessage(): Promise<string> {
+export async function generateMessage(prompt?: string): Promise<string> {
   try {
-    // Используем модель для генерации текста
-    const result = await hf.textGeneration({
-      model: 'gpt2',
-      inputs: examples.join('\n'),
+    console.log('🔍 GENERATING MESSAGE - Prompt:', prompt);
+    const result = await client.chatCompletion({
+      provider: "hf-inference",
+      model: 'Qwen/Qwen3-235B-A22B', // долгая
+      // model: 'Qwen/Qwen2.5-7B-Instruct-1M',
+
+      messages: [
+        {
+          role: "user",
+          content: `${prompt || ''}\n\n Примеры поддержки: ${examples.join('\n')}`,
+        },
+      ],
       parameters: {
-        max_length: 50,
+        max_new_tokens: 500,
         temperature: 0.7,
         top_p: 0.9,
       }
     });
 
     // Очищаем и форматируем результат
-    let message = result.generated_text
+    let message = (result.choices[0].message.content || '')
       .replace(/\n/g, ' ')
+      // <think>...</think>
+      .replace(/<think>(.*?)<\/think>/gm, '')
       .trim();
+
+    console.log('🔍 Generated message:', { message });
 
     // Если сообщение слишком короткое, используем случайный пример
     if (message.length < 10) {
-      message = examples[Math.floor(Math.random() * examples.length)];
+      // fallback
+      return 'HF_JSON_ERROR';
     }
 
     return message;
   } catch (error) {
+    // fallback
     console.error('Ошибка при генерации сообщения:', error);
-    // В случае ошибки возвращаем случайный пример
-    return examples[Math.floor(Math.random() * examples.length)];
+    // В случае ошибки возвращаем специальную строку
+    return 'HF_JSON_ERROR';
+  }
+}
+
+// Минимальный тестовый запрос к самой простой LLM (gpt2)
+export async function minimalTestLLM() {
+  try {
+    const chatCompletion = await client.chatCompletion({
+      provider: "hf-inference",
+      model: "Qwen/Qwen3-235B-A22B",
+      messages: [
+        {
+          role: "user",
+          content: "What is the capital of France?",
+        },
+      ],
+    });
+
+    console.log('Минимальный ответ LLM:', chatCompletion.choices[0].message.content);
+    return chatCompletion.choices[0].message.content;
+  } catch (error) {
+    console.error('Ошибка минимального запроса к LLM:', error);
+    return null;
   }
 } 

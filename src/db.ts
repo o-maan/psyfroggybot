@@ -66,4 +66,30 @@ export const updateMessageResponse = (chatId: number, sentTime: string, response
     AND sent_time = ?
   `);
   updateMessage.run(responseTime, chatId, sentTime);
+};
+
+// Получить последнее сообщение, отправленное ботов пользователю
+export const getLastBotMessage = (chatId: number) => {
+  const getMessage = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ?
+    ORDER BY m.sent_time DESC
+    LIMIT 1
+  `);
+  return getMessage.get(chatId) as { message_text: string; sent_time: string } | undefined;
+};
+
+// Получить последние N сообщений, отправленных ботом пользователю
+export const getLastNBotMessages = (chatId: number, n: number) => {
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ?
+    ORDER BY m.sent_time DESC
+    LIMIT ?
+  `);
+  return getMessages.all(chatId, n) as { message_text: string; sent_time: string }[];
 }; 
