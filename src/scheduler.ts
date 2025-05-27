@@ -6,6 +6,7 @@ import path from 'path';
 import { CalendarService } from './calendar';
 import { generateMessage } from './llm';
 import { readFileSync } from 'fs';
+import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
 
 const HOURS = 60 * 60 * 1000;
 
@@ -315,23 +316,21 @@ export class Scheduler {
 
   // Запустить ежедневную рассылку
   startDailySchedule() {
-    // Устанавливаем время отправки (19:30)
-    const scheduleTime = new Date();
-    scheduleTime.setHours(19, 30, 0, 0);
-
-    // Если текущее время больше 19:30, планируем на следующий день
-    if (new Date() > scheduleTime) {
-      scheduleTime.setDate(scheduleTime.getDate() + 1);
+    // Московское время
+    const timeZone = 'Europe/Moscow';
+    // Следующее 19:30 по Москве
+    const now = new Date();
+    let nextMoscow = utcToZonedTime(now, timeZone);
+    nextMoscow.setHours(20, 35, 0, 0);
+    if (now > zonedTimeToUtc(nextMoscow, timeZone)) {
+      // если уже позже 19:30 по Москве, берем следующий день
+      nextMoscow.setDate(nextMoscow.getDate() + 1);
     }
-
-    // Вычисляем задержку до следующей отправки
-    const delay = scheduleTime.getTime() - new Date().getTime();
-
-    // Планируем отправку
+    // Переводим московское 19:30 в UTC
+    const nextUtc = zonedTimeToUtc(nextMoscow, timeZone);
+    const delay = nextUtc.getTime() - now.getTime();
     setTimeout(() => {
-      // Отправляем сообщения всем пользователям
       this.users.forEach(chatId => this.sendDailyMessage(chatId));
-      // Планируем следующую отправку через 24 часа
       setInterval(() => {
         this.users.forEach(chatId => this.sendDailyMessage(chatId));
       }, 24 * 60 * 60 * 1000);
