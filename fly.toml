@@ -6,6 +6,11 @@
 app = 'psy-froggy-bot'
 primary_region = 'arn'
 
+[mounts]
+  source='froggy_data'
+  destination='/data'
+  processes = ['app']
+
 [http_service]
   internal_port = 3000
   force_https = true
@@ -25,12 +30,6 @@ primary_region = 'arn'
 
     [checks.my_health_check.headers]
       Content-Type = 'application/json'
-
-[mounts]
-  source="froggy_data"
-  destination="/data"
-  # Process group 'app' 
-  processes = ["app"]
 
 [[vm]]
   memory = '1gb'
