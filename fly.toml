@@ -21,3 +21,17 @@ primary_region = 'arn'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
+
+
+[checks]
+  [checks.my_health_check]
+    grace_period = "30s"
+    interval = "15s"
+    method = "get"
+    path = "/status"
+    # port = 5500
+    timeout = "10s"
+    type = "http"
+    [checks.my_health_check.headers]
+      Content-Type = "application/json"
+      # Authorization = "super-secret"
