@@ -25,12 +25,12 @@ primary_region = 'arn'
 
 [checks]
   [checks.my_health_check]
-    grace_period = "30s"
-    interval = "15s"
+    grace_period = "10m"
+    interval = "1m"
     method = "get"
     path = "/status"
     # port = 5500
-    timeout = "10s"
+    timeout = "1m"
     type = "http"
     [checks.my_health_check.headers]
       Content-Type = "application/json"
