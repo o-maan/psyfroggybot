@@ -3,7 +3,8 @@ name: Daily Froggy Bot Scheduler
 on:
   schedule:
     # Каждый вечер в 19:30 по Москве (UTC+3) = 16:30 UTC
-    - cron: '30 16 * * *'
+    - cron: "30 16 * * *"
+  # Ручной запуск по адресу https://github.com/o-maan/psy_froggy_bot/actions/workflows/wake.yaml
   workflow_dispatch:
 
 jobs:
@@ -12,4 +13,4 @@ jobs:
     steps:
       - name: Send daily message to all users
         run: |
-          curl -X POST https://psy-froggy-bot.fly.dev/sendDailyMessage
+          curl --fail -X POST https://psy-froggy-bot.fly.dev/sendDailyMessage
