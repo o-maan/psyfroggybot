@@ -37,5 +37,5 @@ primary_region = 'arn'
       # Authorization = "super-secret"
 
 [mounts]
-  source="froggy_data"
+  source="vol_vj5lmq09kjnxolp4"
   destination="/data"
