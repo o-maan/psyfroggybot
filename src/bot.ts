@@ -43,6 +43,8 @@ if (savedTokens) {
 const app = express();
 const PORT = process.env.WEBHOOK_PORT || 3000;
 
+app.use(express.json());
+
 app.get('/oauth2callback', async (req: Request, res: Response) => {
   const code = req.query.code as string;
   if (!code) {
@@ -65,6 +67,19 @@ app.get('/oauth2callback', async (req: Request, res: Response) => {
 
 app.get('/status', (req: Request, res: Response) => {
   res.json({ status: 'up' });
+});
+
+app.post('/sendDailyMessage', async (req: Request, res: Response) => {
+  try {
+    // Можно добавить фильтрацию по chatId из тела, если нужно
+    for (const chatId of scheduler["users"]) {
+      await scheduler.sendDailyMessage(chatId);
+    }
+    res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    console.error('Ошибка при отправке сообщений:', error);
+    res.status(500).json({ status: 'error', error: String(error) });
+  }
 });
 
 app.listen(PORT, () => {
@@ -220,8 +235,6 @@ bot.on('text', async (ctx) => {
 // Запускаем бота
 bot.launch()
 console.log('\n🚀 Бот успешно запущен!\n📱 Для остановки нажмите Ctrl+C\n');
-// Запускаем планировщик
-scheduler.startDailySchedule();
 
 // Обработка завершения работы
 process.once('SIGINT', () => bot.stop('SIGINT'));
