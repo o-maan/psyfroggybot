@@ -63,6 +63,10 @@ app.get('/oauth2callback', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/status', (req: Request, res: Response) => {
+  res.json({ status: 'up' });
+});
+
 app.listen(PORT, () => {
   console.log(`Express сервер запущен на http://localhost:${PORT}`);
 });
