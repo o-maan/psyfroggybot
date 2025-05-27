@@ -76,6 +76,7 @@ app.post('/sendDailyMessage', async (req: Request, res: Response) => {
       await scheduler.sendDailyMessage(chatId);
     }
     res.status(200).json({ status: 'ok' });
+    console.log('Сообщения отправлены успешно', scheduler["users"]);
   } catch (error) {
     console.error('Ошибка при отправке сообщений:', error);
     res.status(500).json({ status: 'error', error: String(error) });
