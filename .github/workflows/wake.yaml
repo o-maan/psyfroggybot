@@ -1,18 +1,15 @@
-name: Wake Fly Bot
+name: Daily Froggy Bot Scheduler
 
 on:
   schedule:
-    # Каждый вечер в 19:30 по Минску (UTC+3)
-    - cron: '29 16 * * *'   # cron всегда в UTC!
-    - cron: '30 16 * * *'   # cron всегда в UTC!
-
-  workflow_dispatch:       # запуск вручную из UI
+    # Каждый вечер в 19:30 по Москве (UTC+3) = 16:30 UTC
+    - cron: '30 16 * * *'
+  workflow_dispatch:
 
 jobs:
-  ping_bot:
+  send_daily_message:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Call health-check endpoint
+      - name: Send daily message to all users
         run: |
-          curl https://psy-froggy-bot.fly.dev/health
+          curl -X POST https://psy-froggy-bot.fly.dev/sendDailyMessage
