@@ -35,3 +35,7 @@ primary_region = 'arn'
     [checks.my_health_check.headers]
       Content-Type = "application/json"
       # Authorization = "super-secret"
+
+[mounts]
+  source="froggy_data"
+  destination="/data"
