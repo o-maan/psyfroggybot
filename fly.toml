@@ -29,6 +29,8 @@ primary_region = 'arn'
 [mounts]
   source="froggy_data"
   destination="/data"
+  # Process group 'app' 
+  processes = ["app"]
 
 [[vm]]
   memory = '1gb'
