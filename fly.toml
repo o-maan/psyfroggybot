@@ -21,17 +21,6 @@ primary_region = 'ams'
   min_machines_running = 0
   processes = ['app']
 
-[checks]
-  [checks.my_health_check]
-    type = 'http'
-    interval = '15s'
-    timeout = '10s'
-    grace_period = '30s'
-    method = 'get'
-    path = '/status'
-
-    [checks.my_health_check.headers]
-      Content-Type = 'application/json'
 
 [[vm]]
   memory = '1gb'
