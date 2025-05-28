@@ -21,7 +21,7 @@ try {
 }
 
 // Создаем базу данных
-export const db = new Database("./froggy.db", { create: true });
+export const db = new Database("/data/froggy.db", { create: true });
 
 // Создаем таблицы при первом запуске
 db.query(`
