@@ -84,7 +84,7 @@ app.all('/sendDailyMessage', async (req: Request, res: Response) => {
 });
 
 // 404
-app.all('*', (req: Request, res: Response) => {
+app.all('/', (req: Request, res: Response) => {
   res.status(404).send('Not found');
 });
 
