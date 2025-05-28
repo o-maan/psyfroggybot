@@ -45,7 +45,7 @@ const PORT = process.env.WEBHOOK_PORT || 3000;
 
 app.use(express.json());
 
-app.get('/oauth2callback', async (req: Request, res: Response) => {
+app.all('/oauth2callback', async (req: Request, res: Response) => {
   const code = req.query.code as string;
   if (!code) {
     res.status(400).send('No code provided');
@@ -69,7 +69,7 @@ app.get('/status', (req: Request, res: Response) => {
   res.json({ status: 'up' });
 });
 
-app.post('/sendDailyMessage', async (req: Request, res: Response) => {
+app.all('/sendDailyMessage', async (req: Request, res: Response) => {
   try {
     // Можно добавить фильтрацию по chatId из тела, если нужно
     for (const chatId of scheduler["users"]) {
@@ -81,6 +81,11 @@ app.post('/sendDailyMessage', async (req: Request, res: Response) => {
     console.error('Ошибка при отправке сообщений:', error);
     res.status(500).json({ status: 'error', error: String(error) });
   }
+});
+
+// 404
+app.all('*', (req: Request, res: Response) => {
+  res.status(404).send('Not found');
 });
 
 app.listen(PORT, () => {
@@ -170,7 +175,7 @@ bot.command('calendar', async (ctx) => {
   await ctx.reply(
     'Для доступа к календарю, пожалуйста, перейдите по ссылке и авторизуйтесь:\n' +
     authUrl + '\n\n' +
-    'После авторизации вы получите код. Отправьте его мне.'
+    'Подождите немного, пока я получу токен.'
   );
 });
 
