@@ -3,9 +3,13 @@ import fs from 'fs';
 
 // pwd
 console.log(process.cwd())
-console.log(fs.readdirSync('/data'))
-console.log(fs.readdirSync('.'))
+try {
+  console.log(fs.readdirSync('/'))
+} catch (e) {
+  console.log(e)
+}
 
+console.log(fs.readdirSync('.'))
 
 // Создаем базу данных
 export const db = new Database("/data/froggy.db", { create: true });
