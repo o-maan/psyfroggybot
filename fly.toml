@@ -3,7 +3,7 @@
 #
 
 app = 'psy-froggy-bot'
-primary_region = 'arn'
+primary_region = 'ams'
 
 [mounts]
   source='data'
