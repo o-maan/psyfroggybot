@@ -57,7 +57,7 @@ app.all('/oauth2callback', async (req: Request, res: Response) => {
     saveTokensToFile(tokens);
     res.send('Авторизация прошла успешно! Можете вернуться к боту.');
     // Можно отправить сообщение админу или вывести в консоль
-    console.log('✅ Токен успешно получен и сохранён!');
+    console.log('✅ Токен успешно получен и сохранён! ' + code);
     await bot.telegram.sendMessage(process.env.ADMIN_CHAT_ID || '', 'Авторизация прошла успешно! Можете вернуться к боту.');
   } catch (error) {
     console.error('Ошибка при получении токена через сервер:', error);
@@ -75,11 +75,11 @@ app.all('/sendDailyMessage', async (req: Request, res: Response) => {
     for (const chatId of scheduler["users"]) {
       await scheduler.sendDailyMessage(chatId);
     }
-    res.status(200).json({ status: 'ok' });
+    res.status(200).send(`Cообщения отправлены успешно`);
     console.log('Сообщения отправлены успешно', scheduler["users"]);
   } catch (error) {
     console.error('Ошибка при отправке сообщений:', error);
-    res.status(500).json({ status: 'error', error: String(error) });
+    res.status(500).send(String(error));
   }
 });
 
