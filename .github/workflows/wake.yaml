@@ -13,4 +13,4 @@ jobs:
     steps:
       - name: Send daily message to all users
         run: |
-          curl --fail -X POST https://psy-froggy-bot.fly.dev/sendDailyMessage
+          curl --fail -X POST https://psyfroggybot-np0edq.fly.dev/sendDailyMessage
