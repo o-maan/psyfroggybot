@@ -199,3 +199,11 @@ export const getUserImageIndex = (chatId: number) => {
     | { image_index: number; updated_at: string }
     | undefined;
 };
+
+// Удалить все токены пользователя (например, при сбросе авторизации Google Calendar)
+export const clearUserTokens = (chatId: number) => {
+  const del = db.query(`
+    DELETE FROM user_tokens WHERE chat_id = ?
+  `);
+  del.run(chatId);
+};
