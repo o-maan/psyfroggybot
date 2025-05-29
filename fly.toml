@@ -19,14 +19,6 @@ primary_region = 'ams'
   min_machines_running = 0
   processes = ['app']
 
-[[services]]
-  internal_port = 8443
-  protocol = "tcp"
-  processes = ["app"]
-  [[services.ports]]
-    port = 8443
-    handlers = ["tls", "http"]
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
