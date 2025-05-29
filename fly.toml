@@ -1,7 +1,5 @@
 # fly.toml app configuration file generated for psy-froggy-bot on 2025-05-29T00:33:14+03:00
-#
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
 
 app = 'psyfroggybot-np0edq'
 primary_region = 'ams'
