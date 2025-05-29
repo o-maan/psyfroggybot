@@ -12,5 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send daily message to all users
+        timeout-minutes: 1
         run: |
-          curl --fail -X POST https://psyfroggybot-np0edq.fly.dev/sendDailyMessage
+          curl --fail --max-time 40 -X POST https://psyfroggybot-np0edq.fly.dev/sendDailyMessage
