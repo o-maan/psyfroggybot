@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { getMessage } from './messages';
-import { saveMessage, updateMessageResponse, getUserResponseStats, getLastBotMessage, getLastNBotMessages, addUser } from './db';
+import { saveMessage, updateMessageResponse, getUserResponseStats, getLastBotMessage, getLastNBotMessages, addUser, saveUserImageIndex, getUserImageIndex } from './db';
 import fs from 'fs';
 import path from 'path';
 import { CalendarService } from './calendar';
@@ -18,18 +18,13 @@ function escapeHTML(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-if (!fs.existsSync('assets/current_image_index.txt')) {
-  fs.writeFileSync('assets/current_image_index.txt', '0');
-}
-
 export class Scheduler {
   private bot: Telegraf;
   private reminderTimeouts: Map<number, NodeJS.Timeout> = new Map();
   private users: Set<number> = new Set();
-  private currentImageIndex: number = parseInt(readFileSync('assets/current_image_index.txt', 'utf-8')) || 0;
   private imageFiles: string[] = [];
   public readonly CHANNEL_ID = -1002405993986;
-  private readonly REMINDER_USER_ID = 5153477378;
+  // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
@@ -55,13 +50,14 @@ export class Scheduler {
   }
 
   // Получить следующую картинку по кругу
-  public getNextImage(): string {
-    const image = this.imageFiles[this.currentImageIndex];
-    console.log('🔄 Текущий индекс картинки:', this.currentImageIndex);
+  public getNextImage(chatId: number): string {
+    const userImage = getUserImageIndex(chatId);
+    let currentImageIndex = userImage ? userImage.image_index : 0;
+    const image = this.imageFiles[currentImageIndex];
+    console.log('🔄 Текущий индекс картинки:', currentImageIndex);
     console.log('🖼️ Выбрана картинка:', image);
-
-    this.currentImageIndex = (this.currentImageIndex + 1) % this.imageFiles.length;
-    fs.writeFileSync('assets/current_image_index.txt', this.currentImageIndex.toString());
+    currentImageIndex = (currentImageIndex + 1) % this.imageFiles.length;
+    saveUserImageIndex(chatId, currentImageIndex);
     return image;
   }
 
@@ -121,13 +117,11 @@ export class Scheduler {
 
   // Основная функция генерации сообщения для запланированной отправки
   public async generateScheduledMessage(chatId: number): Promise<string> {
-
     const userExists = await this.checkUserExists(chatId);
     if (!userExists) {
       console.log(`👤 Пользователь ${chatId} не найден в базе. Добавляю...`);
       addUser(chatId, '');
     }
-
 
     // Получаем события на вечер
     const now = new Date();
@@ -135,8 +129,28 @@ export class Scheduler {
     evening.setHours(18, 0, 0, 0);
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
-    const events = await this.calendarService.getEvents(evening.toISOString(), tomorrow.toISOString());
-    console.log('🗓️ События календаря на вечер:', events);
+
+    let events: any[] = [];
+    let eventsStr = '';
+    try {
+      events = await this.calendarService.getEvents(evening.toISOString(), tomorrow.toISOString());
+      if (events && events.length > 0) {
+        eventsStr = '\n🗓️ События календаря:' + events.map((e: any) => {
+          const start = e.start?.dateTime || e.start?.date;
+          let timeStr = '';
+          if (start) {
+            const d = new Date(start);
+            timeStr = d.toLocaleString('ru-RU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+          }
+          return `\n• ${e.summary}${timeStr ? ` (${timeStr})` : ''}`;
+        }).join('');
+        console.log('🗓️ События календаря:', eventsStr);
+      }
+    } catch (err) {
+      console.error('❌ Ошибка получения событий календаря:', err);
+      events = [];
+      eventsStr = '';
+    }
     const dateTimeStr = now.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     let previousMessagesBlock = '';
 
@@ -151,19 +165,6 @@ export class Scheduler {
     }
 
     let promptBase = readFileSync('assets/prompts/scheduled-message.md', 'utf-8');
-    // Формируем строку событий с датой и временем
-    let eventsStr = '';
-    if (events && events.length > 0) {
-      eventsStr = '\nСобытия календаря:' + events.map((e: any) => {
-        const start = e.start?.dateTime || e.start?.date;
-        let timeStr = '';
-        if (start) {
-          const d = new Date(start);
-          timeStr = d.toLocaleString('ru-RU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-        }
-        return `\n• ${e.summary}${timeStr ? ` (${timeStr})` : ''}`;
-      }).join('');
-    }
     let prompt = promptBase +
       `\n\nСегодня: ${dateTimeStr}.` +
       eventsStr +
@@ -176,7 +177,6 @@ export class Scheduler {
       return text;
     } else {
       // Обычный день — используем структуру с пунктами
-
       let jsonText = await generateMessage(prompt);
       if (jsonText === 'HF_JSON_ERROR') {
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
@@ -219,18 +219,13 @@ export class Scheduler {
   async sendDailyMessage(chatId: number) {
     try {
       console.log('📤 Начинаю отправку сообщения в канал');
-      console.log('�� ID канала:', this.CHANNEL_ID);
-      // Проверяем, есть ли пользователь в базе
-      const userExists = await this.checkUserExists(chatId);
-      if (!userExists) {
-        console.log(`👤 Пользователь ${chatId} не найден в базе. Добавляю...`);
-        addUser(chatId, '');
-      }
+      console.log(' ID канала:', this.CHANNEL_ID);
+
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
       const message = await this.generateScheduledMessage(chatId);
       console.log('📤 Текст сообщения:', message);
-      const imagePath = this.getNextImage();
+      const imagePath = this.getNextImage(chatId);
       console.log('📤 Путь к картинке:', imagePath);
       const caption = message.length > 1024 ? message.slice(0, 1020) + '...' : message;
       // Отправляем фото с подписью
@@ -253,6 +248,19 @@ export class Scheduler {
     } catch (error) {
       console.error('❌ Ошибка при отправке сообщения:', error);
       console.error('❌ Детали ошибки:', JSON.stringify(error, null, 2));
+    }
+  }
+
+  // Массовая рассылка по всем пользователям
+  async sendDailyMessagesToAll(adminChatId: number) {
+    if (!this.users || this.users.size === 0) {
+      await this.bot.telegram.sendMessage(adminChatId, '❗️Нет пользователей для рассылки. Отправляю сообщение себе.');
+      await this.sendDailyMessage(adminChatId);
+      console.log('❗️Нет пользователей для рассылки. Админу отправлено уведомление и сообщение себе.');
+      return;
+    }
+    for (const chatId of this.users) {
+      await this.sendDailyMessage(chatId);
     }
   }
 
@@ -303,8 +311,9 @@ export class Scheduler {
         prompt += '\nПожелай хорошего дня и мягко напомни ответить на сообщение.';
         // Генерируем текст напоминания
         const reminderText = await generateMessage(prompt);
+        // Отправляем напоминание пользователю по chatId
         await this.bot.telegram.sendMessage(
-          this.REMINDER_USER_ID,
+          chatId,
           reminderText
         );
       }

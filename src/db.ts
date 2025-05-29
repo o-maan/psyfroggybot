@@ -3,19 +3,7 @@ import fs from 'fs';
 
 
 try {
-  console.log(fs.readdirSync('/mnt'))
-} catch (e) {
-  console.log(e)
-}
-
-try {
-  console.log(fs.readdirSync('/media'))
-} catch (e) {
-  console.log(e)
-}
-
-try {
-  console.log(fs.readdirSync('/home'))
+  console.log('🔍 DB - fs.readdirSync("/data")', fs.readdirSync('/data'))
 } catch (e) {
   console.log(e)
 }
@@ -42,6 +30,30 @@ db.query(`
     sent_time TEXT,
     response_time TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`).run();
+
+// Создаем таблицу для хранения токенов пользователя
+// Таблица user_tokens: id, chat_id, token, created_at
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS user_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER,
+    token TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`).run();
+
+// Создаем таблицу для хранения индекса картинки пользователя
+// Таблица user_image_indexes: id, chat_id, image_index, updated_at
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS user_image_indexes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER,
+    image_index INTEGER,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   )
 `).run();
 
@@ -112,4 +124,46 @@ export const getLastNBotMessages = (chatId: number, n: number) => {
     LIMIT ?
   `);
   return getMessages.all(chatId, n) as { message_text: string; sent_time: string }[];
+};
+
+// Сохранить токен для пользователя
+export const saveUserToken = (chatId: number, token: string) => {
+  const insertToken = db.query(`
+    INSERT INTO user_tokens (chat_id, token) VALUES (?, ?)
+  `);
+  insertToken.run(chatId, token);
+};
+
+// Получить последний токен пользователя
+export const getLastUserToken = (chatId: number) => {
+  const getToken = db.query(`
+    SELECT token, created_at
+    FROM user_tokens
+    WHERE chat_id = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `);
+  return getToken.get(chatId) as { token: string; created_at: string } | undefined;
+};
+
+// Сохранить (обновить) индекс картинки для пользователя
+export const saveUserImageIndex = (chatId: number, imageIndex: number) => {
+  const upsert = db.query(`
+    INSERT INTO user_image_indexes (chat_id, image_index, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(chat_id) DO UPDATE SET image_index = excluded.image_index, updated_at = excluded.updated_at
+  `);
+  upsert.run(chatId, imageIndex);
+};
+
+// Получить индекс картинки пользователя
+export const getUserImageIndex = (chatId: number) => {
+  const getIndex = db.query(`
+    SELECT image_index, updated_at
+    FROM user_image_indexes
+    WHERE chat_id = ?
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+  `);
+  return getIndex.get(chatId) as { image_index: number; updated_at: string } | undefined;
 }; 

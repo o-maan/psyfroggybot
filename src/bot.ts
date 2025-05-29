@@ -1,7 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { config } from 'dotenv';
 import { Scheduler } from './scheduler.ts';
-import { addUser, updateUserResponse } from './db.ts';
+import { addUser, updateUserResponse, saveUserToken, getLastUserToken } from './db.ts';
 import { CalendarService } from './calendar.ts';
 import { writeFileSync, readFileSync, existsSync, fstat } from 'fs';
 import express, { Request, Response } from 'express';
@@ -18,27 +18,6 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
 
-// Для хранения токена в памяти (и на диске)
-const TOKEN_PATH = './.calendar_token.json';
-let savedTokens: any = null;
-
-function saveTokensToFile(tokens: any) {
-  writeFileSync(TOKEN_PATH, JSON.stringify(tokens), 'utf-8');
-}
-
-function loadTokensFromFile() {
-  if (existsSync(TOKEN_PATH)) {
-    const data = readFileSync(TOKEN_PATH, 'utf-8');
-    return JSON.parse(data);
-  }
-  return null;
-}
-
-savedTokens = loadTokensFromFile();
-if (savedTokens) {
-  calendarService.setToken(savedTokens);
-}
-
 // --- Express сервер для Google OAuth2 callback ---
 const app = express();
 const PORT = process.env.WEBHOOK_PORT || 3000;
@@ -47,18 +26,20 @@ app.use(express.json());
 
 app.all('/oauth2callback', async (req: Request, res: Response) => {
   const code = req.query.code as string;
+  const state = req.query.state as string;
+  const chatId = Number(state) || 0;
+  console.log('🔍 OAUTH2 CALLBACK - Chat ID:', chatId, 'Code:', code, 'State:', state);
   if (!code) {
     res.status(400).send('No code provided');
     return;
   }
   try {
     const tokens = await calendarService.getToken(code);
-    savedTokens = tokens;
-    saveTokensToFile(tokens);
+    saveUserToken(chatId, JSON.stringify(tokens));
     res.send('Авторизация прошла успешно! Можете вернуться к боту.');
     // Можно отправить сообщение админу или вывести в консоль
     console.log('✅ Токен успешно получен и сохранён! ' + code);
-    await bot.telegram.sendMessage(process.env.ADMIN_CHAT_ID || '', 'Авторизация прошла успешно! Можете вернуться к боту.');
+    await bot.telegram.sendMessage(chatId, 'Авторизация прошла успешно! Можете вернуться к боту.');
   } catch (error) {
     console.error('Ошибка при получении токена через сервер:', error);
     res.status(500).send('Ошибка при получении токена.');
@@ -67,18 +48,17 @@ app.all('/oauth2callback', async (req: Request, res: Response) => {
 
 app.get('/status', (req: Request, res: Response) => {
   res.json({ status: 'up' });
+  console.log('🔍 STATUS - OK');
 });
 
 app.all('/sendDailyMessage', async (req: Request, res: Response) => {
   try {
-    // Можно добавить фильтрацию по chatId из тела, если нужно
-    for (const chatId of scheduler["users"]) {
-      await scheduler.sendDailyMessage(chatId);
-    }
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    await scheduler.sendDailyMessagesToAll(adminChatId);
     res.status(200).send(`Cообщения отправлены успешно`);
-    console.log('Сообщения отправлены успешно', scheduler["users"]);
+    console.log('🔍 SEND DAILY MESSAGE - Сообщения отправлены успешно', scheduler["users"]);
   } catch (error) {
-    console.error('Ошибка при отправке сообщений:', error);
+    console.error('❌ SEND DAILY MESSAGE - Ошибка при отправке сообщений:', error);
     res.status(500).send(String(error));
   }
 });
@@ -89,7 +69,7 @@ app.all('/', (req: Request, res: Response) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Express сервер запущен на http://localhost:${PORT}`);
+  console.log(`✅ EXPRESS SERVER - запущен на http://localhost:${PORT}`);
 });
 // --- конец Express ---
 
@@ -128,7 +108,7 @@ bot.command('fro', async (ctx) => {
   const chatId = ctx.chat.id;
   // Генерируем сообщение по тем же правилам, что и для 19:30
   const message = await scheduler.generateScheduledMessage(chatId);
-  const imagePath = scheduler.getNextImage();
+  const imagePath = scheduler.getNextImage(chatId);
   const caption = message.length > 1024 ? undefined : message;
   await bot.telegram.sendPhoto(scheduler.CHANNEL_ID, { source: imagePath }, {
     caption,
@@ -148,30 +128,41 @@ bot.command('remind', async (ctx) => {
 
 // Обработка команды /calendar
 bot.command('calendar', async (ctx) => {
-  if (savedTokens) {
-    calendarService.setToken(savedTokens);
-    // Получаем события за вчера и сегодня
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const events = await calendarService.getEvents(start.toISOString(), end.toISOString());
-    if (events && events.length > 0) {
-      const eventsList = events.map((event: any) => {
-        const start = event.start.dateTime || event.start.date;
-        const time = event.start.dateTime
-          ? new Date(event.start.dateTime).toLocaleTimeString()
-          : 'Весь день';
-        return `📅 ${event.summary}\n⏰ ${time}`;
-      }).join('\n\n');
-      await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`);
-    } else {
-      await ctx.reply('Событий за вчера и сегодня нет.');
+  const chatId = ctx.chat.id;
+  // Сохраняем пользователя, если его нет
+  addUser(chatId, ctx.from?.username || '');
+  const lastToken = getLastUserToken(chatId);
+  if (lastToken) {
+    console.log('🔍 LAST TOKEN:', lastToken);
+    try {
+      calendarService.setToken(JSON.parse(lastToken.token));
+      // Получаем события за вчера и сегодня
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const events = await calendarService.getEvents(start.toISOString(), end.toISOString());
+      if (events && events.length > 0) {
+        const eventsList = events.map((event: any) => {
+          const start = event.start.dateTime || event.start.date;
+          const time = event.start.dateTime
+            ? new Date(event.start.dateTime).toLocaleTimeString()
+            : 'Весь день';
+          return `📅 ${event.summary}\n⏰ ${time}`;
+        }).join('\n\n');
+        await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`);
+      } else {
+        await ctx.reply('Событий за вчера и сегодня нет.');
+      }
+      return;
+    } catch (error) {
+      console.error('Ошибка при получении токена:', error);
+      await ctx.reply('Произошла ошибка при настройке доступа к календарю. Попробуйте еще раз.');
     }
-    return;
   }
-  const authUrl = calendarService.getAuthUrl();
+  // Передаём chatId в state
+  const authUrl = calendarService.getAuthUrl({ state: chatId.toString() });
   await ctx.reply(
     'Для доступа к календарю, пожалуйста, перейдите по ссылке и авторизуйтесь:\n' +
     authUrl + '\n\n' +
@@ -201,9 +192,8 @@ bot.on('text', async (ctx) => {
     console.log('🔍 CODE AUTH - Chat ID:', ctx.chat.id);
     try {
       const tokens = await calendarService.getToken(message);
-      savedTokens = tokens; // сохраняем токен в памяти
+      saveUserToken(ctx.chat.id, JSON.stringify(tokens));
       await ctx.reply('Отлично! Доступ к календарю настроен.');
-
       // Теперь можно получить события за вчера и сегодня
       const now = new Date();
       const yesterday = new Date(now);

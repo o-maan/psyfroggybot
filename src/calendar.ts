@@ -19,15 +19,18 @@ export class CalendarService {
   }
 
   // Получить URL для авторизации
-  getAuthUrl(): string {
+  getAuthUrl(options?: { state?: string }): string {
     // Используем только разрешение на чтение календаря
     const scopes = ['https://www.googleapis.com/auth/calendar.readonly'];
-
-    return this.oauth2Client.generateAuthUrl({
+    const params: any = {
       access_type: 'offline',
       scope: scopes,
-      prompt: 'consent'
-    });
+      prompt: 'consent',
+    };
+    if (options?.state) {
+      params.state = options.state;
+    }
+    return this.oauth2Client.generateAuthUrl(params);
   }
 
   // Получить токен по коду авторизации
