@@ -97,13 +97,14 @@ restServ.all("/", (req: Request, res: Response) => {
 
 // --- Telegraf webhook ---
 bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
+restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
 
-// Запуск двух серверов: основной (3000) и для Telegram webhook (8443)
-restServ.listen(PORT, () => {
-  console.log(`✅ EXPRESS SERVER - запущен на http://localhost:${PORT}`);
+// Запуск сервера на всех интерфейсах (для Fly.io)
+restServ.listen(Number(PORT), "127.0.0.1", () => {
+  console.log(
+    `✅ EXPRESS+TELEGRAM WEBHOOK сервер слушает на 127.0.0.1:${PORT}`
+  );
 });
-
-console.log(`✅ TELEGRAM WEBHOOK - ${TELEGRAM_WEBHOOK_URL}`);
 
 // --- конец Express ---
 
