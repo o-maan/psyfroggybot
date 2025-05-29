@@ -1,6 +1,8 @@
-# Telegram Bot с ежедневными сообщениями
+# Telegram Bot дневник хорошего/плохого за день [![Fly Deploy](https://github.com/o-maan/psyfroggybot/actions/workflows/fly-deploy.yml/badge.svg)](https://github.com/o-maan/psyfroggybot/actions/workflows/fly-deploy.yml)
 
 Этот бот отправляет ежедневные сообщения с картинками в 19:30 и напоминает, если пользователь не ответил.
+
+Использует ИИ и примеры для генерации текста
 
 ## Установка
 
