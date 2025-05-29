@@ -28,6 +28,10 @@ const TELEGRAM_WEBHOOK_URL =
     process.env.FLY_APP_NAME || "psyfroggybot-np0edq"
   }.fly.dev:${TELEGRAM_WEBHOOK_PORT}${TELEGRAM_WEBHOOK_PATH}`;
 
+// --- Telegraf webhook ---
+bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
+restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
+
 restServ.use(express.json());
 
 restServ.all("/oauth2callback", async (req: Request, res: Response) => {
@@ -94,10 +98,6 @@ restServ.all("/sendDailyMessage", async (req: Request, res: Response) => {
 restServ.all("/", (req: Request, res: Response) => {
   res.status(404).send("Not found");
 });
-
-// --- Telegraf webhook ---
-bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
-restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
 
 // Запуск сервера на всех интерфейсах (для Fly.io)
 restServ.listen(Number(PORT), () => {
