@@ -67,10 +67,14 @@ app.get("/status", (req: Request, res: Response) => {
 });
 
 app.all("/sendDailyMessage", async (req: Request, res: Response) => {
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
   try {
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
     await scheduler.sendDailyMessagesToAll(adminChatId);
-    res.status(200).send(`Cообщения отправлены успешно`);
+    res
+      .status(200)
+      .send(
+        `Cообщения отправлены успешно, пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`
+      );
     console.log(
       "🔍 SEND DAILY MESSAGE - Сообщения отправлены успешно",
       scheduler["users"]
@@ -78,7 +82,8 @@ app.all("/sendDailyMessage", async (req: Request, res: Response) => {
   } catch (error) {
     console.error(
       "❌ SEND DAILY MESSAGE - Ошибка при отправке сообщений:",
-      error
+      error,
+      `пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`
     );
     res.status(500).send(String(error));
   }
