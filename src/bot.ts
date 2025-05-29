@@ -16,7 +16,7 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || "");
 const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
 
-// --- Express сервер для Google OAuth2 callback ---
+// --- Express сервер для Google OAuth2 callback и REST ---
 const restServ = express();
 const PORT = process.env.WEBHOOK_PORT || 3000;
 const TELEGRAM_WEBHOOK_PORT = process.env.TELEGRAM_WEBHOOK_PORT || 8443;
@@ -100,13 +100,9 @@ restServ.all("/", (req: Request, res: Response) => {
 });
 
 // Запуск сервера на всех интерфейсах (для Fly.io)
-restServ.listen(Number(PORT), () => {
-  console.log(
-    `✅ EXPRESS+TELEGRAM WEBHOOK сервер слушает на localhost:${PORT}`
-  );
+restServ.listen(Number(PORT), "0.0.0.0", () => {
+  console.log(`✅ EXPRESS сервер слушает на 0.0.0.0:${PORT}`);
 });
-
-// --- конец Express ---
 
 // Обработка команды /start
 bot.command("start", async (ctx) => {
@@ -202,7 +198,7 @@ bot.command("calendar", async (ctx) => {
             const time = event.start.dateTime
               ? new Date(event.start.dateTime).toLocaleTimeString()
               : "Весь день";
-            return `📅 ${event.summary}\n⏰ ${time}`;
+            return `�� ${event.summary}\n⏰ ${time}`;
           })
           .join("\n\n");
         await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`);
@@ -253,8 +249,11 @@ bot.on("text", async (ctx) => {
 
 // Запускаем бота
 
-console.log("\n🚀 Бот успешно запущен!\n📱 Для остановки нажмите Ctrl+C\n");
-
+// --- Telegraf polling ---
+bot.launch();
+console.log(
+  "\n🚀 Бот успешно запущен в режиме polling!\n📱 Для остановки нажмите Ctrl+C\n"
+);
 // Обработка завершения работы
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
