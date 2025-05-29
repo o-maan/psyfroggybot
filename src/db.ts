@@ -51,7 +51,7 @@ db.query(`
 db.query(`
   CREATE TABLE IF NOT EXISTS user_image_indexes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id INTEGER,
+    chat_id INTEGER UNIQUE,
     image_index INTEGER,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   )
