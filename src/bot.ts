@@ -100,8 +100,10 @@ bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
 restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
 
 // Запуск сервера на всех интерфейсах (для Fly.io)
-restServ.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`✅ EXPRESS+TELEGRAM WEBHOOK сервер слушает на 0.0.0.0:${PORT}`);
+restServ.listen(Number(PORT), () => {
+  console.log(
+    `✅ EXPRESS+TELEGRAM WEBHOOK сервер слушает на localhost:${PORT}`
+  );
 });
 
 // --- конец Express ---
