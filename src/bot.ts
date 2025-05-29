@@ -198,7 +198,7 @@ bot.command("calendar", async (ctx) => {
             const time = event.start.dateTime
               ? new Date(event.start.dateTime).toLocaleTimeString()
               : "Весь день";
-            return `�� ${event.summary}\n⏰ ${time}`;
+            return `${event.summary}\n⏰ ${time}`;
           })
           .join("\n\n");
         await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`);
