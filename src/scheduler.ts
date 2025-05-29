@@ -9,6 +9,7 @@ import {
   addUser,
   saveUserImageIndex,
   getUserImageIndex,
+  db,
 } from "./db";
 import fs from "fs";
 import path from "path";
@@ -183,6 +184,10 @@ export class Scheduler {
       console.error("❌ Ошибка получения событий календаря:", err);
       events = [];
       eventsStr = "";
+      // clean google calendar token in db
+      db.query(
+        "UPDATE users SET google_calendar_token = NULL WHERE chat_id = ?"
+      ).run(chatId);
     }
     const dateTimeStr = now.toLocaleDateString("ru-RU", {
       year: "numeric",
