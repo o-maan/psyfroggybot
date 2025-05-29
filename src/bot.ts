@@ -1,17 +1,10 @@
 import { Telegraf } from "telegraf";
 import { config } from "dotenv";
 import { Scheduler } from "./scheduler.ts";
-import {
-  addUser,
-  updateUserResponse,
-  saveUserToken,
-  getLastUserToken,
-} from "./db.ts";
+import { addUser, saveUserToken, getLastUserToken } from "./db.ts";
 import { CalendarService } from "./calendar.ts";
-import { writeFileSync, readFileSync, existsSync, fstat } from "fs";
 import express, { Request, Response } from "express";
-import { generateMessage, minimalTestLLM } from "./llm.ts";
-import { getMessage } from "./messages.ts";
+import { minimalTestLLM } from "./llm.ts";
 
 // Загружаем переменные окружения
 config();
@@ -24,12 +17,20 @@ const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
 
 // --- Express сервер для Google OAuth2 callback ---
-const app = express();
+const restServ = express();
 const PORT = process.env.WEBHOOK_PORT || 3000;
+const TELEGRAM_WEBHOOK_PORT = process.env.TELEGRAM_WEBHOOK_PORT || 8443;
+const TELEGRAM_WEBHOOK_PATH =
+  process.env.TELEGRAM_WEBHOOK_PATH || "/telegraf/webhook";
+const TELEGRAM_WEBHOOK_URL =
+  process.env.TELEGRAM_WEBHOOK_URL ||
+  `https://${
+    process.env.FLY_APP_NAME || "psyfroggybot-np0edq"
+  }.fly.dev:${TELEGRAM_WEBHOOK_PORT}${TELEGRAM_WEBHOOK_PATH}`;
 
-app.use(express.json());
+restServ.use(express.json());
 
-app.all("/oauth2callback", async (req: Request, res: Response) => {
+restServ.all("/oauth2callback", async (req: Request, res: Response) => {
   const code = req.query.code as string;
   const state = req.query.state as string;
   const chatId = Number(state) || 0;
@@ -61,12 +62,12 @@ app.all("/oauth2callback", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/status", (req: Request, res: Response) => {
+restServ.get("/status", (req: Request, res: Response) => {
   res.json({ status: "up" });
   console.log("🔍 STATUS - OK");
 });
 
-app.all("/sendDailyMessage", async (req: Request, res: Response) => {
+restServ.all("/sendDailyMessage", async (req: Request, res: Response) => {
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
   try {
     await scheduler.sendDailyMessagesToAll(adminChatId);
@@ -90,13 +91,20 @@ app.all("/sendDailyMessage", async (req: Request, res: Response) => {
 });
 
 // 404
-app.all("/", (req: Request, res: Response) => {
+restServ.all("/", (req: Request, res: Response) => {
   res.status(404).send("Not found");
 });
 
-app.listen(PORT, () => {
+// --- Telegraf webhook ---
+bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
+
+// Запуск двух серверов: основной (3000) и для Telegram webhook (8443)
+restServ.listen(PORT, () => {
   console.log(`✅ EXPRESS SERVER - запущен на http://localhost:${PORT}`);
 });
+
+console.log(`✅ TELEGRAM WEBHOOK - ${TELEGRAM_WEBHOOK_URL}`);
+
 // --- конец Express ---
 
 // Обработка команды /start
@@ -243,7 +251,7 @@ bot.on("text", async (ctx) => {
 });
 
 // Запускаем бота
-bot.launch();
+
 console.log("\n🚀 Бот успешно запущен!\n📱 Для остановки нажмите Ctrl+C\n");
 
 // Обработка завершения работы
