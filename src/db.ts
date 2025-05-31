@@ -181,6 +181,9 @@ export const saveUserImageIndex = (chatId: number, imageIndex: number) => {
       ON CONFLICT(chat_id) DO UPDATE SET image_index = excluded.image_index, updated_at = excluded.updated_at
     `);
     upsert.run(chatId, imageIndex);
+    // Логируем всё содержимое таблицы для дебага
+    const all = db.query('SELECT * FROM user_image_indexes').all();
+    console.log('🔍 user_image_indexes (все записи):', all);
   } catch (e) {
     console.error("❌ Ошибка при сохранении индекса картинки пользователя:", e);
   }

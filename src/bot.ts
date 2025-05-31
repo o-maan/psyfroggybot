@@ -234,6 +234,20 @@ bot.command("minimalTestLLM", async (ctx) => {
   }
 });
 
+// Команда для дебага индекса картинки
+bot.command("next_image", async (ctx) => {
+  const chatId = ctx.chat.id;
+  try {
+    const imagePath = scheduler.getNextImage(chatId);
+    await ctx.replyWithPhoto({ source: imagePath }, {
+      caption: `Next image for chatId=${chatId}\nПуть: ${imagePath}`,
+    });
+  } catch (e) {
+    console.error("Ошибка в /next_image:", e);
+    await ctx.reply("Ошибка при получении следующей картинки: " + e);
+  }
+});
+
 // Обработка текстовых сообщений
 bot.on("text", async (ctx) => {
   const message = ctx.message.text;
