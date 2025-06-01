@@ -229,6 +229,32 @@ export class Scheduler {
       prompt += "\nСегодня у пользователя перелёт или аэропорт.";
       let text = await generateMessage(prompt);
       if (text.length > 555) text = text.slice(0, 552) + "...";
+      // --- Новая логика: пробуем парсить JSON и собирать сообщение ---
+      let jsonText = text.replace(/```json|```/gi, "").trim();
+      if (jsonText.startsWith('"') && jsonText.endsWith('"')) {
+        jsonText = jsonText.slice(1, -1);
+      }
+      jsonText = jsonText.replace(/\\"/g, '"').replace(/\"/g, '"');
+      let json: any;
+      try {
+        json = JSON.parse(jsonText);
+        if (typeof json === "string") {
+          json = JSON.parse(json); // второй парс, если строка
+        }
+        if (
+          json &&
+          typeof json === "object" &&
+          json.encouragement &&
+          json.negative_part &&
+          json.positive_part &&
+          "feels_and_emotions" in json
+        ) {
+          let message = this.buildScheduledMessageFromHF(json);
+          saveMessage(chatId, message, new Date().toISOString());
+          return message;
+        }
+      } catch {}
+      // Если не удалось — возвращаем текст как есть
       return text;
     } else {
       // Обычный день — используем структуру с пунктами
