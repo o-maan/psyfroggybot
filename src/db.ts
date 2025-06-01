@@ -152,10 +152,12 @@ export const getLastNBotMessages = (chatId: number, n: number) => {
 
 // Сохранить токен для пользователя
 export const saveUserToken = (chatId: number, token: string) => {
-  const insertToken = db.query(`
-    INSERT INTO user_tokens (chat_id, token) VALUES (?, ?)
+  const upsertToken = db.query(`
+    INSERT INTO user_tokens (chat_id, token, created_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(chat_id) DO UPDATE SET token = excluded.token, created_at = CURRENT_TIMESTAMP
   `);
-  insertToken.run(chatId, token);
+  upsertToken.run(chatId, token);
 };
 
 // Получить последний токен пользователя
@@ -182,8 +184,8 @@ export const saveUserImageIndex = (chatId: number, imageIndex: number) => {
     `);
     upsert.run(chatId, imageIndex);
     // Логируем всё содержимое таблицы для дебага
-    const all = db.query('SELECT * FROM user_image_indexes').all();
-    console.log('🔍 user_image_indexes (все записи):', all);
+    const all = db.query("SELECT * FROM user_image_indexes").all();
+    console.log("🔍 user_image_indexes (все записи):", all);
   } catch (e) {
     console.error("❌ Ошибка при сохранении индекса картинки пользователя:", e);
   }
