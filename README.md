@@ -21,7 +21,7 @@ bun install
 
 ```
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-HUGGINGFACE_API_KEY=your_huggingface_api_key_here
+HF_TOKEN=your_huggingface_api_key_here
 ```
 
 3. Создайте папку `images` и добавьте в неё картинки (jpg, png, jpeg)

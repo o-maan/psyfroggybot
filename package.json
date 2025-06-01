@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run migrate && bun run src/bot.ts",
-    "dev": "bun run migrate && bun --watch run src/bot.ts",
-    "migrate": "knex --knexfile knexfile.cjs migrate:latest"
+    "dev": "bun install && bun run migrate && bun --watch run src/bot.ts",
+    "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest"
   },
   "dependencies": {
     "@huggingface/inference": "^3.14.0",

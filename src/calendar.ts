@@ -100,4 +100,73 @@ export class CalendarService {
       endOfWeek.toISOString()
     );
   }
+}
+
+/**
+ * Format a list of Google Calendar events for display.
+ * @param events Array of calendar events (from Google API)
+ * @param options Formatting options
+ * @returns Formatted string for Telegram/HTML
+ */
+export function formatCalendarEvents(
+  events: any[],
+  options?: {
+    locale?: string;
+    showDate?: boolean;
+    showBusy?: boolean;
+    showLocation?: boolean;
+    showDescription?: boolean;
+    showLink?: boolean;
+  }
+): string {
+  const locale = options?.locale || "ru-RU";
+  if (!events || events.length === 0) return "Нет событий.";
+  return events
+    .map((e) => {
+      const start = e.start?.dateTime || e.start?.date;
+      const end = e.end?.dateTime || e.end?.date;
+      const isAllDay = !e.start?.dateTime;
+      const startDate = start
+        ? new Date(start).toLocaleString(locale, {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            ...(isAllDay
+              ? {}
+              : { hour: "2-digit", minute: "2-digit" }),
+          })
+        : "";
+      const endDate = end
+        ? new Date(end).toLocaleString(locale, {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            ...(isAllDay
+              ? {}
+              : { hour: "2-digit", minute: "2-digit" }),
+          })
+        : "";
+      let line = `<b>${e.summary || "(Без названия)"}</b>`;
+      if (options?.showDate !== false) {
+        if (isAllDay) {
+          line += `\n🗓️ Весь день: ${startDate}`;
+        } else {
+          line += `\n🕒 ${startDate} - ${endDate}`;
+        }
+      }
+      if (options?.showBusy && e.transparency) {
+        line += `\nСтатус: ${e.transparency === "transparent" ? "free" : "busy"}`;
+      }
+      if (options?.showLocation && e.location) {
+        line += `\n📍 ${e.location}`;
+      }
+      if (options?.showDescription && e.description) {
+        line += `\n📝 ${e.description}`;
+      }
+      if (options?.showLink && e.htmlLink) {
+        line += `\n🔗 <a href=\"${e.htmlLink}\">Открыть в календаре</a>`;
+      }
+      return line;
+    })
+    .join("\n\n");
 } 

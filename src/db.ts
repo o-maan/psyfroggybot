@@ -1,14 +1,10 @@
 import { Database } from "bun:sqlite";
-import fs from "fs";
 
-try {
-  console.log('🔍 DB - fs.readdirSync("/data")', fs.readdirSync("/data"));
-} catch (e) {
-  console.log(e);
-}
+const DB_PATH = process.env.DB_PATH || "/data/froggy.db";
+console.log("🔍 DB_PATH", DB_PATH);
 
 // Создаем базу данных
-export const db = new Database("/data/froggy.db", { create: true });
+export const db = new Database(DB_PATH, { create: true });
 
 // Создаем таблицы при первом запуске
 db.query(

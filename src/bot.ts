@@ -2,7 +2,7 @@ import { Telegraf } from "telegraf";
 import { config } from "dotenv";
 import { Scheduler } from "./scheduler.ts";
 import { addUser, saveUserToken, getLastUserToken } from "./db.ts";
-import { CalendarService } from "./calendar.ts";
+import { CalendarService, formatCalendarEvents } from "./calendar.ts";
 import express, { Request, Response } from "express";
 import { minimalTestLLM } from "./llm.ts";
 
@@ -166,14 +166,14 @@ bot.command("remind", async (ctx) => {
 // Обработка команды /calendar
 bot.command("calendar", async (ctx) => {
   const chatId = ctx.chat.id;
-  // Сохраняем пользователя, если его нет
+  // Save user if not exists
   addUser(chatId, ctx.from?.username || "");
   const lastToken = getLastUserToken(chatId);
   if (lastToken) {
     console.log("🔍 LAST TOKEN:", lastToken);
     try {
       calendarService.setToken(JSON.parse(lastToken.token));
-      // Получаем события за вчера и сегодня
+      // Get events for yesterday and today
       const now = new Date();
       const yesterday = new Date(now);
       yesterday.setDate(now.getDate() - 1);
@@ -192,16 +192,15 @@ bot.command("calendar", async (ctx) => {
         end.toISOString()
       );
       if (events && events.length > 0) {
-        const eventsList = events
-          .map((event: any) => {
-            const start = event.start.dateTime || event.start.date;
-            const time = event.start.dateTime
-              ? new Date(event.start.dateTime).toLocaleTimeString()
-              : "Весь день";
-            return `${event.summary}\n⏰ ${time}`;
-          })
-          .join("\n\n");
-        await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`);
+        const eventsList = formatCalendarEvents(events, {
+          locale: "ru-RU",
+          showDate: true,
+          showBusy: true,
+          showLocation: true,
+          showDescription: true,
+          showLink: true,
+        });
+        await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`, { parse_mode: "HTML" });
       } else {
         await ctx.reply("Событий за вчера и сегодня нет.");
       }
@@ -213,7 +212,7 @@ bot.command("calendar", async (ctx) => {
       );
     }
   }
-  // Передаём chatId в state
+  // Pass chatId in state
   const authUrl = calendarService.getAuthUrl({ state: chatId.toString() });
   await ctx.reply(
     "Для доступа к календарю, пожалуйста, перейдите по ссылке и авторизуйтесь:\n" +

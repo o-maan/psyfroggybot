@@ -17,6 +17,7 @@ import path from "path";
 import { CalendarService } from "./calendar";
 import { generateMessage } from "./llm";
 import { readFileSync } from "fs";
+import { formatCalendarEvents } from "./calendar";
 
 const HOURS = 60 * 60 * 1000;
 
@@ -145,7 +146,7 @@ export class Scheduler {
       addUser(chatId, "");
     }
 
-    // Получаем события на вечер
+    // Get events for the evening
     const now = new Date();
     const evening = new Date(now);
     evening.setHours(18, 0, 0, 0);
@@ -161,24 +162,15 @@ export class Scheduler {
       );
       if (events && events.length > 0) {
         eventsStr =
-          "\n🗓️ События календаря:" +
-          events
-            .map((e: any) => {
-              const start = e.start?.dateTime || e.start?.date;
-              let timeStr = "";
-              if (start) {
-                const d = new Date(start);
-                timeStr = d.toLocaleString("ru-RU", {
-                  year: "numeric",
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
-              }
-              return `\n• ${e.summary}${timeStr ? ` (${timeStr})` : ""}`;
-            })
-            .join("");
+          "\n🗓️ События календаря:\n" +
+          formatCalendarEvents(events, {
+            locale: "ru-RU",
+            showDate: true,
+            showBusy: true,
+            showLocation: true,
+            showDescription: true,
+            showLink: true,
+          });
         console.log("🗓️ События календаря:", eventsStr);
       }
     } catch (err) {
