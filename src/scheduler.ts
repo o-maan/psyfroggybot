@@ -229,7 +229,7 @@ export class Scheduler {
       prompt += "\nСегодня у пользователя перелёт или аэропорт.";
       let text = await generateMessage(prompt);
       if (text.length > 555) text = text.slice(0, 552) + "...";
-      // --- Новая логика: пробуем парсить JSON и собирать сообщение ---
+      // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
       let jsonText = text.replace(/```json|```/gi, "").trim();
       if (jsonText.startsWith('"') && jsonText.endsWith('"')) {
         jsonText = jsonText.slice(1, -1);
@@ -245,17 +245,31 @@ export class Scheduler {
           json &&
           typeof json === "object" &&
           json.encouragement &&
-          json.negative_part &&
-          json.positive_part &&
-          "feels_and_emotions" in json
+          json.flight &&
+          json.flight.additional_task
         ) {
-          let message = this.buildScheduledMessageFromHF(json);
+          // Только encouragement и flight
+          const encouragement = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+          const flight = escapeHTML(json.flight.additional_task);
+          const message = `${encouragement}\n\n${flight}`;
           saveMessage(chatId, message, new Date().toISOString());
           return message;
         }
       } catch {}
-      // Если не удалось — возвращаем текст как есть
-      return text;
+      // Если не удалось — возвращаем только encouragement, если есть, иначе текст как есть
+      try {
+        json = JSON.parse(jsonText);
+        if (json && json.encouragement && json.encouragement.text) {
+          const encouragement = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+          saveMessage(chatId, encouragement, new Date().toISOString());
+          return encouragement;
+        }
+      } catch {}
+      // Fallback для перелёта
+      const fallbackFlight =
+        "Кажется чатик не хочет работать - негодяй!\nКайфового полета :) Давай пока ты будешь лететь ты подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать) Главное пострайся при этом почувствовать что-то хорошее ♥";
+      saveMessage(chatId, fallbackFlight, new Date().toISOString());
+      return fallbackFlight;
     } else {
       // Обычный день — используем структуру с пунктами
       let jsonText = await generateMessage(prompt);
