@@ -1,0 +1,72 @@
+name: Deploy to Digital Ocean
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests (если есть)
+        run: npm test --if-present
+
+      - name: Deploy to Digital Ocean
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: ${{ secrets.DO_PORT }}
+          script: |
+            echo "🚀 Starting deployment..."
+
+            # Переход в директорию проекта
+            cd /var/www/psy_froggy_bot
+
+            # Остановка текущего приложения
+            pm2 stop psy_froggy_bot || true
+
+            # Backup базы данных
+            sudo cp /var/www/databases/psy_froggy_bot/froggy.db /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S) || true
+
+            # Обновление кода
+            git fetch origin
+            git reset --hard origin/main
+
+            # Установка зависимостей
+            npm ci --production
+
+            # Запуск миграций
+            npx knex migrate:latest --knexfile knexfile.cjs
+
+            # Перезапуск приложения через PM2
+            pm2 restart psy_froggy_bot || pm2 start ecosystem.config.js --name psy_froggy_bot
+
+            # Перезагрузка Caddy (если нужно)
+            sudo systemctl reload caddy
+
+            echo "✅ Deployment completed!"
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "🎉 Deployment successful!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"

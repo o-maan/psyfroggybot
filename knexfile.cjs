@@ -21,7 +21,7 @@ module.exports = {
   production: {
     client: 'sqlite3',
     connection: {
-      filename: '/data/froggy.db'
+      filename: '/var/www/databases/psy_froggy_bot/froggy.db'
     },
     useNullAsDefault: true,
     migrations: {
