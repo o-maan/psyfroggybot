@@ -72,6 +72,9 @@ pm2 start ecosystem.config.js
 pm2 save
 pm2 startup
 
+# Добавление PM2 в PATH для всех пользователей (включая CI/CD)
+echo 'export PATH=$PATH:/usr/local/bin' | sudo tee -a /etc/environment
+
 echo "✅ Настройка сервера завершена!"
 echo ""
 echo "📝 Следующие шаги:"
