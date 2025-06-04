@@ -1,5 +1,5 @@
 // PM2 config (instead of docker)
-require('dotenv').config(); // Загружаем .env файл в PM2
+require('dotenv').config();
 
 module.exports = {
   apps: [{
@@ -11,11 +11,10 @@ module.exports = {
     watch: false,
     max_memory_restart: '1G',
     env: {
-      NODE_ENV: 'production',
-      PORT: 3456,
-      WEBHOOK_PORT: 3456,
-      SERVER_PORT: 3456,
-      // Читаем все переменные из .env
+      NODE_ENV: process.env.NODE_ENV || 'production',
+      SERVER_PORT: process.env.SERVER_PORT || process.env.PORT || 3456,
+      PORT: process.env.SERVER_PORT || process.env.PORT || 3456,
+      WEBHOOK_PORT: process.env.SERVER_PORT || process.env.PORT || 3456,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       HF_TOKEN: process.env.HF_TOKEN,
       ADMIN_CHAT_ID: process.env.ADMIN_CHAT_ID,
@@ -26,15 +25,8 @@ module.exports = {
     },
     env_production: {
       NODE_ENV: 'production',
-      PORT: 3456,
-      SERVER_PORT: 3456,
-      // В production переменные должны быть в системе или .env
-      TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
-      HF_TOKEN: process.env.HF_TOKEN,
-      ADMIN_CHAT_ID: process.env.ADMIN_CHAT_ID,
-      GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-      GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+      SERVER_PORT: process.env.SERVER_PORT || process.env.PORT || 3456,
+      PORT: process.env.SERVER_PORT || process.env.PORT || 3456,
     },
     log_file: '/var/log/pm2/psy_froggy_bot.log',
     out_file: '/var/log/pm2/psy_froggy_bot-out.log',
