@@ -34,14 +34,21 @@ jobs:
             set -euo pipefail
             echo "🚀 Starting deployment..."
 
+            # Настройка окружения
+            export PATH=$PATH:/usr/local/bin:/usr/bin
+            source /etc/environment || true
+
             # Переход в директорию проекта
             cd /var/www/psy_froggy_bot
+
+            # Проверка PM2
+            which pm2 || echo "❌ PM2 не найден в PATH: $PATH"
 
             # Остановка текущего приложения
             pm2 stop psy_froggy_bot || true
 
-            # Backup базы данных
-            sudo cp /var/www/databases/psy_froggy_bot/froggy.db /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S) || true
+            # Backup базы данных (без sudo)
+            cp /var/www/databases/psy_froggy_bot/froggy.db /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S) || true
 
             # Обновление кода
             git fetch origin
@@ -57,7 +64,7 @@ jobs:
             pm2 restart psy_froggy_bot || pm2 start ecosystem.config.js --name psy_froggy_bot
 
             # Перезагрузка Caddy (если нужно)
-            sudo systemctl reload caddy
+            systemctl reload caddy || true
 
             echo "✅ Deployment completed!"
 
