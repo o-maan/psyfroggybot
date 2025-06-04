@@ -18,7 +18,7 @@ const scheduler = new Scheduler(bot, calendarService);
 
 // --- Express сервер для Google OAuth2 callback и REST ---
 const restServ = express();
-const SERVER_PORT = process.env.SERVER_PORT || 3000;
+const SERVER_PORT = process.env.SERVER_PORT || process.env.PORT || 3456;
 // const TELEGRAM_WEBHOOK_PORT = process.env.TELEGRAM_WEBHOOK_PORT || 8443;
 // const TELEGRAM_WEBHOOK_PATH =
 //   process.env.TELEGRAM_WEBHOOK_PATH || "/telegraf/webhook";
