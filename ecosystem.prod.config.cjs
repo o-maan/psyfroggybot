@@ -1,12 +1,10 @@
-// PM2 config (instead of docker)
+// PM2 config for production with compiled JavaScript
 require('dotenv').config();
 
 module.exports = {
   apps: [{
     name: 'psy_froggy_bot',
-    script: './src/bot.ts',
-    interpreter: '/var/www/.bun/bin/bun',
-    interpreter_args: 'run',
+    script: './dist/bot.js',
     instances: 1,
     autorestart: true,
     watch: false,
@@ -22,7 +20,6 @@ module.exports = {
       GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
       GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
       GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
-      // База данных будет в /var/www/databases/psy_froggy_bot/
     },
     env_production: {
       NODE_ENV: 'production',

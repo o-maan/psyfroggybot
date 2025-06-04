@@ -89,6 +89,9 @@ jobs:
             # Запуск миграций
             bun run knex migrate:latest --knexfile knexfile.cjs
 
+            # Компиляция TypeScript в JavaScript
+            bun run build
+
             # Перезапуск приложения через PM2
             # Проверяем, существует ли процесс (временно отключаем -e для проверки)
             set +e
@@ -101,7 +104,7 @@ jobs:
               pm2 restart psy_froggy_bot
             else
               echo "🚀 Запускаем новый процесс..."
-              pm2 start ecosystem.config.cjs --name psy_froggy_bot
+              pm2 start ecosystem.prod.config.cjs --name psy_froggy_bot
             fi
 
             # Сохранить конфигурацию PM2

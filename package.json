@@ -6,6 +6,8 @@
     "start": "bun run migrate && bun run src/bot.ts",
     "dev": "bun install && bun run migrate && bun --watch run src/bot.ts",
     "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest",
+    "build": "bun build src/bot.ts --outdir dist --target node",
+    "pm2:start": "bun run build && pm2 start ecosystem.config.cjs",
     "notify:start": "node scripts/notify-telegram.js start",
     "notify:success": "node scripts/notify-telegram.js success", 
     "notify:failure": "node scripts/notify-telegram.js failure"

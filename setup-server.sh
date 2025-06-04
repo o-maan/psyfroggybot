@@ -73,6 +73,9 @@ bun install --frozen-lockfile
 # Запуск миграций
 bun run knex migrate:latest --knexfile knexfile.cjs
 
+# Компиляция TypeScript
+bun run build
+
 # Копирование Caddyfile
 sudo cp Caddyfile /etc/caddy/Caddyfile
 
@@ -81,7 +84,7 @@ sudo systemctl enable caddy
 sudo systemctl start caddy
 
 # Настройка PM2 для автозапуска
-pm2 start ecosystem.config.js
+pm2 start ecosystem.prod.config.cjs
 pm2 save
 pm2 startup
 
