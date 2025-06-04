@@ -61,10 +61,26 @@ jobs:
             bun run knex migrate:latest --knexfile knexfile.cjs
 
             # Перезапуск приложения через PM2
-            pm2 restart psy_froggy_bot || pm2 start ecosystem.config.js --name psy_froggy_bot
+            # Проверяем, существует ли процесс
+            if pm2 describe psy_froggy_bot > /dev/null 2>&1; then
+              echo "🔄 Перезапускаем существующий процесс..."
+              pm2 restart psy_froggy_bot
+            else
+              echo "🚀 Запускаем новый процесс..."
+              pm2 start ecosystem.config.js --name psy_froggy_bot
+            fi
+
+            # Сохранить конфигурацию PM2
+            pm2 save
 
             # Перезагрузка Caddy (если нужно)
             systemctl reload caddy || true
+
+            # Проверка статуса
+            echo "📊 Статус PM2:"
+            pm2 status
+            echo "📊 Статус приложения:"
+            pm2 describe psy_froggy_bot || true
 
             echo "✅ Deployment completed!"
 

@@ -20,6 +20,10 @@ sudo apt-get install -y nodejs
 curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
 
+# Добавление Bun в глобальный PATH
+echo 'export PATH=$PATH:/var/www/.bun/bin' | sudo tee -a /etc/environment
+sudo ln -sf /var/www/.bun/bin/bun /usr/local/bin/bun || true
+
 # Установка PM2 глобально
 sudo npm install -y pm2 -g
 
