@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 // Скрипт для отправки уведомлений в Telegram из GitHub Actions
 const TELEGRAM_API_URL = "https://api.telegram.org/bot";
