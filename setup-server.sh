@@ -48,7 +48,16 @@ sudo chown -R $USER:$USER /var/log/pm2
 
 # Клонирование репозитория
 cd /var/www/psy_froggy_bot
+# Убедимся что директория пуста перед клонированием
+rm -rf .git ./* ./.* 2>/dev/null || true
 git clone https://github.com/o-maan/psy_froggy_bot.git .
+
+# Проверка успешности клонирования
+if [ ! -d ".git" ]; then
+  echo "❌ Ошибка клонирования репозитория"
+  exit 1
+fi
+echo "✅ Репозиторий успешно клонирован"
 
 # Создание .env файла (нужно будет заполнить)
 cp .env.example .env || touch .env

@@ -44,6 +44,25 @@ jobs:
             # Проверка PM2
             which pm2 || echo "❌ PM2 не найден в PATH: $PATH"
 
+            # Проверка и восстановление Git репозитория
+            if [ ! -d ".git" ]; then
+              echo "🔧 Git репозиторий не найден, клонируем заново..."
+              cd /var/www
+              rm -rf psy_froggy_bot
+              git clone https://github.com/o-maan/psy_froggy_bot.git psy_froggy_bot
+              cd psy_froggy_bot
+            else
+              echo "✅ Git репозиторий найден"
+              # Проверка целостности
+              if ! git status > /dev/null 2>&1; then
+                echo "🔧 Git репозиторий поврежден, переклонируем..."
+                cd /var/www
+                rm -rf psy_froggy_bot
+                git clone https://github.com/o-maan/psy_froggy_bot.git psy_froggy_bot
+                cd psy_froggy_bot
+              fi
+            fi
+
             # Остановка текущего приложения
             pm2 stop psy_froggy_bot || true
 
