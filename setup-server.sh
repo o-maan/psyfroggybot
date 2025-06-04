@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Скрипт для настройки сервера Digital Ocean для psy_froggy_bot
 
 echo "🚀 Настройка сервера Digital Ocean..."

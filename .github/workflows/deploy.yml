@@ -31,6 +31,7 @@ jobs:
           key: ${{ secrets.DO_SSH_KEY }}
           port: ${{ secrets.DO_PORT }}
           script: |
+            set -euo pipefail
             echo "🚀 Starting deployment..."
 
             # Переход в директорию проекта
