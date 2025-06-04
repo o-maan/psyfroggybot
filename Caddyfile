@@ -1,0 +1,40 @@
+psy_froggy_bot.invntrm.ru {
+    reverse_proxy localhost:3456
+    
+    # Логирование
+    log {
+        output file /var/log/caddy/psy_froggy_bot.log
+        format json
+    }
+    
+    # Заголовки безопасности
+    header {
+        # Включить HSTS
+        Strict-Transport-Security max-age=31536000;
+        # Защита от XSS
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        # Убрать информацию о сервере
+        -Server
+    }
+    
+    # Gzip сжатие
+    encode gzip
+    
+    # Обработка статики (если потребуется)
+    handle_path /assets/* {
+        file_server
+        root * /var/www/psy_froggy_bot/assets
+    }
+    
+    # Webhook для GitHub (если нужен)
+    handle /webhook {
+        reverse_proxy localhost:3456
+    }
+}
+
+# Redirect www to non-www
+www.psy_froggy_bot.com {
+    redir https://psy_froggy_bot.com{uri}
+} 

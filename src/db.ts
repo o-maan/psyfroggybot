@@ -1,10 +1,26 @@
 import { Database } from "bun:sqlite";
 
-const DB_PATH = process.env.DB_PATH || "/data/froggy.db";
-console.log("🔍 DB_PATH", DB_PATH);
+// Определяем путь к базе данных в зависимости от окружения
+const isProduction = process.env.NODE_ENV === "production";
+const dbPath = isProduction
+  ? "/var/www/databases/psy_froggy_bot/froggy.db"
+  : "./froggy.db";
+
+try {
+  console.log("🔍 DB - Environment:", process.env.NODE_ENV);
+  console.log("🔍 DB - Database path:", dbPath);
+  if (isProduction) {
+    console.log(
+      '🔍 DB - fs.readdirSync("/var/www/databases/psy_froggy_bot")',
+      fs.readdirSync("/var/www/databases/psy_froggy_bot")
+    );
+  }
+} catch (e) {
+  console.log(e);
+}
 
 // Создаем базу данных
-export const db = new Database(DB_PATH, { create: true });
+export const db = new Database(dbPath, { create: true });
 
 // Создаем таблицы при первом запуске
 db.query(
