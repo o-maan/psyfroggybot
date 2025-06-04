@@ -80,8 +80,13 @@ jobs:
             bun run knex migrate:latest --knexfile knexfile.cjs
 
             # Перезапуск приложения через PM2
-            # Проверяем, существует ли процесс
-            if pm2 describe psy_froggy_bot > /dev/null 2>&1; then
+            # Проверяем, существует ли процесс (временно отключаем -e для проверки)
+            set +e
+            pm2 describe psy_froggy_bot > /dev/null 2>&1
+            PM2_EXISTS=$?
+            set -e
+
+            if [ $PM2_EXISTS -eq 0 ]; then
               echo "🔄 Перезапускаем существующий процесс..."
               pm2 restart psy_froggy_bot
             else
