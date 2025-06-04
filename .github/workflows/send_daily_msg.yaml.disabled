@@ -14,4 +14,4 @@ jobs:
       - name: Send daily message to all users
         timeout-minutes: 1
         run: |
-          curl --fail --max-time 1200 -X POST https://psyfroggybot-np0edq.fly.dev/sendDailyMessage
+          curl --fail --max-time 1200 -X POST https://psy_froggy_bot.invntrm.ru/sendDailyMessage
