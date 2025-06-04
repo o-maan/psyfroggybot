@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import fs from "fs";
 
 // Определяем путь к базе данных в зависимости от окружения
 const isProduction = process.env.NODE_ENV === "production";

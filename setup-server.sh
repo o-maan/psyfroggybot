@@ -53,10 +53,10 @@ echo "ADMIN_CHAT_ID=" >> .env
 echo "NODE_ENV=production" >> .env
 
 # Установка зависимостей
-npm ci --production
+bun install --frozen-lockfile
 
 # Запуск миграций
-npx knex migrate:latest --knexfile knexfile.cjs
+bun run knex migrate:latest --knexfile knexfile.cjs
 
 # Копирование Caddyfile
 sudo cp Caddyfile /etc/caddy/Caddyfile
