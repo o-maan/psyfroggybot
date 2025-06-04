@@ -36,7 +36,7 @@ jobs:
 
             # Настройка окружения
             source /etc/environment || true
-            export PATH=$PATH:/usr/local/bin:/usr/bin:/root/.bun/bin
+            export PATH=$PATH:/usr/local/bin:/usr/bin:/var/www/.bun/bin
 
             # Переход в директорию проекта
             cd /var/www/psy_froggy_bot
