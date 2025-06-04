@@ -1,4 +1,4 @@
-# PSY Froggy Bot 🐸
+# PSY Froggy Bot 🐸 [![Deploy to Digital Ocean](https://github.com/o-maan/psyfroggybot/actions/workflows/deploy.yml/badge.svg)](https://github.com/o-maan/psyfroggybot/actions/workflows/deploy.yml)
 
 Бот-лягушка для психологической поддержки с интеграцией календаря и ежедневными сообщениями.
 
