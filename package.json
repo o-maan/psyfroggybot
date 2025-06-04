@@ -5,7 +5,10 @@
   "scripts": {
     "start": "bun run migrate && bun run src/bot.ts",
     "dev": "bun install && bun run migrate && bun --watch run src/bot.ts",
-    "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest"
+    "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest",
+    "notify:start": "node scripts/notify-telegram.js start",
+    "notify:success": "node scripts/notify-telegram.js success", 
+    "notify:failure": "node scripts/notify-telegram.js failure"
   },
   "dependencies": {
     "@huggingface/inference": "^3.14.0",

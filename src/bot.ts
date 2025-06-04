@@ -18,19 +18,19 @@ const scheduler = new Scheduler(bot, calendarService);
 
 // --- Express сервер для Google OAuth2 callback и REST ---
 const restServ = express();
-const PORT = process.env.WEBHOOK_PORT || 3000;
-const TELEGRAM_WEBHOOK_PORT = process.env.TELEGRAM_WEBHOOK_PORT || 8443;
-const TELEGRAM_WEBHOOK_PATH =
-  process.env.TELEGRAM_WEBHOOK_PATH || "/telegraf/webhook";
-const TELEGRAM_WEBHOOK_URL =
-  process.env.TELEGRAM_WEBHOOK_URL ||
-  `https://${
-    process.env.FLY_APP_NAME || "psyfroggybot-np0edq"
-  }.fly.dev:${TELEGRAM_WEBHOOK_PORT}${TELEGRAM_WEBHOOK_PATH}`;
+const SERVER_PORT = process.env.SERVER_PORT || 3000;
+// const TELEGRAM_WEBHOOK_PORT = process.env.TELEGRAM_WEBHOOK_PORT || 8443;
+// const TELEGRAM_WEBHOOK_PATH =
+//   process.env.TELEGRAM_WEBHOOK_PATH || "/telegraf/webhook";
+// const TELEGRAM_WEBHOOK_URL =
+//   process.env.TELEGRAM_WEBHOOK_URL ||
+//   `https://${
+//     process.env.FLY_APP_NAME || "psyfroggybot-np0edq"
+//   }.fly.dev:${TELEGRAM_WEBHOOK_PORT}${TELEGRAM_WEBHOOK_PATH}`;
 
 // --- Telegraf webhook ---
-bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
-restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
+// bot.telegram.setWebhook(TELEGRAM_WEBHOOK_URL);
+// restServ.use(TELEGRAM_WEBHOOK_PATH, bot.webhookCallback(TELEGRAM_WEBHOOK_PATH));
 
 restServ.use(express.json());
 
@@ -100,8 +100,8 @@ restServ.all("/", (req: Request, res: Response) => {
 });
 
 // Запуск сервера на всех интерфейсах (для Fly.io)
-restServ.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`✅ EXPRESS сервер слушает на 0.0.0.0:${PORT}`);
+restServ.listen(Number(SERVER_PORT), "0.0.0.0", () => {
+  console.log(`✅ EXPRESS сервер слушает на 0.0.0.0:${SERVER_PORT}`);
 });
 
 // Обработка команды /start
@@ -200,7 +200,9 @@ bot.command("calendar", async (ctx) => {
           showDescription: true,
           showLink: true,
         });
-        await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`, { parse_mode: "HTML" });
+        await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`, {
+          parse_mode: "HTML",
+        });
       } else {
         await ctx.reply("Событий за вчера и сегодня нет.");
       }
@@ -238,9 +240,12 @@ bot.command("next_image", async (ctx) => {
   const chatId = ctx.chat.id;
   try {
     const imagePath = scheduler.getNextImage(chatId);
-    await ctx.replyWithPhoto({ source: imagePath }, {
-      caption: `Next image for chatId=${chatId}\nПуть: ${imagePath}`,
-    });
+    await ctx.replyWithPhoto(
+      { source: imagePath },
+      {
+        caption: `Next image for chatId=${chatId}\nПуть: ${imagePath}`,
+      }
+    );
   } catch (e) {
     console.error("Ошибка в /next_image:", e);
     await ctx.reply("Ошибка при получении следующей картинки: " + e);

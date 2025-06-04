@@ -23,6 +23,12 @@ jobs:
       - name: Run tests (если есть)
         run: bun test --if-present
 
+      - name: Notify Telegram - Start
+        run: |
+          node scripts/notify-telegram.js start
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
       - name: Deploy to Digital Ocean
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -108,12 +114,16 @@ jobs:
 
             echo "✅ Deployment completed!"
 
-      - name: Notify on success
+      - name: Notify Telegram - Success
         if: success()
         run: |
-          echo "🎉 Deployment successful!"
+          node scripts/notify-telegram.js success
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-      - name: Notify on failure
+      - name: Notify Telegram - Failure
         if: failure()
         run: |
-          echo "❌ Deployment failed!"
+          node scripts/notify-telegram.js failure
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
