@@ -1,6 +1,6 @@
-https://psy-froggy-bot.invntrm.ru {
+psy-froggy-bot.invntrm.ru {
     reverse_proxy localhost:3456
-    
+
     # Логирование
     log {
         output file /var/log/caddy/psy_froggy_bot.log
@@ -33,8 +33,3 @@ https://psy-froggy-bot.invntrm.ru {
         reverse_proxy localhost:3456
     }
 }
-
-# Redirect www to non-www
-www.psy_froggy_bot.com {
-    redir https://psy_froggy_bot.com{uri}
-} 
