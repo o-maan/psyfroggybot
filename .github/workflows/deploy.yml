@@ -44,6 +44,10 @@ jobs:
             source /etc/environment || true
             export PATH=$PATH:/usr/local/bin:/usr/bin:/var/www/.bun/bin
 
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
             # Переход в директорию проекта
             cd /var/www/psy_froggy_bot
 
