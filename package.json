@@ -9,22 +9,26 @@
     "build": "bun build src/bot.ts --outdir dist --target node",
     "pm2:start": "bun run build && pm2 start ecosystem.config.cjs",
     "notify:start": "node scripts/notify-telegram.js start",
-    "notify:success": "node scripts/notify-telegram.js success", 
-    "notify:failure": "node scripts/notify-telegram.js failure"
+    "notify:success": "node scripts/notify-telegram.js success",
+    "notify:failure": "node scripts/notify-telegram.js failure",
+    "lint": "tsc --noEmit --skipLibCheck"
   },
   "dependencies": {
     "@huggingface/inference": "^3.14.0",
     "@swc/core": "^1.11.29",
     "@types/express": "^5.0.2",
+    "@types/node-cron": "^3.0.11",
     "dotenv": "^16.4.1",
     "express": "^5.1.0",
     "google-auth-library": "^9.15.1",
     "googleapis": "^149.0.0",
     "knex": "^3.1.0",
+    "node-cron": "^4.1.0",
     "sqlite3": "^5.1.7",
     "telegraf": "^4.15.3"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "typescript": "^5.8.3"
   }
 }

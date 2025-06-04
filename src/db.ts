@@ -225,3 +225,18 @@ export const clearUserTokens = (chatId: number) => {
   `);
   del.run(chatId);
 };
+
+// Получить всех пользователей
+export const getAllUsers = () => {
+  const getUsers = db.query(`
+    SELECT chat_id, username, last_response_time, response_count
+    FROM users
+    ORDER BY chat_id
+  `);
+  return getUsers.all() as {
+    chat_id: number;
+    username: string;
+    last_response_time: string;
+    response_count: number;
+  }[];
+};

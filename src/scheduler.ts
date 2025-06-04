@@ -1,16 +1,13 @@
 import { Telegraf } from "telegraf";
-import { getMessage } from "./messages";
 import {
   saveMessage,
-  updateMessageResponse,
   getUserResponseStats,
-  getLastBotMessage,
   getLastNBotMessages,
   addUser,
   saveUserImageIndex,
   getUserImageIndex,
-  db,
   clearUserTokens,
+  getAllUsers,
 } from "./db";
 import fs from "fs";
 import path from "path";
@@ -18,6 +15,7 @@ import { CalendarService } from "./calendar";
 import { generateMessage } from "./llm";
 import { readFileSync } from "fs";
 import { formatCalendarEvents } from "./calendar";
+import * as cron from "node-cron";
 
 const HOURS = 60 * 60 * 1000;
 
@@ -38,11 +36,14 @@ export class Scheduler {
   public readonly CHANNEL_ID = -1002405993986;
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
+  private dailyCronJob: cron.ScheduledTask | null = null;
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
     this.calendarService = calendarService;
     this.loadImages();
+    this.loadUsers();
+    this.initializeDailySchedule();
   }
 
   // Загрузить список картинок при старте
@@ -62,6 +63,21 @@ export class Scheduler {
     console.log("📸 Список картинок:", this.imageFiles);
   }
 
+  // Загрузить пользователей из базы данных
+  private loadUsers() {
+    try {
+      const users = getAllUsers();
+      this.users.clear();
+      for (const user of users) {
+        this.users.add(user.chat_id);
+      }
+      console.log("👥 Загружено пользователей из базы:", this.users.size);
+      console.log("👥 Список пользователей:", Array.from(this.users));
+    } catch (error) {
+      console.error("❌ Ошибка при загрузке пользователей из базы:", error);
+    }
+  }
+
   // Получить следующую картинку по кругу
   public getNextImage(chatId: number): string {
     const userImage = getUserImageIndex(chatId);
@@ -77,6 +93,9 @@ export class Scheduler {
   // Добавить пользователя в список рассылки
   addUser(chatId: number) {
     this.users.add(chatId);
+    // Также добавляем в базу данных (если ещё не добавлен)
+    addUser(chatId, "");
+    console.log("👤 Пользователь добавлен:", chatId);
   }
 
   // Вспомогательная функция для проверки перелёта/аэропорта в событиях
@@ -459,5 +478,83 @@ export class Scheduler {
         this.sendDailyMessage(chatId);
       }, delay);
     }
+  }
+
+  // Инициализация автоматического ежедневного расписания
+  private initializeDailySchedule() {
+    console.log(
+      "🕐 Инициализация автоматического ежедневного расписания с помощью cron..."
+    );
+    this.startDailyCronJob();
+  }
+
+  // Запуск cron job для ежедневной отправки в 19:30
+  private startDailyCronJob() {
+    // Останавливаем предыдущий job, если он есть
+    if (this.dailyCronJob) {
+      this.dailyCronJob.stop();
+    }
+
+    // Создаем новый cron job: каждый день в 19:30
+    // Формат: "минуты часы * * *" (30 19 * * * = 19:30 каждый день)
+    this.dailyCronJob = cron.schedule(
+      "30 19 * * *",
+      async () => {
+        try {
+          console.log(
+            "🚀 Автоматическая отправка ежедневного сообщения в 19:30 (cron)"
+          );
+          const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          await this.sendDailyMessagesToAll(adminChatId);
+          console.log("✅ Автоматическое сообщение отправлено успешно");
+        } catch (error) {
+          console.error(
+            "❌ Ошибка при автоматической отправке сообщения:",
+            error
+          );
+        }
+      },
+      {
+        timezone: "Europe/Moscow", // Устанавливаем московское время
+      }
+    );
+
+    console.log("✅ Cron job для ежедневной отправки в 19:30 (МСК) запущен");
+  }
+
+  // Получить статус планировщика
+  public getSchedulerStatus() {
+    const isRunning = this.dailyCronJob ? true : false;
+    const usersCount = this.users.size;
+    const usersList = Array.from(this.users);
+
+    return {
+      isRunning,
+      usersCount,
+      usersList,
+      cronExpression: "30 19 * * *",
+      timezone: "Europe/Moscow",
+      description: "Ежедневно в 19:30 МСК",
+    };
+  }
+
+  // Очистка всех таймеров при завершении работы
+  destroy() {
+    console.log("🔄 Очистка планировщика...");
+
+    // Останавливаем cron job
+    if (this.dailyCronJob) {
+      this.dailyCronJob.stop();
+      this.dailyCronJob = null;
+      console.log("⏰ Cron job остановлен");
+    }
+
+    // Очищаем все напоминания
+    for (const [chatId, timeout] of this.reminderTimeouts.entries()) {
+      clearTimeout(timeout);
+    }
+    this.reminderTimeouts.clear();
+
+    console.log("✅ Планировщик очищен");
   }
 }

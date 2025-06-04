@@ -106,13 +106,19 @@ restServ.listen(Number(SERVER_PORT), "0.0.0.0", () => {
 
 // Обработка команды /start
 bot.command("start", async (ctx) => {
+  const chatId = ctx.chat.id;
+  // Добавляем пользователя в планировщик для рассылки
+  scheduler.addUser(chatId);
+
   await ctx.reply(
     "Привет! Я бот-лягушка 🐸\n\n" +
       "Я буду отправлять сообщения в канал каждый день в 19:30.\n" +
       "Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание.\n\n" +
       "Доступные команды:\n" +
       "/fro - отправить сообщение сейчас\n" +
-      "/calendar - настроить доступ к календарю"
+      "/calendar - настроить доступ к календарю\n" +
+      "/status - статус планировщика (только для админа)\n" +
+      "/test_schedule - тест автоматической отправки (только для админа)"
   );
 });
 
@@ -252,6 +258,31 @@ bot.command("next_image", async (ctx) => {
   }
 });
 
+// Команда для проверки статуса планировщика
+bot.command("status", async (ctx) => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply("❌ Эта команда доступна только администратору");
+    return;
+  }
+
+  const status = scheduler.getSchedulerStatus();
+
+  await ctx.reply(
+    `📊 Статус планировщика:\n\n` +
+      `⚙️ Cron job: ${status.isRunning ? "🟢 Активен" : "🔴 Остановлен"}\n` +
+      `📅 Расписание: ${status.description}\n` +
+      `🕐 Выражение: ${status.cronExpression}\n` +
+      `🌍 Часовой пояс: ${status.timezone}\n\n` +
+      `👥 Пользователей: ${status.usersCount}\n` +
+      `📋 Список: ${status.usersList.join(", ")}`,
+    { parse_mode: "HTML" }
+  );
+});
+
 // Обработка текстовых сообщений
 bot.on("text", async (ctx) => {
   const message = ctx.message.text;
@@ -265,6 +296,49 @@ bot.on("text", async (ctx) => {
   await ctx.reply("Интересно, но не понятно! 😊");
 });
 
+// Команда для тестирования автоматической отправки
+bot.command("test_schedule", async (ctx) => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply("❌ Эта команда доступна только администратору");
+    return;
+  }
+
+  // Создаем тестовый cron job на следующую минуту
+  const now = new Date();
+  const nextMinute = now.getMinutes() + 1;
+  const cronExpression = `${nextMinute} ${now.getHours()} * * *`;
+
+  const testJob = require("node-cron").schedule(
+    cronExpression,
+    async () => {
+      try {
+        await scheduler.sendDailyMessage(chatId);
+        await ctx.reply("🧪 Тестовое сообщение отправлено!");
+        testJob.stop();
+      } catch (error) {
+        await ctx.reply(`❌ Ошибка при отправке тестового сообщения: ${error}`);
+        testJob.stop();
+      }
+    },
+    {
+      scheduled: true,
+      timezone: "Europe/Moscow",
+    }
+  );
+
+  await ctx.reply(
+    `🧪 Тестовый cron job создан\n` +
+      `⏱️ Выражение: ${cronExpression}\n` +
+      `🕐 Сработает в ${String(now.getHours()).padStart(2, "0")}:${String(
+        nextMinute
+      ).padStart(2, "0")}`
+  );
+});
+
 // Запускаем бота
 
 // --- Telegraf polling ---
@@ -273,5 +347,13 @@ console.log(
   "\n🚀 Бот успешно запущен в режиме polling!\n📱 Для остановки нажмите Ctrl+C\n"
 );
 // Обработка завершения работы
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+process.once("SIGINT", () => {
+  console.log("🛑 Получен сигнал SIGINT - завершение работы...");
+  scheduler.destroy();
+  bot.stop("SIGINT");
+});
+process.once("SIGTERM", () => {
+  console.log("🛑 Получен сигнал SIGTERM - завершение работы...");
+  scheduler.destroy();
+  bot.stop("SIGTERM");
+});
