@@ -1,4 +1,4 @@
-psy_froggy_bot.invntrm.ru {
+https://psy-froggy-bot.invntrm.ru {
     reverse_proxy localhost:3456
     
     # Логирование

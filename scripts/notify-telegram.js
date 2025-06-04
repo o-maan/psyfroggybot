@@ -56,7 +56,7 @@ const messages = {
   success: `✅ <b>Деплой успешно завершён!</b>
 
 🎉 PSY Froggy Bot обновлён
-🌐 Домен: psy_froggy_bot.invntrm.ru
+🌐 Домен: psy-froggy-bot.invntrm.ru
 🔄 PM2: перезапущен
 ⏰ Время: ${currentTime}`,
 

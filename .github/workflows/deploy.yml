@@ -104,7 +104,8 @@ jobs:
               pm2 restart psy_froggy_bot
             else
               echo "🚀 Запускаем новый процесс..."
-              pm2 start ecosystem.prod.config.cjs --name psy_froggy_bot
+              # pm2 start ecosystem.prod.config.cjs --name psy_froggy_bot
+              pm2 start --interpreter ~/.bun/bin/bun src/bot.ts --name psy_froggy_bot
             fi
 
             # Сохранить конфигурацию PM2
