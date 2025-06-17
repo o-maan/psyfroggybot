@@ -373,20 +373,56 @@ export class Scheduler {
 
   // Массовая рассылка по всем пользователям
   async sendDailyMessagesToAll(adminChatId: number) {
-    let error = null;
+    console.log(`🚀 Начинаю массовую рассылку для ${this.users.size} пользователей`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
     if (!this.users || this.users.size === 0) {
       await this.bot.telegram.sendMessage(
         adminChatId,
         "❗️Нет пользователей для рассылки. Отправляю сообщение себе."
       );
       await this.sendDailyMessage(adminChatId);
-      error =
-        "❗️Нет пользователей для рассылки. Админу отправлено уведомление и сообщение себе.";
+      console.log("✅ Отправлено админу, так как нет пользователей");
+      return;
     }
+
+    // Обрабатываем пользователей по одному с yield для event loop
     for (const chatId of this.users) {
-      await this.sendDailyMessage(chatId);
+      try {
+        await this.sendDailyMessage(chatId);
+        successCount++;
+        console.log(`✅ Успешно отправлено пользователю ${chatId} (${successCount}/${this.users.size})`);
+        
+        // Даем event loop возможность обработать другие задачи
+        // Это критично для предотвращения блокировки cron job
+        await new Promise(resolve => setImmediate(resolve));
+        
+      } catch (error) {
+        errorCount++;
+        const errorMsg = `Ошибка для пользователя ${chatId}: ${error}`;
+        errors.push(errorMsg);
+        console.error(`❌ ${errorMsg}`);
+      }
     }
-    if (error) throw error;
+
+    // Отправляем отчет админу
+    const reportMessage = `📊 Отчет о массовой рассылке:
+✅ Успешно: ${successCount}
+❌ Ошибок: ${errorCount}
+👥 Всего пользователей: ${this.users.size}
+
+${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}` : ''}`;
+
+    try {
+      await this.bot.telegram.sendMessage(adminChatId, reportMessage);
+    } catch (adminError) {
+      console.error('❌ Ошибка отправки отчета админу:', adminError);
+    }
+
+    console.log(`📊 Рассылка завершена: ${successCount} успешно, ${errorCount} ошибок`);
   }
 
   // Проверка наличия пользователя в базе
@@ -500,18 +536,43 @@ export class Scheduler {
     this.dailyCronJob = cron.schedule(
       "30 19 * * *",
       async () => {
+        const startTime = new Date();
+        console.log(
+          `🚀 [CRON] Автоматическая отправка ежедневного сообщения запущена в ${startTime.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК`
+        );
+        
         try {
-          console.log(
-            "🚀 Автоматическая отправка ежедневного сообщения в 19:30 (cron)"
-          );
           const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          if (!adminChatId) {
+            throw new Error('ADMIN_CHAT_ID не установлен в переменных окружения');
+          }
+          
           await this.sendDailyMessagesToAll(adminChatId);
-          console.log("✅ Автоматическое сообщение отправлено успешно");
+          
+          const endTime = new Date();
+          const duration = endTime.getTime() - startTime.getTime();
+          console.log(`✅ [CRON] Автоматическое сообщение отправлено успешно за ${duration}ms`);
+          
         } catch (error) {
+          const endTime = new Date();
+          const duration = endTime.getTime() - startTime.getTime();
           console.error(
-            "❌ Ошибка при автоматической отправке сообщения:",
+            `❌ [CRON] Ошибка при автоматической отправке сообщения (время выполнения: ${duration}ms):`,
             error
           );
+          
+          // Попытаемся уведомить админа об ошибке
+          try {
+            const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+            if (adminChatId) {
+              await this.bot.telegram.sendMessage(
+                adminChatId,
+                `🚨 Ошибка в автоматической рассылке (${startTime.toLocaleTimeString()}): ${error}`
+              );
+            }
+          } catch (notifyError) {
+            console.error('❌ [CRON] Не удалось уведомить админа об ошибке:', notifyError);
+          }
         }
       },
       {

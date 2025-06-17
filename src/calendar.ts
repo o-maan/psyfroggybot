@@ -58,9 +58,30 @@ export class CalendarService {
       });
 
       return response.data.items;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Ошибка при получении событий календаря:', error);
-      throw error;
+      
+      // Обрабатываем конкретные ошибки Google OAuth
+      if (error.code === 401 || error.message?.includes('invalid_grant')) {
+        console.error('🔐 Google OAuth токен недействителен или истек');
+        console.error('💡 Необходимо повторно авторизоваться в Google Calendar');
+        // Возвращаем пустой массив вместо падения
+        return [];
+      }
+      
+      if (error.code === 403) {
+        console.error('🚫 Нет доступа к Google Calendar API');
+        return [];
+      }
+      
+      if (error.code === 429) {
+        console.error('⏳ Превышен лимит запросов к Google Calendar API');
+        return [];
+      }
+      
+      // Для других ошибок возвращаем пустой массив для graceful degradation
+      console.error('⚠️ Неизвестная ошибка Google Calendar, используем fallback');
+      return [];
     }
   }
 
