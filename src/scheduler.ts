@@ -320,10 +320,6 @@ export class Scheduler {
       }
       let message = this.buildScheduledMessageFromHF(json);
 
-      console.log(`💾 Сохраняю сообщение в базу для chatId=${chatId}...`);
-      saveMessage(chatId, message, new Date().toISOString());
-      console.log("💾 Сообщение сохранено!");
-
       return message;
     }
   }
