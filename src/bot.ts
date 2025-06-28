@@ -4,11 +4,12 @@ import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar.ts';
 import {
   addUser,
-  getLastBotMessage,
+  getLastNMessages,
   getLastUserToken,
   getLogsCount,
   getLogsStatistics,
   getRecentLogs,
+  getRecentLogsByLevel,
   getUnreadLogsCount,
   markAllLogsAsRead,
   markLogAsRead,
@@ -432,7 +433,7 @@ bot.command('logs', async ctx => {
 
     let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
-    message += `📄 Показано: ${logs.length} из ${totalCount}\n\n`;
+    message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: Все\n\n`;
 
     logs.forEach((log, index) => {
       message += formatLogEntry(log, index) + '\n\n';
@@ -441,13 +442,14 @@ bot.command('logs', async ctx => {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0' },
+          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0_all' },
           { text: '📊 Статистика', callback_data: 'logs_stats' },
-          { text: 'Следующие ➡️', callback_data: 'logs_next_7' },
+          { text: 'Следующие ➡️', callback_data: 'logs_next_7_all' },
         ],
         [
+          { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
-          { text: '🔄 Обновить', callback_data: 'logs_refresh_0' },
+          { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
         ],
       ],
     };
@@ -466,7 +468,7 @@ bot.command('logs', async ctx => {
 });
 
 // Обработчики callback для пагинации логов
-bot.action(/logs_(.+)_(\d+)/, async ctx => {
+bot.action(/logs_(.+)_(\d+)_(.+)/, async ctx => {
   const chatId = ctx.chat?.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
 
@@ -477,6 +479,7 @@ bot.action(/logs_(.+)_(\d+)/, async ctx => {
 
   const action = ctx.match![1];
   const offset = parseInt(ctx.match![2]);
+  const levelFilter = ctx.match![3] === 'all' ? null : ctx.match![3];
 
   try {
     let newOffset = offset;
@@ -497,9 +500,11 @@ bot.action(/logs_(.+)_(\d+)/, async ctx => {
         return;
     }
 
-    const logs = getRecentLogs(7, newOffset);
+    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 7, newOffset) : getRecentLogs(7, newOffset);
     const totalCount = getLogsCount();
     const unreadCount = getUnreadLogsCount();
+    const filterSuffix = levelFilter || 'all';
+    const filterName = levelFilter ? levelFilter.toUpperCase() : 'Все';
 
     if (logs.length === 0) {
       await ctx.answerCbQuery('📭 Логов больше нет');
@@ -508,7 +513,9 @@ bot.action(/logs_(.+)_(\d+)/, async ctx => {
 
     let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
-    message += `📄 Показано: ${logs.length} (позиция ${newOffset + 1}-${newOffset + logs.length})\n\n`;
+    message += `📄 Показано: ${logs.length} (позиция ${newOffset + 1}-${
+      newOffset + logs.length
+    }) | 🔍 Фильтр: ${filterName}\n\n`;
 
     logs.forEach((log, index) => {
       message += formatLogEntry(log, index) + '\n\n';
@@ -517,13 +524,14 @@ bot.action(/logs_(.+)_(\d+)/, async ctx => {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '⬅️ Предыдущие', callback_data: `logs_prev_${newOffset}` },
+          { text: '⬅️ Предыдущие', callback_data: `logs_prev_${newOffset}_${filterSuffix}` },
           { text: '📊 Статистика', callback_data: 'logs_stats' },
-          { text: 'Следующие ➡️', callback_data: `logs_next_${newOffset}` },
+          { text: 'Следующие ➡️', callback_data: `logs_next_${newOffset}_${filterSuffix}` },
         ],
         [
+          { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
-          { text: '🔄 Обновить', callback_data: `logs_refresh_${newOffset}` },
+          { text: '🔄 Обновить', callback_data: `logs_refresh_${newOffset}_${filterSuffix}` },
         ],
       ],
     };
@@ -538,6 +546,101 @@ bot.action(/logs_(.+)_(\d+)/, async ctx => {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка навигации по логам');
     await ctx.answerCbQuery('❌ Ошибка при загрузке логов');
+  }
+});
+
+// Обработчик для меню фильтров логов
+bot.action('logs_filter_menu', async ctx => {
+  const chatId = ctx.chat?.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  if (chatId !== adminChatId) {
+    await ctx.answerCbQuery('❌ Доступ запрещен');
+    return;
+  }
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '📄 Все', callback_data: 'logs_filter_all' },
+        { text: '🐛 DEBUG', callback_data: 'logs_filter_debug' },
+        { text: '📝 INFO', callback_data: 'logs_filter_info' },
+      ],
+      [
+        { text: '⚠️ WARN', callback_data: 'logs_filter_warn' },
+        { text: '❌ ERROR', callback_data: 'logs_filter_error' },
+        { text: '💀 FATAL', callback_data: 'logs_filter_fatal' },
+      ],
+      [{ text: '◀️ Назад к логам', callback_data: 'logs_refresh_0_all' }],
+    ],
+  };
+
+  await ctx.editMessageText('🔍 <b>ВЫБЕРИТЕ УРОВЕНЬ ЛОГОВ</b>', {
+    parse_mode: 'HTML',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCbQuery();
+});
+
+// Обработчик для фильтрации логов по уровню
+bot.action(/logs_filter_(.+)/, async ctx => {
+  const chatId = ctx.chat?.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  if (chatId !== adminChatId) {
+    await ctx.answerCbQuery('❌ Доступ запрещен');
+    return;
+  }
+
+  const level = ctx.match![1];
+  const levelFilter = level === 'all' ? null : level;
+  const filterSuffix = level;
+  const filterName = level === 'all' ? 'Все' : level.toUpperCase();
+
+  try {
+    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 7, 0) : getRecentLogs(7, 0);
+    const totalCount = getLogsCount();
+    const unreadCount = getUnreadLogsCount();
+
+    if (logs.length === 0) {
+      await ctx.answerCbQuery('📭 Логов с таким фильтром нет');
+      return;
+    }
+
+    let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
+    message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
+    message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: ${filterName}\n\n`;
+
+    logs.forEach((log, index) => {
+      message += formatLogEntry(log, index) + '\n\n';
+    });
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⬅️ Предыдущие', callback_data: `logs_prev_0_${filterSuffix}` },
+          { text: '📊 Статистика', callback_data: 'logs_stats' },
+          { text: 'Следующие ➡️', callback_data: `logs_next_7_${filterSuffix}` },
+        ],
+        [
+          { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
+          { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
+          { text: '🔄 Обновить', callback_data: `logs_refresh_0_${filterSuffix}` },
+        ],
+      ],
+    };
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCbQuery(`🔍 Фильтр: ${filterName}`);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка фильтрации логов');
+    await ctx.answerCbQuery('❌ Ошибка при фильтрации логов');
   }
 });
 
@@ -581,7 +684,7 @@ bot.action('logs_stats', async ctx => {
     });
 
     const keyboard = {
-      inline_keyboard: [[{ text: '◀️ Назад к логам', callback_data: 'logs_refresh_0' }]],
+      inline_keyboard: [[{ text: '◀️ Назад к логам', callback_data: 'logs_refresh_0_all' }]],
     };
 
     await ctx.editMessageText(message, {
@@ -618,7 +721,7 @@ bot.action('logs_mark_all_read', async ctx => {
 
     let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
-    message += `📄 Показано: ${logs.length} из ${totalCount}\n\n`;
+    message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: Все\n\n`;
 
     logs.forEach((log, index) => {
       // Принудительно устанавливаем is_read = true для отображения
@@ -629,13 +732,14 @@ bot.action('logs_mark_all_read', async ctx => {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0' },
+          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0_all' },
           { text: '📊 Статистика', callback_data: 'logs_stats' },
-          { text: 'Следующие ➡️', callback_data: 'logs_next_7' },
+          { text: 'Следующие ➡️', callback_data: 'logs_next_7_all' },
         ],
         [
+          { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
-          { text: '🔄 Обновить', callback_data: 'logs_refresh_0' },
+          { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
         ],
       ],
     };
@@ -689,9 +793,24 @@ bot.on('text', async ctx => {
     const userMessageTime = new Date().toISOString();
     saveMessage(chatId, message, userMessageTime, userId);
 
-    // Получаем последнее сообщение бота для контекста
-    const lastMessage = getLastBotMessage(chatId);
-    const lastBotMessageText = lastMessage?.message_text;
+    // Получаем последние 7 сообщений в хронологическом порядке
+    const lastMessages = getLastNMessages(chatId, 7);
+
+    // Форматируем сообщения с датами для контекста - в правильном хронологическом порядке
+    const conversationHistory = lastMessages
+      .reverse() // Переворачиваем чтобы старые были вверху, новые внизу
+      .map(msg => {
+        const date = new Date(msg.sent_time).toLocaleString('ru-RU', {
+          timeZone: 'Europe/Moscow',
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const author = msg.author_id === 0 ? 'Бот' : (msg.username || 'Пользователь');
+        return `[${date}] ${author}: ${msg.message_text}`;
+      })
+      .join('\n');
 
     // Получаем события календаря на сегодня
     const calendarEvents = await getUserTodayEvents(chatId);
@@ -699,14 +818,14 @@ bot.on('text', async ctx => {
     botLogger.info(
       {
         chatId,
-        hasLastMessage: !!lastBotMessageText,
+        hasConversationHistory: !!conversationHistory,
         hasCalendarEvents: !!calendarEvents,
       },
       '🤖 Генерируем ответ пользователю'
     );
 
     // Генерируем контекстуальный ответ через LLM
-    const textResponse = await generateUserResponse(message, lastBotMessageText, calendarEvents || undefined);
+    const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
 
     // Отправляем текстовый ответ
     await ctx.reply(textResponse);
@@ -735,6 +854,18 @@ bot.on('text', async ctx => {
 // --- Telegraf polling ---
 bot.launch();
 logger.info('🚀 Telegram бот запущен в режиме polling');
+
+// Отправляем уведомление админу о запуске
+const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+if (adminChatId) {
+  bot.telegram
+    .sendMessage(adminChatId, '🚀 <b>БОТ ЗАПУЩЕН</b>\n\nТелеграм бот успешно запущен в режиме polling', {
+      parse_mode: 'HTML',
+    })
+    .catch(error => {
+      logger.error({ error: error.message, adminChatId }, 'Ошибка отправки уведомления админу о запуске');
+    });
+}
 // Обработка завершения работы
 process.once('SIGINT', () => {
   logger.info('🛑 Telegram бот остановлен (SIGINT)');

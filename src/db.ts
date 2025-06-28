@@ -183,6 +183,41 @@ export const getLastNBotMessages = (chatId: number, n: number) => {
   }[];
 };
 
+// Получить последние N сообщений от пользователя
+export const getLastNUserMessages = (chatId: number, n: number) => {
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ? AND m.author_id = u.id
+    ORDER BY m.sent_time DESC
+    LIMIT ?
+  `);
+  return getMessages.all(chatId, n) as {
+    message_text: string;
+    sent_time: string;
+  }[];
+};
+
+// Получить последние N сообщений (от бота и пользователя) в хронологическом порядке
+export const getLastNMessages = (chatId: number, n: number) => {
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time, m.author_id, u.id as user_id, u.username
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ?
+    ORDER BY m.sent_time DESC
+    LIMIT ?
+  `);
+  return getMessages.all(chatId, n) as {
+    message_text: string;
+    sent_time: string;
+    author_id: number;
+    user_id: number;
+    username: string;
+  }[];
+};
+
 // Сохранить токен для пользователя
 export const saveUserToken = (chatId: number, token: string) => {
   const upsertToken = db.query(`
@@ -350,6 +385,26 @@ export const getLogsByLevel = (level: string, limit: number = 50) => {
     is_read: boolean;
     created_at: string;
   }[];
+};
+
+// Получить последние логи с фильтром по уровню
+export const getRecentLogsByLevel = (level: string | null, limit: number = 7, offset: number = 0) => {
+  const query = level 
+    ? `SELECT id, level, message, data, timestamp, is_read, created_at
+       FROM logs
+       WHERE level = ?
+       ORDER BY timestamp DESC, id DESC
+       LIMIT ? OFFSET ?`
+    : `SELECT id, level, message, data, timestamp, is_read, created_at
+       FROM logs
+       ORDER BY timestamp DESC, id DESC
+       LIMIT ? OFFSET ?`;
+       
+  const getLogs = db.query(query);
+  
+  return level 
+    ? getLogs.all(level, limit, offset)
+    : getLogs.all(limit, offset);
 };
 
 // Очистить старые логи (старше N дней)

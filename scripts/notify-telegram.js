@@ -45,34 +45,58 @@ const messageType = process.argv[2];
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const currentTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
 
-// Предустановленные сообщения
-const messages = {
-  start: `🚀 <b>Начат деплой PSY Froggy Bot</b>
+// Получаем последнее commit сообщение из переменной окружения или git
+async function getCommitMessage() {
+  if (process.env.GITHUB_SHA) {
+    try {
+      // В GitHub Actions можно получить commit message через git log
+      const { execSync } = require('child_process');
+      const commitMsg = execSync(`git log -1 --pretty=%B ${process.env.GITHUB_SHA}`, { encoding: 'utf8' }).trim();
+      return `${commitMsg} (${process.env.GITHUB_SHA.substring(0, 7)})`;
+    } catch (error) {
+      console.warn('Не удалось получить commit message:', error.message);
+      return `Изменения (${process.env.GITHUB_SHA.substring(0, 7)})`;
+    }
+  }
+  return 'Локальное развертывание';
+}
 
-📦 Ветка: main
-🔧 Сервер: Digital Ocean
-⏰ Время: ${currentTime}`,
-
-  success: `✅ <b>Деплой успешно завершён!</b>
-
-🎉 PSY Froggy Bot обновлён
-🌐 Домен: psy-froggy-bot.invntrm.ru
-🔄 PM2: перезапущен
-⏰ Время: ${currentTime}`,
-
-  failure: `❌ <b>Деплой не удался!</b>
-
-💥 Ошибка при обновлении PSY Froggy Bot
-🔧 Требуется вмешательство
-📊 Проверьте логи GitHub Actions
-⏰ Время: ${currentTime}`,
-};
 
 // Проверяем тип сообщения
-if (!messageType || !messages[messageType]) {
+if (!messageType || !['start', 'success', 'failure'].includes(messageType)) {
   console.error("❌ Неверный тип сообщения. Доступные: start, success, failure");
   process.exit(1);
 }
 
 // Отправляем уведомление
-sendTelegramNotification(messages[messageType], botToken); 
+(async () => {
+  const commitMsg = await getCommitMessage();
+  
+  // Обновляем сообщения с актуальным commit message
+  const messages = {
+    start: `🚀 <b>Начат деплой PSY Froggy Bot</b>
+
+📦 Ветка: main
+🔧 Сервер: Digital Ocean
+📝 Изменения: ${commitMsg}
+⏰ Время: ${currentTime}`,
+
+    success: `✅ <b>Деплой успешно завершён!</b>
+
+🎉 PSY Froggy Bot обновлён
+🌐 Домен: psy-froggy-bot.invntrm.ru
+🔄 PM2: перезапущен
+📝 Изменения: ${commitMsg}
+⏰ Время: ${currentTime}`,
+
+    failure: `❌ <b>Деплой не удался!</b>
+
+💥 Ошибка при обновлении PSY Froggy Bot
+🔧 Требуется вмешательство
+📊 Проверьте логи GitHub Actions
+📝 Попытка применить: ${commitMsg}
+⏰ Время: ${currentTime}`,
+  };
+  
+  await sendTelegramNotification(messages[messageType], botToken);
+})(); 

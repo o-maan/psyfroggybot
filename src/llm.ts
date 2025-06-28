@@ -22,7 +22,7 @@ export async function generateMessage(prompt?: string): Promise<string> {
   const startTime = Date.now();
   try {
     const model = 'deepseek-ai/DeepSeek-R1-0528';
-    llmLogger.info({ model, promptLength: prompt?.length || 0 }, `🤖 Начало генерации LLM`);
+    llmLogger.info({ model, promptLength: prompt?.length || 0, prompt }, `🤖 Начало генерации LLM`);
 
     const stream = client.chatCompletionStream({
       provider: 'novita',
@@ -98,9 +98,10 @@ export async function generateMessage(prompt?: string): Promise<string> {
 export async function minimalTestLLM() {
   const startTime = Date.now();
   const model = 'Qwen/Qwen3-235B-A22B';
+  const testPrompt = 'What is the capital of France?';
 
   try {
-    llmLogger.info({ model, promptLength: 33 }, '🤖 Начало минимального теста LLM');
+    llmLogger.info({ model, promptLength: testPrompt.length, prompt: testPrompt }, '🤖 Начало минимального теста LLM');
 
     const stream = client.chatCompletionStream({
       provider: 'novita', // Используем тот же провайдер
@@ -108,7 +109,7 @@ export async function minimalTestLLM() {
       messages: [
         {
           role: 'user',
-          content: 'What is the capital of France?',
+          content: testPrompt,
         },
       ],
     });
@@ -147,7 +148,7 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
     const userResponsePrompt = fs.readFileSync(promptPath, 'utf-8');
     
     const model = 'deepseek-ai/DeepSeek-R1-0528';
-    llmLogger.info({ model, userMessageLength: userMessage.length }, '🤖 Начало генерации ответа пользователю');
+    llmLogger.info({ model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents }, '🤖 Начало генерации ответа пользователю');
 
     // Формируем контекст
     let contextMessage = userResponsePrompt + '\n\n';
@@ -162,6 +163,8 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
     
     contextMessage += `**Ответ пользователя:**\n${userMessage}\n\n`;
     contextMessage += 'Дай краткий, теплый и поддерживающий ответ (до 300 символов):';
+    
+    llmLogger.info({ contextMessageLength: contextMessage.length, contextMessage }, '📝 Полный промпт для LLM');
 
     const stream = client.chatCompletionStream({
       provider: 'novita',
@@ -239,7 +242,7 @@ export async function generateFrogImage(prompt: string): Promise<Buffer | null> 
   const startTime = Date.now();
   try {
     const model = 'black-forest-labs/FLUX.1-dev';
-    llmLogger.info({ model, promptLength: prompt.length, prompt }, `🎨 Начало генерации изображения лягушки с промптом: "${prompt}"`);
+    llmLogger.info({ model, promptLength: prompt.length, prompt }, `🎨 Начало генерации изображения лягушки`);
 
     const response = await client.textToImage({
       model,
@@ -304,7 +307,7 @@ export async function generateFrogPrompt(userMessage: string, calendarEvents?: s
     const frogPromptTemplate = fs.readFileSync(promptPath, 'utf-8');
     
     const model = 'deepseek-ai/DeepSeek-R1-0528';
-    llmLogger.info({ model, userMessageLength: userMessage.length }, '🎨 Начало генерации промпта для лягушки');
+    llmLogger.info({ model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents }, '🎨 Начало генерации промпта для лягушки');
 
     // Формируем контекст
     let contextMessage = frogPromptTemplate + '\n\n';
@@ -330,6 +333,8 @@ export async function generateFrogPrompt(userMessage: string, calendarEvents?: s
     }
     
     contextMessage += 'Создай промпт для изображения лягушки (на английском, до 200 символов):';
+    
+    llmLogger.info({ contextMessageLength: contextMessage.length, contextMessage }, '📝 Полный промпт для генерации промпта лягушки');
 
     const stream = client.chatCompletionStream({
       provider: 'novita',
