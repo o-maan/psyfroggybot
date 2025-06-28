@@ -23,7 +23,8 @@ export async function generateMessage(prompt?: string): Promise<string> {
     console.log('🔍 GENERATING MESSAGE - Prompt:', prompt);
     const result = await client.chatCompletion({
       provider: "hf-inference",
-      model: 'Qwen/Qwen3-235B-A22B', // долгая
+      model: 'deepseek-ai/DeepSeek-R1-0528', // очень долгая, 685B params
+      // model: 'Qwen/Qwen3-235B-A22B', // долгая
       // model: 'Qwen/Qwen2.5-7B-Instruct-1M',
 
       messages: [
