@@ -178,3 +178,56 @@ export function formatCalendarEvents(
     })
     .join('\n\n');
 }
+
+// Получить события календаря на сегодня для конкретного пользователя
+export async function getUserTodayEvents(chatId: number): Promise<string | null> {
+  try {
+    const { getLastUserToken } = await import('./db.ts');
+    const tokenData = getLastUserToken(chatId);
+    
+    if (!tokenData) {
+      calendarLogger.debug({ chatId }, 'У пользователя нет токена календаря');
+      return null;
+    }
+
+    const calendarService = new CalendarService();
+    const tokens = JSON.parse(tokenData.token);
+    calendarService.setToken(tokens);
+    
+    const events = await calendarService.getTodayEvents();
+    
+    if (!events || events.length === 0) {
+      calendarLogger.debug({ chatId }, 'У пользователя нет событий на сегодня');
+      return null;
+    }
+
+    // Форматируем события в простой текст для LLM
+    const eventsText = events
+      .map((event: any) => {
+        const summary = event.summary || 'Событие без названия';
+        const start = event.start?.dateTime || event.start?.date;
+        const location = event.location ? ` (${event.location})` : '';
+        
+        if (start) {
+          const eventTime = new Date(start).toLocaleTimeString('ru', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          return `${eventTime} - ${summary}${location}`;
+        }
+        return `${summary}${location}`;
+      })
+      .join(', ');
+
+    calendarLogger.info({ chatId, eventsCount: events.length }, 'События календаря получены для пользователя');
+    return eventsText;
+    
+  } catch (error) {
+    const err = error as Error;
+    calendarLogger.error(
+      { chatId, error: err.message, stack: err.stack },
+      'Ошибка получения событий календаря пользователя'
+    );
+    return null;
+  }
+}

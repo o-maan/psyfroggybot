@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import express, { Request, Response } from 'express';
 import { Telegraf } from 'telegraf';
-import { CalendarService, formatCalendarEvents } from './calendar.ts';
+import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar.ts';
 import {
   addUser,
   getLastBotMessage,
@@ -14,7 +14,7 @@ import {
   markLogAsRead,
   saveUserToken,
 } from './db.ts';
-import { generateUserResponse, minimalTestLLM } from './llm.ts';
+import { generateFrogImage, generateFrogPrompt, generateUserResponse, minimalTestLLM } from './llm.ts';
 import { botLogger, logger } from './logger.ts';
 import { Scheduler } from './scheduler.ts';
 
@@ -680,7 +680,6 @@ bot.on('text', async ctx => {
   const message = ctx.message.text;
   const chatId = ctx.chat.id;
   botLogger.debug({ userId: ctx.from?.id || 0, chatId, messageLength: message.length }, `💬 Сообщение от пользователя`);
-  const sentTime = new Date().toISOString();
   // scheduler.updateUserResponseTime(chatId, sentTime); // Удалено, чтобы не было ошибки
   scheduler.clearReminder(chatId);
 
@@ -689,13 +688,64 @@ bot.on('text', async ctx => {
     const lastMessage = getLastBotMessage(chatId);
     const lastBotMessageText = lastMessage?.message_text;
 
-    botLogger.info({ chatId, hasLastMessage: !!lastBotMessageText }, '🤖 Генерируем ответ пользователю');
+    // Получаем события календаря на сегодня
+    const calendarEvents = await getUserTodayEvents(chatId);
+
+    botLogger.info({ 
+      chatId, 
+      hasLastMessage: !!lastBotMessageText, 
+      hasCalendarEvents: !!calendarEvents 
+    }, '🤖 Генерируем ответ и изображение пользователю');
 
     // Генерируем контекстуальный ответ через LLM
-    const response = await generateUserResponse(message, lastBotMessageText);
+    const textResponse = await generateUserResponse(message, lastBotMessageText, calendarEvents || undefined);
 
-    await ctx.reply(response);
-    botLogger.info({ chatId, responseLength: response.length }, '✅ Ответ пользователю отправлен');
+    // Генерируем промпт для изображения лягушки
+    const imagePrompt = await generateFrogPrompt(message, calendarEvents || undefined, lastBotMessageText);
+    
+    botLogger.info({ chatId, imagePrompt }, '🎨 Промпт для изображения сгенерирован');
+
+    // Генерируем изображение лягушки
+    const imageBuffer = await generateFrogImage(imagePrompt);
+
+    if (imageBuffer) {
+      // Отправляем сгенерированное изображение с текстовым ответом как подпись
+      await ctx.replyWithPhoto(
+        { source: imageBuffer },
+        { caption: textResponse }
+      );
+      botLogger.info({ 
+        chatId, 
+        responseLength: textResponse.length, 
+        imageSize: imageBuffer.length 
+      }, '✅ Ответ с сгенерированным изображением отправлен пользователю');
+    } else {
+      // Fallback: используем систему ротации картинок из папки images/
+      const imagePath = scheduler.getNextImage(chatId);
+      try {
+        await ctx.replyWithPhoto(
+          { source: imagePath },
+          { caption: textResponse }
+        );
+        botLogger.info({ 
+          chatId, 
+          responseLength: textResponse.length, 
+          imagePath 
+        }, '✅ Ответ с картинкой из ротации отправлен (fallback)');
+      } catch (imageError) {
+        const imgErr = imageError as Error;
+        botLogger.error({ 
+          error: imgErr.message, 
+          stack: imgErr.stack, 
+          chatId, 
+          imagePath 
+        }, 'Ошибка отправки картинки из ротации');
+        
+        // Последний fallback - только текст
+        await ctx.reply(textResponse);
+        botLogger.info({ chatId, responseLength: textResponse.length }, '✅ Текстовый ответ отправлен (финальный fallback)');
+      }
+    }
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack, chatId }, 'Ошибка генерации ответа пользователю');

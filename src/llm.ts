@@ -139,7 +139,7 @@ export async function minimalTestLLM() {
 }
 
 // Генерация контекстуального ответа на сообщение пользователя
-export async function generateUserResponse(userMessage: string, lastBotMessage?: string): Promise<string> {
+export async function generateUserResponse(userMessage: string, lastBotMessage?: string, calendarEvents?: string): Promise<string> {
   const startTime = Date.now();
   try {
     // Загружаем промпт для анализа ответов пользователя
@@ -154,6 +154,10 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
     
     if (lastBotMessage) {
       contextMessage += `**Последнее сообщение от бота:**\n${lastBotMessage}\n\n`;
+    }
+    
+    if (calendarEvents) {
+      contextMessage += `**События календаря на сегодня:**\n${calendarEvents}\n\n`;
     }
     
     contextMessage += `**Ответ пользователя:**\n${userMessage}\n\n`;
@@ -227,5 +231,170 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
     
     // Fallback ответ при ошибке
     return 'Спасибо, что поделился! 🤍';
+  }
+}
+
+// Генерация изображения лягушки на основе промпта
+export async function generateFrogImage(prompt: string): Promise<Buffer | null> {
+  const startTime = Date.now();
+  try {
+    const model = 'black-forest-labs/FLUX.1-dev';
+    llmLogger.info({ model, promptLength: prompt.length }, '🎨 Начало генерации изображения лягушки');
+
+    const response = await client.textToImage({
+      model,
+      inputs: prompt,
+      parameters: {
+        width: 512,
+        height: 512,
+        guidance_scale: 7.5,
+        num_inference_steps: 20,
+      },
+    });
+
+    const duration = Date.now() - startTime;
+    
+    // Обрабатываем различные типы ответа
+    let buffer: Buffer;
+    
+    try {
+      if (response && typeof response === 'object' && 'arrayBuffer' in response) {
+        const arrayBuffer = await (response as any).arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+      } else if (Buffer.isBuffer(response)) {
+        buffer = response;
+      } else {
+        // Пытаемся обработать как ArrayBuffer или другой тип
+        buffer = Buffer.from(response as any);
+      }
+      
+      llmLogger.info(
+        { duration, imageSize: buffer.length },
+        `✅ Изображение лягушки сгенерировано за ${duration}ms`
+      );
+      return buffer;
+    } catch (conversionError) {
+      llmLogger.error({ 
+        model, 
+        responseType: typeof response,
+        conversionError: (conversionError as Error).message 
+      }, 'Ошибка конвертации ответа модели изображений');
+      return null;
+    }
+  } catch (e) {
+    const error = e as Error;
+    llmLogger.error(
+      {
+        error: error.message,
+        stack: error.stack,
+        model: 'black-forest-labs/FLUX.1-dev',
+      },
+      'Ошибка генерации изображения лягушки'
+    );
+    return null;
+  }
+}
+
+// Генерация промпта для изображения лягушки на основе пользовательского ответа и календаря
+export async function generateFrogPrompt(userMessage: string, calendarEvents?: string, lastBotMessage?: string): Promise<string> {
+  const startTime = Date.now();
+  try {
+    // Загружаем промпт для генерации описания лягушки
+    const promptPath = './assets/prompts/frog-image-prompt.md';
+    const frogPromptTemplate = fs.readFileSync(promptPath, 'utf-8');
+    
+    const model = 'deepseek-ai/DeepSeek-R1-0528';
+    llmLogger.info({ model, userMessageLength: userMessage.length }, '🎨 Начало генерации промпта для лягушки');
+
+    // Формируем контекст
+    let contextMessage = frogPromptTemplate + '\n\n';
+    
+    // Добавляем текущую дату для контекста
+    const today = new Date();
+    const dateString = today.toLocaleDateString('ru-RU', {
+      weekday: 'long',
+      year: 'numeric', 
+      month: 'long',
+      day: 'numeric'
+    });
+    contextMessage += `**Сегодня:** ${dateString}\n\n`;
+    
+    if (lastBotMessage) {
+      contextMessage += `**Последнее сообщение от бота:**\n${lastBotMessage}\n\n`;
+    }
+    
+    contextMessage += `**Ответ пользователя:**\n${userMessage}\n\n`;
+    
+    if (calendarEvents) {
+      contextMessage += `**События календаря на сегодня:**\n${calendarEvents}\n\n`;
+    }
+    
+    contextMessage += 'Создай промпт для изображения лягушки (на английском, до 200 символов):';
+
+    const stream = client.chatCompletionStream({
+      provider: 'novita',
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: contextMessage,
+        },
+      ],
+      parameters: {
+        max_new_tokens: 100,
+        temperature: 0.9,
+        top_p: 0.95,
+      },
+    });
+
+    let fullResponse = '';
+    let chunkCount = 0;
+
+    for await (const chunk of stream) {
+      if (chunk.choices && chunk.choices[0]?.delta?.content) {
+        const content = chunk.choices[0].delta.content;
+        fullResponse += content;
+        chunkCount++;
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    llmLogger.info(
+      { chunkCount, finalLength: fullResponse.length, duration },
+      `✅ Промпт для лягушки сгенерирован за ${duration}ms`
+    );
+
+    // Очищаем и форматируем результат
+    let prompt = fullResponse
+      .replace(/\\n/g, ' ')
+      .replace(/<think>(.*?)<\/think>/gm, '')
+      .replace(/"/g, '')
+      .trim();
+
+    // Ограничиваем длину промпта
+    if (prompt.length > 200) {
+      prompt = prompt.substring(0, 197) + '...';
+    }
+
+    // Если промпт слишком короткий, используем fallback
+    if (prompt.length < 10) {
+      llmLogger.error({ model, promptLength: prompt.length }, 'Промпт для лягушки слишком короткий');
+      return 'anthropomorphic frog portrait, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer';
+    }
+
+    return prompt;
+  } catch (e) {
+    const error = e as Error;
+    llmLogger.error(
+      {
+        error: error.message,
+        stack: error.stack,
+        model: 'deepseek-ai/DeepSeek-R1-0528',
+      },
+      'Ошибка генерации промпта для лягушки'
+    );
+    
+    // Fallback промпт при ошибке
+    return 'anthropomorphic frog portrait, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer';
   }
 }
