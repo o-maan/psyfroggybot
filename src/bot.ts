@@ -4,6 +4,7 @@ import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents } from './calendar.ts';
 import {
   addUser,
+  getLastBotMessage,
   getLastUserToken,
   getLogsCount,
   getLogsStatistics,
@@ -13,7 +14,7 @@ import {
   markLogAsRead,
   saveUserToken,
 } from './db.ts';
-import { minimalTestLLM } from './llm.ts';
+import { generateUserResponse, minimalTestLLM } from './llm.ts';
 import { botLogger, logger } from './logger.ts';
 import { Scheduler } from './scheduler.ts';
 
@@ -280,17 +281,6 @@ bot.command('status', async ctx => {
       }</code>`,
     { parse_mode: 'HTML' }
   );
-});
-
-// Обработка текстовых сообщений
-bot.on('text', async ctx => {
-  const message = ctx.message.text;
-  const chatId = ctx.chat.id;
-  botLogger.debug({ userId: ctx.from?.id || 0, chatId, messageLength: message.length }, `💬 Сообщение от пользователя`);
-  const sentTime = new Date().toISOString();
-  // scheduler.updateUserResponseTime(chatId, sentTime); // Удалено, чтобы не было ошибки
-  scheduler.clearReminder(chatId);
-  await ctx.reply('Интересно, но не понятно! 😊');
 });
 
 // Команда для тестирования автоматической отправки
@@ -680,6 +670,38 @@ bot.action(/log_read_(\d+)/, async ctx => {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка отметки одного лога');
     await ctx.answerCbQuery('❌ Ошибка при отметке лога');
+  }
+});
+
+// ========== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ==========
+
+// Обработка текстовых сообщений
+bot.on('text', async ctx => {
+  const message = ctx.message.text;
+  const chatId = ctx.chat.id;
+  botLogger.debug({ userId: ctx.from?.id || 0, chatId, messageLength: message.length }, `💬 Сообщение от пользователя`);
+  const sentTime = new Date().toISOString();
+  // scheduler.updateUserResponseTime(chatId, sentTime); // Удалено, чтобы не было ошибки
+  scheduler.clearReminder(chatId);
+
+  try {
+    // Получаем последнее сообщение бота для контекста
+    const lastMessage = getLastBotMessage(chatId);
+    const lastBotMessageText = lastMessage?.message_text;
+
+    botLogger.info({ chatId, hasLastMessage: !!lastBotMessageText }, '🤖 Генерируем ответ пользователю');
+
+    // Генерируем контекстуальный ответ через LLM
+    const response = await generateUserResponse(message, lastBotMessageText);
+
+    await ctx.reply(response);
+    botLogger.info({ chatId, responseLength: response.length }, '✅ Ответ пользователю отправлен');
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ error: err.message, stack: err.stack, chatId }, 'Ошибка генерации ответа пользователю');
+
+    // Fallback ответ при ошибке
+    await ctx.reply('Спасибо, что поделился! 🤍');
   }
 });
 

@@ -3,7 +3,8 @@
     "allow": [
       "mcp__ide__getDiagnostics",
       "Bash(git add:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(bun run lint:*)"
     ],
     "deny": []
   }
