@@ -2,18 +2,20 @@ import fs, { readFileSync } from 'fs';
 import * as cron from 'node-cron';
 import path from 'path';
 import { Telegraf } from 'telegraf';
-import { CalendarService, formatCalendarEvents } from './calendar';
+import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar';
 import {
   addUser,
   clearUserTokens,
   getAllUsers,
+  getLastBotMessage,
   getLastNBotMessages,
+  getLastUserMessage,
   getUserImageIndex,
   getUserResponseStats,
   saveMessage,
   saveUserImageIndex,
 } from './db';
-import { generateMessage } from './llm';
+import { generateFrogImage, generateFrogPrompt, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 
 // Функция экранирования для HTML (Telegram)
@@ -290,17 +292,77 @@ export class Scheduler {
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
       const message = await this.generateScheduledMessage(chatId);
-      const imagePath = this.getNextImage(chatId);
+
+      // Получаем события календаря для генерации изображения
+      const calendarEvents = await getUserTodayEvents(chatId);
+
+      // Генерируем промпт и изображение лягушки
+      let imageBuffer: Buffer | null = null;
+      try {
+        // Получаем последнее сообщения
+        const lastUserMessage = getLastUserMessage(chatId);
+        const userMessageText = lastUserMessage?.message_text || 'Пользователь еще не отвечал';
+        const lastBotMessage = getLastBotMessage(chatId);
+        const botMessageText = lastBotMessage?.message_text || 'Бот еще не отвечал';
+
+        // Используем последнее сообщение пользователя для промпта изображения
+        const imagePrompt = await generateFrogPrompt(userMessageText, calendarEvents || undefined, botMessageText);
+
+        schedulerLogger.info({ chatId, imagePrompt }, `🎨 Промпт для планируемого изображения: "${imagePrompt}"`);
+        imageBuffer = await generateFrogImage(imagePrompt);
+      } catch (imageError) {
+        const imgErr = imageError as Error;
+        schedulerLogger.error(
+          {
+            error: imgErr.message,
+            stack: imgErr.stack,
+            chatId,
+          },
+          'Ошибка генерации изображения для планируемого сообщения'
+        );
+      }
+
       const caption = message.length > 1024 ? message.slice(0, 1020) + '...' : message;
-      // Отправляем фото с подписью
-      await this.bot.telegram.sendPhoto(
-        this.CHANNEL_ID,
-        { source: imagePath },
-        {
-          caption,
-          parse_mode: 'HTML',
-        }
-      );
+
+      if (imageBuffer) {
+        // Отправляем сгенерированное изображение
+        await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imageBuffer },
+          {
+            caption,
+            parse_mode: 'HTML',
+          }
+        );
+        schedulerLogger.info(
+          {
+            chatId,
+            messageLength: message.length,
+            imageSize: imageBuffer.length,
+          },
+          'Сообщение с сгенерированным изображением отправлено'
+        );
+      } else {
+        // Fallback: используем старую систему ротации
+        const imagePath = this.getNextImage(chatId);
+        await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imagePath },
+          {
+            caption,
+            parse_mode: 'HTML',
+          }
+        );
+        schedulerLogger.info(
+          {
+            chatId,
+            messageLength: message.length,
+            imagePath,
+          },
+          'Сообщение с изображением из ротации отправлено (fallback)'
+        );
+      }
+
       // Если текст был обрезан — отправляем полный текст отдельным сообщением
       if (message.length > 1024) {
         await this.bot.telegram.sendMessage(this.CHANNEL_ID, message, {
@@ -309,7 +371,6 @@ export class Scheduler {
       }
       const sentTime = new Date().toISOString();
       saveMessage(chatId, message, sentTime);
-      schedulerLogger.info({ chatId, messageLength: message.length }, 'Сообщение отправлено и сохранено');
       // Устанавливаем напоминание через 1.5 часа
       this.setReminder(chatId, sentTime);
     } catch (e) {
@@ -380,49 +441,46 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Установить напоминание с учётом календаря и генерацией креативного текста
   async setReminder(chatId: number, sentBotMsgTime: string) {
-    const timeout = setTimeout(
-      async () => {
-        const stats = getUserResponseStats(chatId);
-        if (!stats || !stats.last_response_time || new Date(stats.last_response_time) < new Date(sentBotMsgTime)) {
-          // Получаем события за неделю назад и день вперёд
-          const now = new Date();
-          const weekAgo = new Date(now);
-          weekAgo.setDate(now.getDate() - 7);
-          const tomorrow = new Date(now);
-          tomorrow.setDate(now.getDate() + 1);
-          const events = await this.calendarService.getEvents(weekAgo.toISOString(), tomorrow.toISOString());
-          // Фильтруем только эмоционально заряженные события (например, по ключевым словам)
-          const importantEvents = (events || []).filter((event: any) => {
-            const summary = (event.summary || '').toLowerCase();
-            // Пример фильтрации: пропускаем события без описания или с нейтральными словами
-            const neutralWords = ['напоминание', 'дело', 'встреча', 'meeting', 'call', 'appointment'];
-            if (!summary) return false;
-            return !neutralWords.some(word => summary.includes(word));
-          });
-          // Формируем промпт для генерации напоминания
-          let prompt =
-            'Составь креативное, дружелюбное напоминание для пользователя, учитывая его недавние важные события:\n';
-          if (importantEvents.length > 0) {
-            prompt += 'Вот список событий:\n';
-            prompt += importantEvents
-              .map((event: any) => {
-                const start = event.start.dateTime || event.start.date;
-                const time = event.start.dateTime ? new Date(event.start.dateTime).toLocaleString() : 'Весь день';
-                return `• ${event.summary} (${time})`;
-              })
-              .join('\n');
-          } else {
-            prompt += 'Нет ярко выраженных событий за последнюю неделю.';
-          }
-          prompt += '\nПожелай хорошего дня и мягко напомни ответить на сообщение.';
-          // Генерируем текст напоминания
-          const reminderText = await generateMessage(prompt);
-          // Отправляем напоминание пользователю по chatId
-          await this.bot.telegram.sendMessage(chatId, reminderText);
+    const timeout = setTimeout(async () => {
+      const stats = getUserResponseStats(chatId);
+      if (!stats || !stats.last_response_time || new Date(stats.last_response_time) < new Date(sentBotMsgTime)) {
+        // Получаем события за неделю назад и день вперёд
+        const now = new Date();
+        const weekAgo = new Date(now);
+        weekAgo.setDate(now.getDate() - 7);
+        const tomorrow = new Date(now);
+        tomorrow.setDate(now.getDate() + 1);
+        const events = await this.calendarService.getEvents(weekAgo.toISOString(), tomorrow.toISOString());
+        // Фильтруем только эмоционально заряженные события (например, по ключевым словам)
+        const importantEvents = (events || []).filter((event: any) => {
+          const summary = (event.summary || '').toLowerCase();
+          // Пример фильтрации: пропускаем события без описания или с нейтральными словами
+          const neutralWords = ['напоминание', 'дело', 'встреча', 'meeting', 'call', 'appointment'];
+          if (!summary) return false;
+          return !neutralWords.some(word => summary.includes(word));
+        });
+        // Формируем промпт для генерации напоминания
+        let prompt =
+          'Составь креативное, дружелюбное напоминание для пользователя, учитывая его недавние важные события:\n';
+        if (importantEvents.length > 0) {
+          prompt += 'Вот список событий:\n';
+          prompt += importantEvents
+            .map((event: any) => {
+              const start = event.start.dateTime || event.start.date;
+              const time = event.start.dateTime ? new Date(event.start.dateTime).toLocaleString() : 'Весь день';
+              return `• ${event.summary} (${time})`;
+            })
+            .join('\n');
+        } else {
+          prompt += 'Нет ярко выраженных событий за последнюю неделю.';
         }
-      },
-      1.5 * 60 * 60 * 1000
-    ); // 1.5 часа
+        prompt += '\nПожелай хорошего дня и мягко напомни ответить на сообщение.';
+        // Генерируем текст напоминания
+        const reminderText = await generateMessage(prompt);
+        // Отправляем напоминание пользователю по chatId
+        await this.bot.telegram.sendMessage(chatId, reminderText);
+      }
+    }, 1.5 * 60 * 60 * 1000); // 1.5 часа
 
     this.reminderTimeouts.set(chatId, timeout);
   }

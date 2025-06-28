@@ -38,6 +38,7 @@ db.query(
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    author_id INTEGER,
     message_text TEXT,
     sent_time TEXT,
     response_time TEXT,
@@ -45,6 +46,7 @@ db.query(
   )
 `
 ).run();
+
 
 // Создаем таблицу для хранения токенов пользователя
 // Таблица user_tokens: id, chat_id, token, created_at
@@ -121,12 +123,12 @@ export const getUserResponseStats = (chatId: number) => {
 };
 
 // Функции для работы с сообщениями
-export const saveMessage = (chatId: number, messageText: string, sentTime: string) => {
+export const saveMessage = (chatId: number, messageText: string, sentTime: string, authorId: number = 0) => {
   const insertMessage = db.query(`
-    INSERT INTO messages (user_id, message_text, sent_time)
-    SELECT id, ?, ? FROM users WHERE chat_id = ?
+    INSERT INTO messages (user_id, author_id, message_text, sent_time)
+    SELECT id, ?, ?, ? FROM users WHERE chat_id = ?
   `);
-  insertMessage.run(messageText, sentTime, chatId);
+  insertMessage.run(authorId, messageText, sentTime, chatId);
 };
 
 export const updateMessageResponse = (chatId: number, sentTime: string, responseTime: string) => {
@@ -145,7 +147,20 @@ export const getLastBotMessage = (chatId: number) => {
     SELECT m.message_text, m.sent_time
     FROM messages m
     JOIN users u ON m.user_id = u.id
-    WHERE u.chat_id = ?
+    WHERE u.chat_id = ? AND m.author_id = 0
+    ORDER BY m.sent_time DESC
+    LIMIT 1
+  `);
+  return getMessage.get(chatId) as { message_text: string; sent_time: string } | undefined;
+};
+
+// Получить последнее сообщение от пользователя
+export const getLastUserMessage = (chatId: number) => {
+  const getMessage = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ? AND m.author_id = u.id
     ORDER BY m.sent_time DESC
     LIMIT 1
   `);
@@ -158,7 +173,7 @@ export const getLastNBotMessages = (chatId: number, n: number) => {
     SELECT m.message_text, m.sent_time
     FROM messages m
     JOIN users u ON m.user_id = u.id
-    WHERE u.chat_id = ?
+    WHERE u.chat_id = ? AND m.author_id = 0
     ORDER BY m.sent_time DESC
     LIMIT ?
   `);
@@ -200,7 +215,7 @@ export const saveUserImageIndex = (chatId: number, imageIndex: number) => {
     `);
     upsert.run(chatId, imageIndex);
     // Логируем всё содержимое таблицы для дебага
-    const all = db.query('SELECT * FROM user_image_indexes').all();
+    // const all = db.query('SELECT * FROM user_image_indexes').all();
     // Убираем детальное логирование
   } catch (e) {
     const error = e as Error;

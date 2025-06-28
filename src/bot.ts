@@ -5,6 +5,7 @@ import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './cal
 import {
   addUser,
   getLastBotMessage,
+  getLastUserMessage,
   getLastUserToken,
   getLogsCount,
   getLogsStatistics,
@@ -12,9 +13,10 @@ import {
   getUnreadLogsCount,
   markAllLogsAsRead,
   markLogAsRead,
+  saveMessage,
   saveUserToken,
 } from './db.ts';
-import { generateFrogImage, generateFrogPrompt, generateUserResponse, minimalTestLLM } from './llm.ts';
+import { generateUserResponse, minimalTestLLM } from './llm.ts';
 import { botLogger, logger } from './logger.ts';
 import { Scheduler } from './scheduler.ts';
 
@@ -684,6 +686,11 @@ bot.on('text', async ctx => {
   scheduler.clearReminder(chatId);
 
   try {
+    // Сохраняем сообщение пользователя в БД (author_id = userId пользователя)
+    const userId = ctx.from?.id || 0;
+    const userMessageTime = new Date().toISOString();
+    saveMessage(chatId, message, userMessageTime, userId);
+
     // Получаем последнее сообщение бота для контекста
     const lastMessage = getLastBotMessage(chatId);
     const lastBotMessageText = lastMessage?.message_text;
@@ -691,67 +698,37 @@ bot.on('text', async ctx => {
     // Получаем события календаря на сегодня
     const calendarEvents = await getUserTodayEvents(chatId);
 
-    botLogger.info({ 
-      chatId, 
-      hasLastMessage: !!lastBotMessageText, 
-      hasCalendarEvents: !!calendarEvents 
-    }, '🤖 Генерируем ответ и изображение пользователю');
+    botLogger.info(
+      {
+        chatId,
+        hasLastMessage: !!lastBotMessageText,
+        hasCalendarEvents: !!calendarEvents,
+      },
+      '🤖 Генерируем ответ пользователю'
+    );
 
     // Генерируем контекстуальный ответ через LLM
     const textResponse = await generateUserResponse(message, lastBotMessageText, calendarEvents || undefined);
 
-    // Генерируем промпт для изображения лягушки
-    const imagePrompt = await generateFrogPrompt(message, calendarEvents || undefined, lastBotMessageText);
+    // Отправляем текстовый ответ
+    await ctx.reply(textResponse);
     
-    botLogger.info({ chatId, imagePrompt }, '🎨 Промпт для изображения сгенерирован');
-
-    // Генерируем изображение лягушки
-    const imageBuffer = await generateFrogImage(imagePrompt);
-
-    if (imageBuffer) {
-      // Отправляем сгенерированное изображение с текстовым ответом как подпись
-      await ctx.replyWithPhoto(
-        { source: imageBuffer },
-        { caption: textResponse }
-      );
-      botLogger.info({ 
-        chatId, 
-        responseLength: textResponse.length, 
-        imageSize: imageBuffer.length 
-      }, '✅ Ответ с сгенерированным изображением отправлен пользователю');
-    } else {
-      // Fallback: используем систему ротации картинок из папки images/
-      const imagePath = scheduler.getNextImage(chatId);
-      try {
-        await ctx.replyWithPhoto(
-          { source: imagePath },
-          { caption: textResponse }
-        );
-        botLogger.info({ 
-          chatId, 
-          responseLength: textResponse.length, 
-          imagePath 
-        }, '✅ Ответ с картинкой из ротации отправлен (fallback)');
-      } catch (imageError) {
-        const imgErr = imageError as Error;
-        botLogger.error({ 
-          error: imgErr.message, 
-          stack: imgErr.stack, 
-          chatId, 
-          imagePath 
-        }, 'Ошибка отправки картинки из ротации');
-        
-        // Последний fallback - только текст
-        await ctx.reply(textResponse);
-        botLogger.info({ chatId, responseLength: textResponse.length }, '✅ Текстовый ответ отправлен (финальный fallback)');
-      }
-    }
+    // Сохраняем ответ бота в БД (author_id = 0 для бота)
+    const botResponseTime = new Date().toISOString();
+    saveMessage(chatId, textResponse, botResponseTime, 0);
+    
+    botLogger.info({ chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack, chatId }, 'Ошибка генерации ответа пользователю');
 
     // Fallback ответ при ошибке
-    await ctx.reply('Спасибо, что поделился! 🤍');
+    const fallbackMessage = 'Спасибо, что поделился! 🤍';
+    await ctx.reply(fallbackMessage);
+    
+    // Сохраняем fallback ответ в БД
+    const fallbackTime = new Date().toISOString();
+    saveMessage(chatId, fallbackMessage, fallbackTime, 0);
   }
 });
 

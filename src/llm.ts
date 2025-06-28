@@ -202,7 +202,7 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
 
     // Очищаем и форматируем результат
     let response = fullResponse
-      .replace(/\\n/g, ' ')
+      .replace(/\n/g, ' ')
       .replace(/<think>(.*?)<\/think>/gm, '')
       .trim();
 
@@ -239,7 +239,7 @@ export async function generateFrogImage(prompt: string): Promise<Buffer | null> 
   const startTime = Date.now();
   try {
     const model = 'black-forest-labs/FLUX.1-dev';
-    llmLogger.info({ model, promptLength: prompt.length }, '🎨 Начало генерации изображения лягушки');
+    llmLogger.info({ model, promptLength: prompt.length, prompt }, `🎨 Начало генерации изображения лягушки с промптом: "${prompt}"`);
 
     const response = await client.textToImage({
       model,
@@ -366,7 +366,7 @@ export async function generateFrogPrompt(userMessage: string, calendarEvents?: s
 
     // Очищаем и форматируем результат
     let prompt = fullResponse
-      .replace(/\\n/g, ' ')
+      .replace(/\n/g, ' ')
       .replace(/<think>(.*?)<\/think>/gm, '')
       .replace(/"/g, '')
       .trim();

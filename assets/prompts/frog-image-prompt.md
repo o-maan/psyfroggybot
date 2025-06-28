@@ -1,6 +1,6 @@
 # Промпт для генерации описания лягушки-психолога
 
-Создай краткое описание (до 200 символов) для генерации изображения лягушки-психолога на основе ответа пользователя и его календаря на сегодня.
+Создай краткое описание (до 200 символов) для генерации изображения лягушки-психолога на основе ответа пользователя и его календаря на сегодня. Промпт должен быть на английском языке.
 
 ## Концепция
 
@@ -13,8 +13,10 @@
 
 ### Базовые элементы (всегда включать)
 
-- "frog portrait looking at viewer"
-- "anthropomorphic frog"
+- "green frog portrait looking at viewer"
+- "anthropomorphic frog character"
+- "frog face with big eyes"
+- "amphibian features"
 - "friendly expression"
 - "professional but warm"
 
@@ -46,18 +48,18 @@
 ## Примеры хороших промптов
 
 **Обычный день:**
-"anthropomorphic frog portrait, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer"
+"green frog portrait, anthropomorphic frog character, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer"
 
 **Рабочий стресс:**
-"calm frog therapist, meditation pose, zen garden, soft pastels, peaceful expression, looking at viewer"
+"calm green frog therapist, frog face with big eyes, meditation pose, zen garden, soft pastels, peaceful expression, looking at viewer"
 
 **Достижение:**
-"cheerful frog portrait, celebratory, bright colors, thumbs up, confetti background, looking at viewer"
+"cheerful green frog portrait, anthropomorphic frog character, celebratory, bright colors, thumbs up, confetti background, looking at viewer"
 
 **Перелет:**
-"frog traveler portrait, airplane window, luggage, friendly pilot hat, clouds background, looking at viewer"
+"green frog traveler portrait, frog face with big eyes, airplane window, luggage, friendly pilot hat, clouds background, looking at viewer"
 
 **Расслабление:**
-"cozy frog in sweater, home setting, warm lighting, relaxed pose, cup of tea, looking at viewer"
+"cozy green frog in sweater, anthropomorphic frog character, home setting, warm lighting, relaxed pose, cup of tea, looking at viewer"
 
 Отвечай только промптом на английском языке, без дополнительных пояснений.
