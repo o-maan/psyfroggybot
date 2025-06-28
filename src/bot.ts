@@ -5,7 +5,6 @@ import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './cal
 import {
   addUser,
   getLastBotMessage,
-  getLastUserMessage,
   getLastUserToken,
   getLogsCount,
   getLogsStatistics,
@@ -77,7 +76,6 @@ restServ.all('/oauth2callback', async (req: Request, res: Response) => {
 
 restServ.get('/status', (req: Request, res: Response) => {
   res.json({ status: 'up' });
-  // Убираем, это не нужно логировать
 });
 
 restServ.all('/sendDailyMessage', async (req: Request, res: Response) => {
@@ -712,11 +710,11 @@ bot.on('text', async ctx => {
 
     // Отправляем текстовый ответ
     await ctx.reply(textResponse);
-    
+
     // Сохраняем ответ бота в БД (author_id = 0 для бота)
     const botResponseTime = new Date().toISOString();
     saveMessage(chatId, textResponse, botResponseTime, 0);
-    
+
     botLogger.info({ chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
   } catch (error) {
     const err = error as Error;
@@ -725,7 +723,7 @@ bot.on('text', async ctx => {
     // Fallback ответ при ошибке
     const fallbackMessage = 'Спасибо, что поделился! 🤍';
     await ctx.reply(fallbackMessage);
-    
+
     // Сохраняем fallback ответ в БД
     const fallbackTime = new Date().toISOString();
     saveMessage(chatId, fallbackMessage, fallbackTime, 0);
