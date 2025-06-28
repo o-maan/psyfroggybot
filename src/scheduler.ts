@@ -93,7 +93,7 @@ export class Scheduler {
 
   // Вспомогательная функция для проверки перелёта/аэропорта в событиях
   private hasFlightEvent(events: any[]): boolean {
-    return events.some(e => /перел[её]т|аэропорт|flight|airport/i.test(e.summary || ''));
+    return events.some(e => /перел[её]т|аэропорт|рейс|поезд|flight|airport|train/i.test(e.summary || ''));
   }
 
   // Вспомогательная функция для формирования сообщения по правилам
@@ -199,12 +199,32 @@ export class Scheduler {
       // Не логируем, это не критично
     }
 
-    let promptBase = readFileSync('assets/prompts/scheduled-message.md', 'utf-8');
+    const hasFlight = this.hasFlightEvent(events || []);
+    const promptPath = hasFlight ? 'assets/prompts/scheduled-message-flight.md' : 'assets/prompts/scheduled-message.md';
+
+    // Добавляем логирование для отладки
+    schedulerLogger.info(
+      {
+        chatId,
+        hasFlight,
+        promptPath,
+        eventsCount: events?.length || 0,
+      },
+      `🔍 Выбор промпта: ${hasFlight ? 'FLIGHT' : 'NORMAL'}`
+    );
+
+    let promptBase = readFileSync(promptPath, 'utf-8');
+
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
-    if (this.hasFlightEvent(events || [])) {
+    if (hasFlight) {
       // Если есть перелёт — полностью генерируем текст через HF, ограничиваем 555 символами
-      prompt += '\nСегодня у пользователя перелёт или аэропорт.';
+      schedulerLogger.info({ chatId }, '✈️ Используем FLIGHT промпт');
       let text = await generateMessage(prompt);
+      schedulerLogger.info(
+        { chatId, textLength: text?.length || 0 },
+        `📝 LLM ответ получен: ${text?.substring(0, 100)}...`
+      );
+
       if (text.length > 555) text = text.slice(0, 552) + '...';
       // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
       let jsonText = text.replace(/```json|```/gi, '').trim();
@@ -238,13 +258,20 @@ export class Scheduler {
       } catch {}
       // Fallback для перелёта
       const fallbackFlight =
-        'Кажется чатик не хочет работать - негодяй!\nКайфового полета :) Давай пока ты будешь лететь ты подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать) Главное пострайся при этом почувствовать что-то хорошее ♥';
+        'Кажется чатик не хочет работать - негодяй!\n\nКайфового полета :) Давай пока ты будешь лететь ты подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
       saveMessage(chatId, fallbackFlight, new Date().toISOString());
       return fallbackFlight;
     } else {
       // Обычный день — используем структуру с пунктами
+      schedulerLogger.info({ chatId }, '📅 Используем NORMAL промпт');
       let jsonText = await generateMessage(prompt);
+      schedulerLogger.info(
+        { chatId, jsonLength: jsonText?.length || 0 },
+        `📝 LLM ответ получен: ${jsonText?.substring(0, 100)}...`
+      );
+
       if (jsonText === 'HF_JSON_ERROR') {
+        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR');
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }
@@ -275,6 +302,7 @@ export class Scheduler {
         }
       } catch {
         // fallback всегда
+        schedulerLogger.warn({ chatId }, '❌ JSON парсинг не удался, используем fallback');
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }

@@ -250,7 +250,20 @@ bot.command('next_image', async ctx => {
   } catch (e) {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка команды next_image');
-    await ctx.reply('Ошибка при получении следующей картинки: ' + error);
+    await ctx.reply(`Ошибка при получении картинки: ${error.message}`);
+  }
+});
+
+// Временная команда для проверки текста
+bot.command('fly1', async ctx => {
+  const text =
+    'Кажется чатик не хочет работать - негодяй!\n\nКайфового полета :) Давай пока ты будешь лететь ты подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
+
+  try {
+    await bot.telegram.sendMessage(scheduler.CHANNEL_ID, text);
+    await ctx.reply('✅ Тестовое сообщение отправлено в канал!');
+  } catch (error) {
+    await ctx.reply(`❌ Ошибка отправки: ${error}`);
   }
 });
 
@@ -807,7 +820,7 @@ bot.on('text', async ctx => {
           hour: '2-digit',
           minute: '2-digit',
         });
-        const author = msg.author_id === 0 ? 'Бот' : (msg.username || 'Пользователь');
+        const author = msg.author_id === 0 ? 'Бот' : msg.username || 'Пользователь';
         return `[${date}] ${author}: ${msg.message_text}`;
       })
       .join('\n');
