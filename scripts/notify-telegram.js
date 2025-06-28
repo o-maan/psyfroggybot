@@ -49,9 +49,29 @@ const currentTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Mosco
 async function getCommitMessage() {
   if (process.env.GITHUB_SHA) {
     try {
-      // В GitHub Actions можно получить commit message через git log
-      const { execSync } = require('child_process');
-      const commitMsg = execSync(`git log -1 --pretty=%B ${process.env.GITHUB_SHA}`, { encoding: 'utf8' }).trim();
+      // Получаем commit message используя git. Поддерживаем как Node (child_process.execSync), так и Bun (Bun.spawnSync)
+      let commitMsg;
+      try {
+        // Если это среда Bun, используем Bun.spawnSync
+        if (typeof Bun !== "undefined" && Bun.spawnSync) {
+          const result = Bun.spawnSync({
+            cmd: ["git", "log", "-1", "--pretty=%B", process.env.GITHUB_SHA],
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          if (result.exitCode === 0) {
+            commitMsg = new TextDecoder().decode(result.stdout).trim();
+          } else {
+            throw new Error(new TextDecoder().decode(result.stderr));
+          }
+        } else {
+          // Обычный Node.js runtime
+          const { execSync } = require("child_process");
+          commitMsg = execSync(`git log -1 --pretty=%B ${process.env.GITHUB_SHA}`, { encoding: "utf8" }).trim();
+        }
+      } catch (innerErr) {
+        throw innerErr;
+      }
       return `${commitMsg} (${process.env.GITHUB_SHA.substring(0, 7)})`;
     } catch (error) {
       console.warn('Не удалось получить commit message:', error.message);

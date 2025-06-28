@@ -34,14 +34,6 @@ bun run pm2:start              # Start with PM2 process manager
 bun run lint                   # TypeScript type checking
 ```
 
-### Notifications
-
-```bash
-bun run notify:start           # Send deployment start notification to Telegram
-bun run notify:success         # Send success notification
-bun run notify:failure         # Send failure notification
-```
-
 ## Architecture Overview
 
 ### Core Components

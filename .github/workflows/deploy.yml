@@ -25,7 +25,7 @@ jobs:
 
       - name: Notify Telegram - Start
         run: |
-          node scripts/notify-telegram.js start
+          bun scripts/notify-telegram.js start
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
@@ -125,13 +125,13 @@ jobs:
       - name: Notify Telegram - Success
         if: success()
         run: |
-          node scripts/notify-telegram.js success
+          bun scripts/notify-telegram.js success
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
       - name: Notify Telegram - Failure
         if: failure()
         run: |
-          node scripts/notify-telegram.js failure
+          bun scripts/notify-telegram.js failure
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

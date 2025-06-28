@@ -8,9 +8,6 @@
     "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest",
     "build": "bun build src/bot.ts --outdir dist --target node",
     "pm2:start": "NODE_ENV=production bun run build && NODE_ENV=production pm2 start ecosystem.config.cjs",
-    "notify:start": "node scripts/notify-telegram.js start",
-    "notify:success": "node scripts/notify-telegram.js success",
-    "notify:failure": "node scripts/notify-telegram.js failure",
     "lint": "tsc --noEmit --skipLibCheck"
   },
   "dependencies": {
