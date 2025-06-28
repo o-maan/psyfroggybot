@@ -1,23 +1,20 @@
-import { Database } from "bun:sqlite";
-import fs from "fs";
+import { Database } from 'bun:sqlite';
+import fs from 'fs';
+import { databaseLogger } from './logger';
 
 // Определяем путь к базе данных в зависимости от окружения
-const isProduction = process.env.NODE_ENV === "production";
-const dbPath = isProduction
-  ? "/var/www/databases/psy_froggy_bot/froggy.db"
-  : "./froggy.db";
+const isProduction = process.env.NODE_ENV === 'production';
+const dbPath = isProduction ? '/var/www/databases/psy_froggy_bot/froggy.db' : './froggy.db';
 
 try {
-  console.log("🔍 DB - Environment:", process.env.NODE_ENV);
-  console.log("🔍 DB - Database path:", dbPath);
+  databaseLogger.info({ dbPath }, '🚀 Инициализация БД');
   if (isProduction) {
-    console.log(
-      '🔍 DB - fs.readdirSync("/var/www/databases/psy_froggy_bot")',
-      fs.readdirSync("/var/www/databases/psy_froggy_bot")
-    );
+    const files = fs.readdirSync('/var/www/databases/psy_froggy_bot');
+    databaseLogger.debug({ files }, 'Файлы в каталоге БД');
   }
 } catch (e) {
-  console.log(e);
+  const error = e as Error;
+  databaseLogger.error({ error: error.message, stack: error.stack }, 'Ошибка инициализации БД');
 }
 
 // Создаем базу данных
@@ -77,18 +74,38 @@ db.query(
 `
 ).run();
 
+// Создаем таблицу для хранения логов
+// Таблица logs: id, level, message, data, timestamp, is_read, created_at
+
+db.query(
+  `
+  CREATE TABLE IF NOT EXISTS logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT,
+    timestamp TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`
+).run();
+
+// Создаем индекс для быстрого поиска логов
+db.query(`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)`).run();
+db.query(`CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)`).run();
+db.query(`CREATE INDEX IF NOT EXISTS idx_logs_is_read ON logs(is_read)`).run();
+
 // Функции для работы с пользователями
 export const addUser = (chatId: number, username: string) => {
-  const insertUser = db.query(
-    "INSERT OR IGNORE INTO users (chat_id, username) VALUES (?, ?)"
-  );
+  const insertUser = db.query('INSERT OR IGNORE INTO users (chat_id, username) VALUES (?, ?)');
   insertUser.run(chatId, username);
 };
 
 export const updateUserResponse = (chatId: number, responseTime: string) => {
   const updateUser = db.query(`
-    UPDATE users 
-    SET last_response_time = ?, response_count = response_count + 1 
+    UPDATE users
+    SET last_response_time = ?, response_count = response_count + 1
     WHERE chat_id = ?
   `);
   updateUser.run(responseTime, chatId);
@@ -96,21 +113,15 @@ export const updateUserResponse = (chatId: number, responseTime: string) => {
 
 export const getUserResponseStats = (chatId: number) => {
   const getStats = db.query(`
-    SELECT response_count, last_response_time 
-    FROM users 
+    SELECT response_count, last_response_time
+    FROM users
     WHERE chat_id = ?
   `);
-  return getStats.get(chatId) as
-    | { response_count: number; last_response_time: string }
-    | undefined;
+  return getStats.get(chatId) as { response_count: number; last_response_time: string } | undefined;
 };
 
 // Функции для работы с сообщениями
-export const saveMessage = (
-  chatId: number,
-  messageText: string,
-  sentTime: string
-) => {
+export const saveMessage = (chatId: number, messageText: string, sentTime: string) => {
   const insertMessage = db.query(`
     INSERT INTO messages (user_id, message_text, sent_time)
     SELECT id, ?, ? FROM users WHERE chat_id = ?
@@ -118,15 +129,11 @@ export const saveMessage = (
   insertMessage.run(messageText, sentTime, chatId);
 };
 
-export const updateMessageResponse = (
-  chatId: number,
-  sentTime: string,
-  responseTime: string
-) => {
+export const updateMessageResponse = (chatId: number, sentTime: string, responseTime: string) => {
   const updateMessage = db.query(`
-    UPDATE messages 
-    SET response_time = ? 
-    WHERE user_id = (SELECT id FROM users WHERE chat_id = ?) 
+    UPDATE messages
+    SET response_time = ?
+    WHERE user_id = (SELECT id FROM users WHERE chat_id = ?)
     AND sent_time = ?
   `);
   updateMessage.run(responseTime, chatId, sentTime);
@@ -142,9 +149,7 @@ export const getLastBotMessage = (chatId: number) => {
     ORDER BY m.sent_time DESC
     LIMIT 1
   `);
-  return getMessage.get(chatId) as
-    | { message_text: string; sent_time: string }
-    | undefined;
+  return getMessage.get(chatId) as { message_text: string; sent_time: string } | undefined;
 };
 
 // Получить последние N сообщений, отправленных ботом пользователю
@@ -182,9 +187,7 @@ export const getLastUserToken = (chatId: number) => {
     ORDER BY created_at DESC, id DESC
     LIMIT 1
   `);
-  return getToken.get(chatId) as
-    | { token: string; created_at: string }
-    | undefined;
+  return getToken.get(chatId) as { token: string; created_at: string } | undefined;
 };
 
 // Сохранить (обновить) индекс картинки для пользователя
@@ -197,10 +200,11 @@ export const saveUserImageIndex = (chatId: number, imageIndex: number) => {
     `);
     upsert.run(chatId, imageIndex);
     // Логируем всё содержимое таблицы для дебага
-    const all = db.query("SELECT * FROM user_image_indexes").all();
-    console.log("🔍 user_image_indexes (все записи):", all);
+    const all = db.query('SELECT * FROM user_image_indexes').all();
+    // Убираем детальное логирование
   } catch (e) {
-    console.error("❌ Ошибка при сохранении индекса картинки пользователя:", e);
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка сохранения индекса картинки');
   }
 };
 
@@ -213,9 +217,7 @@ export const getUserImageIndex = (chatId: number) => {
     ORDER BY updated_at DESC, id DESC
     LIMIT 1
   `);
-  return getIndex.get(chatId) as
-    | { image_index: number; updated_at: string }
-    | undefined;
+  return getIndex.get(chatId) as { image_index: number; updated_at: string } | undefined;
 };
 
 // Удалить все токены пользователя (например, при сбросе авторизации Google Calendar)
@@ -238,5 +240,130 @@ export const getAllUsers = () => {
     username: string;
     last_response_time: string;
     response_count: number;
+  }[];
+};
+
+// ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ЛОГАМИ ==========
+
+// Сохранить лог в базу данных
+export const saveLogToDatabase = (
+  level: string,
+  message: string,
+  data: string | null = null,
+  timestamp: string = new Date().toISOString()
+) => {
+  try {
+    const insertLog = db.query(`
+      INSERT INTO logs (level, message, data, timestamp, is_read, created_at)
+      VALUES (?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
+    `);
+    insertLog.run(level, message, data, timestamp);
+  } catch (error) {
+    // Не можем использовать loggers здесь - циклическая зависимость
+    console.error('Ошибка при сохранении лога в БД:', error);
+  }
+};
+
+// Получить последние N логов с пагинацией
+export const getRecentLogs = (limit: number = 7, offset: number = 0) => {
+  const getLogs = db.query(`
+    SELECT id, level, message, data, timestamp, is_read, created_at
+    FROM logs
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ? OFFSET ?
+  `);
+  return getLogs.all(limit, offset) as {
+    id: number;
+    level: string;
+    message: string;
+    data: string | null;
+    timestamp: string;
+    is_read: boolean;
+    created_at: string;
+  }[];
+};
+
+// Получить количество всех логов
+export const getLogsCount = () => {
+  const getCount = db.query(`SELECT COUNT(*) as count FROM logs`);
+  const result = getCount.get() as { count: number };
+  return result.count;
+};
+
+// Получить количество непрочитанных логов
+export const getUnreadLogsCount = () => {
+  const getCount = db.query(`SELECT COUNT(*) as count FROM logs WHERE is_read = FALSE`);
+  const result = getCount.get() as { count: number };
+  return result.count;
+};
+
+// Пометить лог как прочитанный
+export const markLogAsRead = (logId: number) => {
+  const updateLog = db.query(`
+    UPDATE logs
+    SET is_read = TRUE
+    WHERE id = ?
+  `);
+  updateLog.run(logId);
+};
+
+// Пометить все логи как прочитанные
+export const markAllLogsAsRead = () => {
+  const updateLogs = db.query(`
+    UPDATE logs
+    SET is_read = TRUE
+    WHERE is_read = FALSE
+  `);
+  updateLogs.run();
+};
+
+// Получить логи по уровню
+export const getLogsByLevel = (level: string, limit: number = 50) => {
+  const getLogs = db.query(`
+    SELECT id, level, message, data, timestamp, is_read, created_at
+    FROM logs
+    WHERE level = ?
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ?
+  `);
+  return getLogs.all(level, limit) as {
+    id: number;
+    level: string;
+    message: string;
+    data: string | null;
+    timestamp: string;
+    is_read: boolean;
+    created_at: string;
+  }[];
+};
+
+// Очистить старые логи (старше N дней)
+export const cleanOldLogs = (daysToKeep: number = 30) => {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+
+  const deleteLogs = db.query(`
+    DELETE FROM logs
+    WHERE timestamp < ?
+  `);
+  const result = deleteLogs.run(cutoffDate.toISOString());
+  return result.changes;
+};
+
+// Получить статистику логов
+export const getLogsStatistics = () => {
+  const getStats = db.query(`
+    SELECT
+      level,
+      COUNT(*) as count,
+      SUM(CASE WHEN is_read = FALSE THEN 1 ELSE 0 END) as unread_count
+    FROM logs
+    GROUP BY level
+    ORDER BY count DESC
+  `);
+  return getStats.all() as {
+    level: string;
+    count: number;
+    unread_count: number;
   }[];
 };

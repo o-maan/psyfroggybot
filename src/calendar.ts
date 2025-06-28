@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { calendarLogger } from './logger';
 
 import { config } from 'dotenv';
 config();
@@ -54,33 +55,32 @@ export class CalendarService {
         timeMax,
         singleEvents: true,
         orderBy: 'startTime',
-        maxResults: 100 // Ограничиваем количество событий
+        maxResults: 100, // Ограничиваем количество событий
       });
 
       return response.data.items;
     } catch (error: any) {
-      console.error('Ошибка при получении событий календаря:', error);
-      
+      calendarLogger.error({ error: error.message, stack: error.stack }, 'Ошибка получения событий календаря');
+
       // Обрабатываем конкретные ошибки Google OAuth
       if (error.code === 401 || error.message?.includes('invalid_grant')) {
-        console.error('🔐 Google OAuth токен недействителен или истек');
-        console.error('💡 Необходимо повторно авторизоваться в Google Calendar');
+        calendarLogger.error({ error: 'Токен недействителен или истек' }, 'OAuth ошибка');
         // Возвращаем пустой массив вместо падения
         return [];
       }
-      
+
       if (error.code === 403) {
-        console.error('🚫 Нет доступа к Google Calendar API');
+        calendarLogger.error({ error: 'Нет доступа' }, 'Calendar API ошибка');
         return [];
       }
-      
+
       if (error.code === 429) {
-        console.error('⏳ Превышен лимит запросов к Google Calendar API');
+        calendarLogger.error({ error: 'Превышен лимит запросов' }, 'Calendar API ошибка');
         return [];
       }
-      
+
       // Для других ошибок возвращаем пустой массив для graceful degradation
-      console.error('⚠️ Неизвестная ошибка Google Calendar, используем fallback');
+      calendarLogger.error({ error: error.message, stack: error.stack }, 'Неизвестная ошибка Google Calendar');
       return [];
     }
   }
@@ -91,10 +91,7 @@ export class CalendarService {
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
-    return this.getEvents(
-      startOfDay.toISOString(),
-      endOfDay.toISOString()
-    );
+    return this.getEvents(startOfDay.toISOString(), endOfDay.toISOString());
   }
 
   // Получить события на завтра
@@ -104,10 +101,7 @@ export class CalendarService {
     const startOfDay = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
     const endOfDay = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate() + 1);
 
-    return this.getEvents(
-      startOfDay.toISOString(),
-      endOfDay.toISOString()
-    );
+    return this.getEvents(startOfDay.toISOString(), endOfDay.toISOString());
   }
 
   // Получить события на неделю
@@ -116,10 +110,7 @@ export class CalendarService {
     const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
 
-    return this.getEvents(
-      startOfWeek.toISOString(),
-      endOfWeek.toISOString()
-    );
+    return this.getEvents(startOfWeek.toISOString(), endOfWeek.toISOString());
   }
 }
 
@@ -140,34 +131,30 @@ export function formatCalendarEvents(
     showLink?: boolean;
   }
 ): string {
-  const locale = options?.locale || "ru-RU";
-  if (!events || events.length === 0) return "Нет событий.";
+  const locale = options?.locale || 'ru-RU';
+  if (!events || events.length === 0) return 'Нет событий.';
   return events
-    .map((e) => {
+    .map(e => {
       const start = e.start?.dateTime || e.start?.date;
       const end = e.end?.dateTime || e.end?.date;
       const isAllDay = !e.start?.dateTime;
       const startDate = start
         ? new Date(start).toLocaleString(locale, {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            ...(isAllDay
-              ? {}
-              : { hour: "2-digit", minute: "2-digit" }),
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            ...(isAllDay ? {} : { hour: '2-digit', minute: '2-digit' }),
           })
-        : "";
+        : '';
       const endDate = end
         ? new Date(end).toLocaleString(locale, {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            ...(isAllDay
-              ? {}
-              : { hour: "2-digit", minute: "2-digit" }),
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            ...(isAllDay ? {} : { hour: '2-digit', minute: '2-digit' }),
           })
-        : "";
-      let line = `<b>${e.summary || "(Без названия)"}</b>`;
+        : '';
+      let line = `<b>${e.summary || '(Без названия)'}</b>`;
       if (options?.showDate !== false) {
         if (isAllDay) {
           line += `\n🗓️ Весь день: ${startDate}`;
@@ -176,7 +163,7 @@ export function formatCalendarEvents(
         }
       }
       if (options?.showBusy && e.transparency) {
-        line += `\nСтатус: ${e.transparency === "transparent" ? "free" : "busy"}`;
+        line += `\nСтатус: ${e.transparency === 'transparent' ? 'free' : 'busy'}`;
       }
       if (options?.showLocation && e.location) {
         line += `\n📍 ${e.location}`;
@@ -189,5 +176,5 @@ export function formatCalendarEvents(
       }
       return line;
     })
-    .join("\n\n");
-} 
+    .join('\n\n');
+}
