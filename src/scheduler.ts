@@ -524,8 +524,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   private startDailyCronJob() {
     // Останавливаем предыдущий job, если он есть
     if (this.dailyCronJob) {
+      console.log("🔄 Останавливаем предыдущий cron job...");
       this.dailyCronJob.stop();
+      this.dailyCronJob.destroy();
+      this.dailyCronJob = null;
     }
+
+    // Показываем текущее время для диагностики
+    const now = new Date();
+    const moscowTime = new Date().toLocaleString('ru-RU', { 
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    console.log(`🕐 Текущее время в Москве: ${moscowTime}`);
+    console.log(`🕐 Системное время: ${now.toISOString()}`);
 
     // Создаем новый cron job: каждый день в 19:30
     // Формат: "минуты часы * * *" (30 19 * * * = 19:30 каждый день)
@@ -533,29 +550,48 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       "30 19 * * *",
       async () => {
         const startTime = new Date();
-        console.log(
-          `🚀 [CRON] Автоматическая отправка ежедневного сообщения запущена в ${startTime.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК`
-        );
+        const startTimeMoscow = startTime.toLocaleString('ru-RU', { 
+          timeZone: 'Europe/Moscow',
+          year: 'numeric',
+          month: '2-digit', 
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        
+        console.log("=".repeat(60));
+        console.log(`🚀 [CRON] ЗАПУСК АВТОМАТИЧЕСКОЙ РАССЫЛКИ`);
+        console.log(`🕐 Время запуска (МСК): ${startTimeMoscow}`);
+        console.log(`🕐 Время запуска (UTC): ${startTime.toISOString()}`);
+        console.log(`👥 Количество пользователей: ${this.users.size}`);
+        console.log(`📋 Пользователи: ${Array.from(this.users).join(', ')}`);
+        console.log("=".repeat(60));
         
         try {
           const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          console.log(`🔍 ADMIN_CHAT_ID из переменных окружения: ${adminChatId}`);
+          
           if (!adminChatId) {
             throw new Error('ADMIN_CHAT_ID не установлен в переменных окружения');
           }
           
+          console.log(`📤 Начинаем рассылку для ${this.users.size} пользователей...`);
           await this.sendDailyMessagesToAll(adminChatId);
           
           const endTime = new Date();
           const duration = endTime.getTime() - startTime.getTime();
-          console.log(`✅ [CRON] Автоматическое сообщение отправлено успешно за ${duration}ms`);
+          console.log(`✅ [CRON] Автоматическая рассылка завершена успешно за ${duration}ms`);
           
         } catch (error) {
           const endTime = new Date();
           const duration = endTime.getTime() - startTime.getTime();
-          console.error(
-            `❌ [CRON] Ошибка при автоматической отправке сообщения (время выполнения: ${duration}ms):`,
-            error
-          );
+          console.error("=".repeat(60));
+          console.error(`❌ [CRON] ОШИБКА В АВТОМАТИЧЕСКОЙ РАССЫЛКЕ`);
+          console.error(`❌ Время выполнения: ${duration}ms`);
+          console.error(`❌ Ошибка:`, error);
+          console.error(`❌ Stack trace:`, error instanceof Error ? error.stack : 'Нет stack trace');
+          console.error("=".repeat(60));
           
           // Попытаемся уведомить админа об ошибке
           try {
@@ -563,20 +599,33 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             if (adminChatId) {
               await this.bot.telegram.sendMessage(
                 adminChatId,
-                `🚨 Ошибка в автоматической рассылке (${startTime.toLocaleTimeString()}): ${error}`
+                `🚨 КРИТИЧЕСКАЯ ОШИБКА в автоматической рассылке!\n\n` +
+                `⏰ Время: ${startTimeMoscow}\n` +
+                `❌ Ошибка: ${error}\n` +
+                `⏱️ Длительность: ${duration}ms\n\n` +
+                `Проверьте логи сервера для подробностей.`
               );
             }
           } catch (notifyError) {
-            console.error('❌ [CRON] Не удалось уведомить админа об ошибке:', notifyError);
+            console.error('❌ [CRON] Критическая ошибка: не удалось уведомить админа:', notifyError);
           }
         }
       },
       {
         timezone: "Europe/Moscow", // Устанавливаем московское время
+        scheduled: true, // Убеждаемся, что задача запланирована
       }
     );
 
-    console.log("✅ Cron job для ежедневной отправки в 19:30 (МСК) запущен");
+    // Проверяем, что cron job действительно создался
+    if (this.dailyCronJob) {
+      console.log("✅ Cron job для ежедневной отправки в 19:30 (МСК) успешно создан и запущен");
+      console.log(`📅 Следующий запуск будет в 19:30 по московскому времени`);
+      console.log(`🔧 Cron выражение: "30 19 * * *"`);
+      console.log(`🌍 Часовой пояс: Europe/Moscow`);
+    } else {
+      console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Cron job не был создан!");
+    }
   }
 
   // Получить статус планировщика
@@ -584,6 +633,34 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     const isRunning = this.dailyCronJob ? true : false;
     const usersCount = this.users.size;
     const usersList = Array.from(this.users);
+    
+    // Получаем текущее время в Москве
+    const now = new Date();
+    const moscowTime = now.toLocaleString('ru-RU', { 
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    
+    // Вычисляем время до следующего запуска
+    const nextRun = new Date();
+    nextRun.setHours(19, 30, 0, 0);
+    if (nextRun <= now) {
+      nextRun.setDate(nextRun.getDate() + 1);
+    }
+    
+    const nextRunMoscow = nextRun.toLocaleString('ru-RU', { 
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
 
     return {
       isRunning,
@@ -592,6 +669,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       cronExpression: "30 19 * * *",
       timezone: "Europe/Moscow",
       description: "Ежедневно в 19:30 МСК",
+      currentTime: moscowTime,
+      nextRunTime: nextRunMoscow,
+      adminChatId: Number(process.env.ADMIN_CHAT_ID || 0),
     };
   }
 

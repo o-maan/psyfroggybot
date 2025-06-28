@@ -120,9 +120,12 @@ bot.command("start", async (ctx) => {
       "Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание.\n\n" +
       "Доступные команды:\n" +
       "/fro - отправить сообщение сейчас\n" +
-      "/calendar - настроить доступ к календарю\n" +
-      "/status - статус планировщика (только для админа)\n" +
-      "/test_schedule - тест автоматической отправки (только для админа)",
+      "/calendar - настроить доступ к календарю\n\n" +
+      "Админские команды:\n" +
+      "/status - статус планировщика\n" +
+      "/test_schedule - тест планировщика на следующую минуту\n" +
+      "/test_now - немедленный тест рассылки\n" +
+      "/minimalTestLLM - тест LLM подключения",
   );
 });
 
@@ -276,13 +279,16 @@ bot.command("status", async (ctx) => {
   const status = scheduler.getSchedulerStatus();
 
   await ctx.reply(
-    `📊 Статус планировщика:\n\n` +
-      `⚙️ Cron job: ${status.isRunning ? "🟢 Активен" : "🔴 Остановлен"}\n` +
-      `📅 Расписание: ${status.description}\n` +
-      `🕐 Выражение: ${status.cronExpression}\n` +
-      `🌍 Часовой пояс: ${status.timezone}\n\n` +
-      `👥 Пользователей: ${status.usersCount}\n` +
-      `📋 Список: ${status.usersList.join(", ")}`,
+    `📊 <b>СТАТУС ПЛАНИРОВЩИКА</b>\n\n` +
+      `⚙️ Cron job: ${status.isRunning ? "🟢 <b>Активен</b>" : "🔴 <b>Остановлен</b>"}\n` +
+      `📅 Расписание: <code>${status.description}</code>\n` +
+      `🕐 Выражение: <code>${status.cronExpression}</code>\n` +
+      `🌍 Часовой пояс: <code>${status.timezone}</code>\n\n` +
+      `🕐 <b>Текущее время (МСК):</b> <code>${status.currentTime}</code>\n` +
+      `⏰ <b>Следующий запуск:</b> <code>${status.nextRunTime}</code>\n\n` +
+      `👥 <b>Пользователей:</b> ${status.usersCount}\n` +
+      `🔑 <b>Admin ID:</b> <code>${status.adminChatId}</code>\n` +
+      `📋 <b>Список пользователей:</b>\n<code>${status.usersList.length > 0 ? status.usersList.join(", ") : "Нет пользователей"}</code>`,
     { parse_mode: "HTML" },
   );
 });
@@ -313,19 +319,33 @@ bot.command("test_schedule", async (ctx) => {
 
   // Создаем тестовый cron job на следующую минуту
   const now = new Date();
-  const nextMinute = now.getMinutes() + 1;
-  const cronExpression = `${nextMinute} ${now.getHours()} * * *`;
+  const nextMinute = (now.getMinutes() + 1) % 60;
+  const nextHour = nextMinute === 0 ? now.getHours() + 1 : now.getHours();
+  const cronExpression = `${nextMinute} ${nextHour} * * *`;
+
+  await ctx.reply(
+    `🧪 <b>ТЕСТ ПЛАНИРОВЩИКА</b>\n\n` +
+      `⏱️ Cron выражение: <code>${cronExpression}</code>\n` +
+      `🕐 Запуск в: <code>${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}</code>\n` +
+      `🌍 Часовой пояс: <code>Europe/Moscow</code>\n\n` +
+      `⏳ Ожидайте тестовое сообщение...`,
+    { parse_mode: "HTML" }
+  );
 
   const testJob = require("node-cron").schedule(
     cronExpression,
     async () => {
       try {
+        console.log("🧪 [TEST CRON] Запуск тестового cron job");
         await scheduler.sendDailyMessage(chatId);
-        await ctx.reply("🧪 Тестовое сообщение отправлено!");
+        await ctx.reply("✅ 🧪 Тестовое сообщение отправлено успешно!");
         testJob.stop();
+        testJob.destroy();
       } catch (error) {
-        await ctx.reply(`❌ Ошибка при отправке тестового сообщения: ${error}`);
+        console.error("❌ [TEST CRON] Ошибка в тестовом cron job:", error);
+        await ctx.reply(`❌ Ошибка при отправке тестового сообщения:\n<code>${error}</code>`, { parse_mode: "HTML" });
         testJob.stop();
+        testJob.destroy();
       }
     },
     {
@@ -333,14 +353,29 @@ bot.command("test_schedule", async (ctx) => {
       timezone: "Europe/Moscow",
     },
   );
+});
 
-  await ctx.reply(
-    `🧪 Тестовый cron job создан\n` +
-      `⏱️ Выражение: ${cronExpression}\n` +
-      `🕐 Сработает в ${String(now.getHours()).padStart(2, "0")}:${String(
-        nextMinute,
-      ).padStart(2, "0")}`,
-  );
+// Команда для немедленного теста рассылки
+bot.command("test_now", async (ctx) => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply("❌ Эта команда доступна только администратору");
+    return;
+  }
+
+  await ctx.reply("🧪 <b>НЕМЕДЛЕННЫЙ ТЕСТ РАССЫЛКИ</b>\n\nЗапускаю рассылку прямо сейчас...", { parse_mode: "HTML" });
+
+  try {
+    console.log("🧪 [TEST NOW] Запуск немедленного теста рассылки");
+    await scheduler.sendDailyMessagesToAll(adminChatId);
+    await ctx.reply("✅ 🧪 Тест рассылки завершен успешно!");
+  } catch (error) {
+    console.error("❌ [TEST NOW] Ошибка в немедленном тесте:", error);
+    await ctx.reply(`❌ Ошибка при тесте рассылки:\n<code>${error}</code>`, { parse_mode: "HTML" });
+  }
 });
 
 // Запускаем бота
