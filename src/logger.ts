@@ -2,27 +2,6 @@ import pino from 'pino';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Конфигурация для pino-pretty без миллисекунд
-const prettyConfig = {
-  colorize: true,
-  translateTime: 'yyyy-mm-dd HH:MM:ss',
-  ignore: 'hostname,pid',
-  messageFormat: '{levelLabel} {msg}',
-  customPrettifiers: {
-    level: (logLevel: string) => {
-      const levels: Record<string, string> = {
-        10: '🔍 TRACE',
-        20: '🐛 DEBUG',
-        30: '📝 INFO',
-        40: '⚠️  WARN',
-        50: '❌ ERROR',
-        60: '💀 FATAL',
-      };
-      return levels[logLevel] || logLevel;
-    },
-  },
-};
-
 // Создаем основной логгер
 export const logger = pino({
   level: isProduction ? 'info' : 'debug',
@@ -32,14 +11,6 @@ export const logger = pino({
       return { level: label };
     },
   },
-  ...(isProduction
-    ? {}
-    : {
-        transport: {
-          target: 'pino-pretty',
-          options: prettyConfig,
-        },
-      }),
 });
 
 // Импортируем функцию сохранения в БД динамически чтобы избежать циклических зависимостей
