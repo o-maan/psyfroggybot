@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Bot (Development)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/bot.ts",
+      "runtime": "bun",
+      "runtimeArgs": ["--watch"],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Launch Bot (Production)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/bot.ts",
+      "runtime": "bun",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Run Migrations",
+      "type": "node",
+      "request": "launch",
+      "program": "knex",
+      "args": ["--knexfile", "knexfile.cjs", "migrate:latest"],
+      "runtime": "bun",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
