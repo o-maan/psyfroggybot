@@ -37,17 +37,21 @@ restServ.use(express.json());
 restServ.all("/oauth2callback", async (req: Request, res: Response) => {
   const code = req.query.code as string;
   const state = req.query.state as string;
-  const chatId = Number(state) || 0;
+  const chatId = Number(state);
   console.log(
     "🔍 OAUTH2 CALLBACK - Chat ID:",
     chatId,
     "Code:",
     code,
     "State:",
-    state
+    state,
   );
   if (!code) {
     res.status(400).send("No code provided");
+    return;
+  }
+  if (!chatId || isNaN(chatId)) {
+    res.status(400).send("Invalid chat ID in state parameter");
     return;
   }
   try {
@@ -58,7 +62,7 @@ restServ.all("/oauth2callback", async (req: Request, res: Response) => {
     console.log("✅ Токен успешно получен и сохранён! " + code);
     await bot.telegram.sendMessage(
       chatId,
-      "Авторизация прошла успешно! Можете вернуться к боту."
+      "Авторизация прошла успешно! Можете вернуться к боту.",
     );
   } catch (error) {
     console.error("Ошибка при получении токена через сервер:", error);
@@ -78,17 +82,17 @@ restServ.all("/sendDailyMessage", async (req: Request, res: Response) => {
     res
       .status(200)
       .send(
-        `Cообщения отправлены успешно, пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`
+        `Cообщения отправлены успешно, пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`,
       );
     console.log(
       "🔍 SEND DAILY MESSAGE - Сообщения отправлены успешно",
-      scheduler["users"]
+      scheduler["users"],
     );
   } catch (error) {
     console.error(
       "❌ SEND DAILY MESSAGE - Ошибка при отправке сообщений:",
       error,
-      `пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`
+      `пользователей: ${scheduler["users"].size}, админ: ${adminChatId}`,
     );
     res.status(500).send(String(error));
   }
@@ -118,7 +122,7 @@ bot.command("start", async (ctx) => {
       "/fro - отправить сообщение сейчас\n" +
       "/calendar - настроить доступ к календарю\n" +
       "/status - статус планировщика (только для админа)\n" +
-      "/test_schedule - тест автоматической отправки (только для админа)"
+      "/test_schedule - тест автоматической отправки (только для админа)",
   );
 });
 
@@ -153,7 +157,7 @@ bot.command("fro", async (ctx) => {
     {
       caption,
       parse_mode: "HTML",
-    }
+    },
   );
   if (message.length > 1024) {
     await bot.telegram.sendMessage(scheduler.CHANNEL_ID, message, {
@@ -186,16 +190,16 @@ bot.command("calendar", async (ctx) => {
       const start = new Date(
         yesterday.getFullYear(),
         yesterday.getMonth(),
-        yesterday.getDate()
+        yesterday.getDate(),
       );
       const end = new Date(
         now.getFullYear(),
         now.getMonth(),
-        now.getDate() + 1
+        now.getDate() + 1,
       );
       const events = await calendarService.getEvents(
         start.toISOString(),
-        end.toISOString()
+        end.toISOString(),
       );
       if (events && events.length > 0) {
         const eventsList = formatCalendarEvents(events, {
@@ -216,7 +220,7 @@ bot.command("calendar", async (ctx) => {
     } catch (error) {
       console.error("Ошибка при получении токена:", error);
       await ctx.reply(
-        "Произошла ошибка при настройке доступа к календарю. Попробуйте еще раз."
+        "Произошла ошибка при настройке доступа к календарю. Попробуйте еще раз.",
       );
     }
   }
@@ -226,7 +230,7 @@ bot.command("calendar", async (ctx) => {
     "Для доступа к календарю, пожалуйста, перейдите по ссылке и авторизуйтесь:\n" +
       authUrl +
       "\n\n" +
-      "Подождите немного, пока я получу токен."
+      "Подождите немного, пока я получу токен.",
   );
 });
 
@@ -250,7 +254,7 @@ bot.command("next_image", async (ctx) => {
       { source: imagePath },
       {
         caption: `Next image for chatId=${chatId}\nПуть: ${imagePath}`,
-      }
+      },
     );
   } catch (e) {
     console.error("Ошибка в /next_image:", e);
@@ -279,7 +283,7 @@ bot.command("status", async (ctx) => {
       `🌍 Часовой пояс: ${status.timezone}\n\n` +
       `👥 Пользователей: ${status.usersCount}\n` +
       `📋 Список: ${status.usersList.join(", ")}`,
-    { parse_mode: "HTML" }
+    { parse_mode: "HTML" },
   );
 });
 
@@ -327,15 +331,15 @@ bot.command("test_schedule", async (ctx) => {
     {
       scheduled: true,
       timezone: "Europe/Moscow",
-    }
+    },
   );
 
   await ctx.reply(
     `🧪 Тестовый cron job создан\n` +
       `⏱️ Выражение: ${cronExpression}\n` +
       `🕐 Сработает в ${String(now.getHours()).padStart(2, "0")}:${String(
-        nextMinute
-      ).padStart(2, "0")}`
+        nextMinute,
+      ).padStart(2, "0")}`,
   );
 });
 
@@ -344,7 +348,7 @@ bot.command("test_schedule", async (ctx) => {
 // --- Telegraf polling ---
 bot.launch();
 console.log(
-  "\n🚀 Бот успешно запущен в режиме polling!\n📱 Для остановки нажмите Ctrl+C\n"
+  "\n🚀 Бот успешно запущен в режиме polling!\n📱 Для остановки нажмите Ctrl+C\n",
 );
 // Обработка завершения работы
 process.once("SIGINT", () => {
