@@ -49,6 +49,7 @@ jobs:
             [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
             # Переход в директорию проекта
+            mkdir -p /var/www/psy_froggy_bot
             cd /var/www/psy_froggy_bot
 
             # Проверка PM2
