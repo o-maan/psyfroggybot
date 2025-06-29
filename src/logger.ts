@@ -23,7 +23,7 @@ class DatabaseLogInterceptor {
   private readonly BUFFER_SIZE = 10;
   private readonly FLUSH_INTERVAL = 5000; // 5 секунд
 
-  constructor() {
+  constructor(logger: pino.Logger) {
     // Динамически импортируем функцию БД
     this.initDbFunction();
 
@@ -131,7 +131,6 @@ class DatabaseLogInterceptor {
 }
 
 // Инициализируем интерцептор
-new DatabaseLogInterceptor();
 
 // Экспортируем специализированные логгеры для прямого использования
 export const botLogger = logger.child({ module: 'bot' });
@@ -139,5 +138,14 @@ export const schedulerLogger = logger.child({ module: 'scheduler' });
 export const calendarLogger = logger.child({ module: 'calendar' });
 export const llmLogger = logger.child({ module: 'llm' });
 export const databaseLogger = logger.child({ module: 'database' });
+
+// Дефолтный логгер
+new DatabaseLogInterceptor(logger);
+// Специализированные логгеры
+new DatabaseLogInterceptor(botLogger);
+new DatabaseLogInterceptor(schedulerLogger);
+new DatabaseLogInterceptor(calendarLogger);
+new DatabaseLogInterceptor(llmLogger);
+// new DatabaseLogInterceptor(databaseLogger); — чтобы не сделать бесконечный цикл
 
 export default logger;
