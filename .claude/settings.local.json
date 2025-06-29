@@ -4,7 +4,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(git add:*)",
       "Bash(rg:*)",
-      "Bash(bun run lint:*)"
+      "Bash(bun run lint:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

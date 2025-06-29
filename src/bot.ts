@@ -1,5 +1,7 @@
 import { config } from 'dotenv';
 import express, { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar.ts';
 import {
@@ -375,6 +377,59 @@ bot.command('test_now', async ctx => {
 
 // ========== КОМАНДЫ ДЛЯ ПРОСМОТРА ЛОГОВ ==========
 
+// Функция для создания временного файла с логами
+function createTempLogFile(logs: any[], filename: string): string {
+  const tempDir = path.join(process.cwd(), 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const filePath = path.join(tempDir, filename);
+  let content = '=== СИСТЕМНЫЕ ЛОГИ ===\n\n';
+
+  logs.forEach((log, index) => {
+    const timestamp = new Date(log.timestamp).toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    content += `[${timestamp}] ${log.level.toUpperCase()} #${log.id}\n`;
+    content += `Сообщение: ${log.message}\n`;
+    
+    if (log.data) {
+      try {
+        const data = JSON.parse(log.data);
+        content += `Данные: ${JSON.stringify(data, null, 2)}\n`;
+      } catch {
+        content += `Данные: ${log.data}\n`;
+      }
+    }
+    
+    content += `Прочитано: ${log.is_read ? 'Да' : 'Нет'}\n`;
+    content += '---\n\n';
+  });
+
+  fs.writeFileSync(filePath, content, 'utf8');
+  return filePath;
+}
+
+// Функция для очистки временных файлов
+function cleanupTempFile(filePath: string) {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    const err = error as Error;
+    botLogger.warn({ error: err.message }, 'Не удалось удалить временный файл');
+  }
+}
+
 // Функция для форматирования логов
 function formatLogEntry(log: any, index: number): string {
   const levelEmojis: Record<string, string> = {
@@ -448,8 +503,10 @@ bot.command('logs', async ctx => {
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
     message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: Все\n\n`;
 
+    // Проверяем, не слишком ли большое сообщение получается
+    let testMessage = message;
     logs.forEach((log, index) => {
-      message += formatLogEntry(log, index) + '\n\n';
+      testMessage += formatLogEntry(log, index) + '\n\n';
     });
 
     const keyboard = {
@@ -464,13 +521,40 @@ bot.command('logs', async ctx => {
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
         ],
+        [
+          { text: '📁 Скачать как файл', callback_data: 'logs_download_0_all' },
+        ],
       ],
     };
 
-    await ctx.reply(message, {
-      parse_mode: 'HTML',
-      reply_markup: keyboard,
-    });
+    // Если сообщение слишком длинное (> 3500 символов), отправляем файлом
+    if (testMessage.length > 3500) {
+      const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '-');
+      const filename = `logs_${timestamp}.txt`;
+      const filePath = createTempLogFile(logs, filename);
+
+      try {
+        await ctx.replyWithDocument(
+          { source: filePath, filename },
+          {
+            caption: `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n📄 В файле: ${logs.length} записей | 🔍 Фильтр: Все`,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+          }
+        );
+      } finally {
+        cleanupTempFile(filePath);
+      }
+    } else {
+      logs.forEach((log, index) => {
+        message += formatLogEntry(log, index) + '\n\n';
+      });
+
+      await ctx.reply(message, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      });
+    }
   } catch (e) {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка команды /logs');
@@ -545,6 +629,9 @@ bot.action(/logs_(.+)_(\d+)_(.+)/, async ctx => {
           { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: `logs_refresh_${newOffset}_${filterSuffix}` },
+        ],
+        [
+          { text: '📁 Скачать как файл', callback_data: `logs_download_${newOffset}_${filterSuffix}` },
         ],
       ],
     };
@@ -640,6 +727,9 @@ bot.action(/logs_filter_(.+)/, async ctx => {
           { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: `logs_refresh_0_${filterSuffix}` },
+        ],
+        [
+          { text: '📁 Скачать как файл', callback_data: `logs_download_0_${filterSuffix}` },
         ],
       ],
     };
@@ -754,6 +844,9 @@ bot.action('logs_mark_all_read', async ctx => {
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
         ],
+        [
+          { text: '📁 Скачать как файл', callback_data: 'logs_download_0_all' },
+        ],
       ],
     };
 
@@ -787,6 +880,55 @@ bot.action(/log_read_(\d+)/, async ctx => {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка отметки одного лога');
     await ctx.answerCbQuery('❌ Ошибка при отметке лога');
+  }
+});
+
+// Обработчик для скачивания логов файлом
+bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
+  const chatId = ctx.chat?.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  if (chatId !== adminChatId) {
+    await ctx.answerCbQuery('❌ Доступ запрещен');
+    return;
+  }
+
+  const offset = parseInt(ctx.match![1]);
+  const levelFilter = ctx.match![2] === 'all' ? null : ctx.match![2];
+
+  try {
+    await ctx.answerCbQuery('📥 Подготавливаю файл...');
+
+    // Получаем больше логов для файла (например, последние 100)
+    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 100, offset) : getRecentLogs(100, offset);
+    
+    if (logs.length === 0) {
+      await ctx.reply('📭 Логи для скачивания отсутствуют');
+      return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '-');
+    const filterSuffix = levelFilter ? `_${levelFilter}` : '';
+    const filename = `logs${filterSuffix}_${timestamp}.txt`;
+    const filePath = createTempLogFile(logs, filename);
+
+    try {
+      await ctx.replyWithDocument(
+        { source: filePath, filename },
+        {
+          caption: `📁 <b>Экспорт логов</b>\n\n📄 Записей в файле: ${logs.length}\n🔍 Фильтр: ${levelFilter ? levelFilter.toUpperCase() : 'Все'}\n📅 Создан: ${new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}`,
+          parse_mode: 'HTML',
+        }
+      );
+    } finally {
+      cleanupTempFile(filePath);
+    }
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка скачивания логов');
+    await ctx.reply(`❌ Ошибка при создании файла логов:\n<code>${error.message}</code>`, {
+      parse_mode: 'HTML',
+    });
   }
 });
 
