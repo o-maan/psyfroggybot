@@ -982,8 +982,8 @@ bot.on('text', async ctx => {
     // Генерируем контекстуальный ответ через LLM
     const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
 
-    // Отправляем текстовый ответ
-    await ctx.reply(textResponse);
+    // Отправляем текстовый ответ как reply на сообщение пользователя
+    await ctx.reply(textResponse, { reply_parameters: { message_id: ctx.message.message_id } });
 
     // Сохраняем ответ бота в БД (author_id = 0 для бота)
     const botResponseTime = new Date().toISOString();

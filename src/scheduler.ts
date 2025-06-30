@@ -220,10 +220,7 @@ export class Scheduler {
       // Если есть перелёт — полностью генерируем текст через HF, ограничиваем 555 символами
       schedulerLogger.info({ chatId }, '✈️ Используем FLIGHT промпт');
       let text = await generateMessage(prompt);
-      schedulerLogger.info(
-        { chatId, textLength: text?.length || 0 },
-        `📝 LLM ответ получен: ${text?.substring(0, 100)}...`
-      );
+      schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
 
       if (text.length > 555) text = text.slice(0, 552) + '...';
       // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
@@ -265,10 +262,7 @@ export class Scheduler {
       // Обычный день — используем структуру с пунктами
       schedulerLogger.info({ chatId }, '📅 Используем NORMAL промпт');
       let jsonText = await generateMessage(prompt);
-      schedulerLogger.info(
-        { chatId, jsonLength: jsonText?.length || 0 },
-        `📝 LLM ответ получен: ${jsonText?.substring(0, 100)}...`
-      );
+      schedulerLogger.info({ chatId, jsonLength: jsonText?.length || 0 }, `📝 LLM ответ получен: ${jsonText}`);
 
       if (jsonText === 'HF_JSON_ERROR') {
         schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR');
