@@ -55,7 +55,7 @@ export async function generateMessage(prompt?: string): Promise<string> {
 
         // Логируем прогресс каждые 10 чанков
         if (chunkCount % 10 === 0) {
-          llmLogger.debug({ chunkCount, totalLength: fullMessage.length }, `🔄 Получен чанк ${chunkCount}`);
+          llmLogger.trace({ chunkCount, totalLength: fullMessage.length }, `🔄 Получен чанк ${chunkCount}`);
         }
       }
     }
@@ -140,30 +140,37 @@ export async function minimalTestLLM() {
 }
 
 // Генерация контекстуального ответа на сообщение пользователя
-export async function generateUserResponse(userMessage: string, lastBotMessage?: string, calendarEvents?: string): Promise<string> {
+export async function generateUserResponse(
+  userMessage: string,
+  lastBotMessage?: string,
+  calendarEvents?: string
+): Promise<string> {
   const startTime = Date.now();
   try {
     // Загружаем промпт для анализа ответов пользователя
     const promptPath = './assets/prompts/user-response.md';
     const userResponsePrompt = fs.readFileSync(promptPath, 'utf-8');
-    
+
     const model = 'deepseek-ai/DeepSeek-R1-0528';
-    llmLogger.info({ model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents }, '🤖 Начало генерации ответа пользователю');
+    llmLogger.info(
+      { model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents },
+      '🤖 Начало генерации ответа пользователю'
+    );
 
     // Формируем контекст
     let contextMessage = userResponsePrompt + '\n\n';
-    
+
     if (lastBotMessage) {
       contextMessage += `**Последнее сообщение от бота:**\n${lastBotMessage}\n\n`;
     }
-    
+
     if (calendarEvents) {
       contextMessage += `**События календаря на сегодня:**\n${calendarEvents}\n\n`;
     }
-    
+
     contextMessage += `**Ответ пользователя:**\n${userMessage}\n\n`;
     contextMessage += 'Дай краткий, теплый и поддерживающий ответ (до 300 символов):';
-    
+
     llmLogger.info({ contextMessageLength: contextMessage.length, contextMessage }, '📝 Полный промпт для LLM');
 
     const stream = client.chatCompletionStream({
@@ -192,7 +199,7 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
         chunkCount++;
 
         if (chunkCount % 5 === 0) {
-          llmLogger.debug({ chunkCount, totalLength: fullResponse.length }, '🔄 Получен чанк ответа пользователю');
+          llmLogger.trace({ chunkCount, totalLength: fullResponse.length }, '🔄 Получен чанк ответа пользователю');
         }
       }
     }
@@ -231,7 +238,7 @@ export async function generateUserResponse(userMessage: string, lastBotMessage?:
       },
       'Ошибка генерации ответа пользователю'
     );
-    
+
     // Fallback ответ при ошибке
     return 'Спасибо, что поделился! 🤍';
   }
@@ -256,10 +263,10 @@ export async function generateFrogImage(prompt: string): Promise<Buffer | null> 
     });
 
     const duration = Date.now() - startTime;
-    
+
     // Обрабатываем различные типы ответа
     let buffer: Buffer;
-    
+
     try {
       if (response && typeof response === 'object' && 'arrayBuffer' in response) {
         const arrayBuffer = await (response as any).arrayBuffer();
@@ -270,18 +277,18 @@ export async function generateFrogImage(prompt: string): Promise<Buffer | null> 
         // Пытаемся обработать как ArrayBuffer или другой тип
         buffer = Buffer.from(response as any);
       }
-      
-      llmLogger.info(
-        { duration, imageSize: buffer.length },
-        `✅ Изображение лягушки сгенерировано за ${duration}ms`
-      );
+
+      llmLogger.info({ duration, imageSize: buffer.length }, `✅ Изображение лягушки сгенерировано за ${duration}ms`);
       return buffer;
     } catch (conversionError) {
-      llmLogger.error({ 
-        model, 
-        responseType: typeof response,
-        conversionError: (conversionError as Error).message 
-      }, 'Ошибка конвертации ответа модели изображений');
+      llmLogger.error(
+        {
+          model,
+          responseType: typeof response,
+          conversionError: (conversionError as Error).message,
+        },
+        'Ошибка конвертации ответа модели изображений'
+      );
       return null;
     }
   } catch (e) {
@@ -299,42 +306,52 @@ export async function generateFrogImage(prompt: string): Promise<Buffer | null> 
 }
 
 // Генерация промпта для изображения лягушки на основе пользовательского ответа и календаря
-export async function generateFrogPrompt(userMessage: string, calendarEvents?: string, lastBotMessage?: string): Promise<string> {
+export async function generateFrogPrompt(
+  userMessage: string,
+  calendarEvents?: string,
+  lastBotMessage?: string
+): Promise<string> {
   const startTime = Date.now();
   try {
     // Загружаем промпт для генерации описания лягушки
     const promptPath = './assets/prompts/frog-image-prompt.md';
     const frogPromptTemplate = fs.readFileSync(promptPath, 'utf-8');
-    
+
     const model = 'deepseek-ai/DeepSeek-R1-0528';
-    llmLogger.info({ model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents }, '🎨 Начало генерации промпта для лягушки');
+    llmLogger.info(
+      { model, userMessageLength: userMessage.length, userMessage, lastBotMessage, calendarEvents },
+      '🎨 Начало генерации промпта для лягушки'
+    );
 
     // Формируем контекст
     let contextMessage = frogPromptTemplate + '\n\n';
-    
+
     // Добавляем текущую дату для контекста
     const today = new Date();
     const dateString = today.toLocaleDateString('ru-RU', {
       weekday: 'long',
-      year: 'numeric', 
+      year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
     });
     contextMessage += `**Сегодня:** ${dateString}\n\n`;
-    
+
     if (lastBotMessage) {
       contextMessage += `**Последнее сообщение от бота:**\n${lastBotMessage}\n\n`;
     }
-    
+
     contextMessage += `**Ответ пользователя:**\n${userMessage}\n\n`;
-    
+
     if (calendarEvents) {
       contextMessage += `**События календаря на сегодня:**\n${calendarEvents}\n\n`;
     }
-    
+
     contextMessage += 'Создай промпт для изображения лягушки (на английском, до 200 символов):';
-    
-    llmLogger.info({ contextMessageLength: contextMessage.length, contextMessage }, '📝 Полный промпт для генерации промпта лягушки');
+
+    llmLogger.info(
+      { contextMessageLength: contextMessage.length, contextMessage },
+      '📝 Полный промпт для генерации промпта лягушки'
+    );
 
     const stream = client.chatCompletionStream({
       provider: 'novita',
@@ -398,7 +415,7 @@ export async function generateFrogPrompt(userMessage: string, calendarEvents?: s
       },
       'Ошибка генерации промпта для лягушки'
     );
-    
+
     // Fallback промпт при ошибке
     return 'anthropomorphic frog portrait, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer';
   }

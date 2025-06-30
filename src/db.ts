@@ -333,6 +333,46 @@ export const getRecentLogs = (limit: number = 7, offset: number = 0) => {
   }[];
 };
 
+// Получить последние N непрочитанных логов с пагинацией
+export const getRecentUnreadLogs = (limit: number = 7, offset: number = 0) => {
+  const getLogs = db.query(`
+    SELECT id, level, message, data, timestamp, is_read, created_at
+    FROM logs
+    WHERE is_read = FALSE
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ? OFFSET ?
+  `);
+  return getLogs.all(limit, offset) as {
+    id: number;
+    level: string;
+    message: string;
+    data: string | null;
+    timestamp: string;
+    is_read: boolean;
+    created_at: string;
+  }[];
+};
+
+// Получить последние N непрочитанных логов уровня INFO и выше (info, warn, error, fatal)
+export const getRecentUnreadInfoLogs = (limit: number = 7, offset: number = 0) => {
+  const getLogs = db.query(`
+    SELECT id, level, message, data, timestamp, is_read, created_at
+    FROM logs
+    WHERE is_read = FALSE AND level IN ('info', 'warn', 'error', 'fatal')
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ? OFFSET ?
+  `);
+  return getLogs.all(limit, offset) as {
+    id: number;
+    level: string;
+    message: string;
+    data: string | null;
+    timestamp: string;
+    is_read: boolean;
+    created_at: string;
+  }[];
+};
+
 // Получить количество всех логов
 export const getLogsCount = () => {
   const getCount = db.query(`SELECT COUNT(*) as count FROM logs`);
@@ -355,6 +395,19 @@ export const markLogAsRead = (logId: number) => {
     WHERE id = ?
   `);
   updateLog.run(logId);
+};
+
+// Пометить несколько логов как прочитанные по их ID
+export const markLogsAsRead = (logIds: number[]) => {
+  if (logIds.length === 0) return;
+  
+  const placeholders = logIds.map(() => '?').join(',');
+  const updateLogs = db.query(`
+    UPDATE logs
+    SET is_read = TRUE
+    WHERE id IN (${placeholders})
+  `);
+  updateLogs.run(...logIds);
 };
 
 // Пометить все логи как прочитанные

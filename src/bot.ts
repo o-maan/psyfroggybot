@@ -12,9 +12,12 @@ import {
   getLogsStatistics,
   getRecentLogs,
   getRecentLogsByLevel,
+  getRecentUnreadInfoLogs,
+  getRecentUnreadLogs,
   getUnreadLogsCount,
   markAllLogsAsRead,
   markLogAsRead,
+  markLogsAsRead,
   saveMessage,
   saveUserToken,
 } from './db.ts';
@@ -379,43 +382,54 @@ bot.command('test_now', async ctx => {
 
 // Функция для создания временного файла с логами
 function createTempLogFile(logs: any[], filename: string): string {
-  const tempDir = path.join(process.cwd(), 'temp');
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
+  try {
+    const tempDir = path.join(process.cwd(), 'temp');
 
-  const filePath = path.join(tempDir, filename);
-  let content = '=== СИСТЕМНЫЕ ЛОГИ ===\n\n';
+    botLogger.debug({ tempDir, filename, logsCount: logs.length }, 'Создаю временный файл логов');
 
-  logs.forEach((log, index) => {
-    const timestamp = new Date(log.timestamp).toLocaleString('ru-RU', {
-      timeZone: 'Europe/Moscow',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+      botLogger.debug({ tempDir }, 'Создана директория temp');
+    }
+
+    const filePath = path.join(tempDir, filename);
+    let content = '=== СИСТЕМНЫЕ ЛОГИ ===\n\n';
+
+    logs.forEach((log, index) => {
+      const timestamp = new Date(log.timestamp).toLocaleString('ru-RU', {
+        timeZone: 'Europe/Moscow',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      content += `[${timestamp}] ${log.level.toUpperCase()} #${log.id}\n`;
+      content += `Сообщение: ${log.message}\n`;
+
+      if (log.data) {
+        try {
+          const data = JSON.parse(log.data);
+          content += `Данные: ${JSON.stringify(data, null, 2)}\n`;
+        } catch {
+          content += `Данные: ${log.data}\n`;
+        }
+      }
+
+      content += `Прочитано: ${log.is_read ? 'Да' : 'Нет'}\n`;
+      content += '---\n\n';
     });
 
-    content += `[${timestamp}] ${log.level.toUpperCase()} #${log.id}\n`;
-    content += `Сообщение: ${log.message}\n`;
-    
-    if (log.data) {
-      try {
-        const data = JSON.parse(log.data);
-        content += `Данные: ${JSON.stringify(data, null, 2)}\n`;
-      } catch {
-        content += `Данные: ${log.data}\n`;
-      }
-    }
-    
-    content += `Прочитано: ${log.is_read ? 'Да' : 'Нет'}\n`;
-    content += '---\n\n';
-  });
-
-  fs.writeFileSync(filePath, content, 'utf8');
-  return filePath;
+    fs.writeFileSync(filePath, content, 'utf8');
+    botLogger.debug({ filePath, contentLength: content.length }, 'Файл логов создан');
+    return filePath;
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ error: err.message, stack: err.stack, filename }, 'Ошибка создания файла логов');
+    throw err;
+  }
 }
 
 // Функция для очистки временных файлов
@@ -488,20 +502,24 @@ bot.command('logs', async ctx => {
   }
 
   try {
-    const logs = getRecentLogs(7, 0);
+    // По умолчанию показываем только непрочитанные логи уровня INFO и выше
+    const logs = getRecentUnreadInfoLogs(7, 0);
     const totalCount = getLogsCount();
     const unreadCount = getUnreadLogsCount();
 
     if (logs.length === 0) {
-      await ctx.reply('📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n📭 Логи отсутствуют', {
-        parse_mode: 'HTML',
-      });
+      await ctx.reply(
+        '📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n📭 Непрочитанные логи INFO+ отсутствуют\n\n💡 Используйте кнопку "🔍 Фильтр" для других уровней логов',
+        {
+          parse_mode: 'HTML',
+        }
+      );
       return;
     }
 
     let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
-    message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: Все\n\n`;
+    message += `📄 Показано: ${logs.length} непрочитанных | 🔍 Фильтр: INFO и выше\n\n`;
 
     // Проверяем, не слишком ли большое сообщение получается
     let testMessage = message;
@@ -512,18 +530,16 @@ bot.command('logs', async ctx => {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0_all' },
+          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0_info+' },
           { text: '📊 Статистика', callback_data: 'logs_stats' },
-          { text: 'Следующие ➡️', callback_data: 'logs_next_7_all' },
+          { text: 'Следующие ➡️', callback_data: 'logs_next_7_info+' },
         ],
         [
           { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
-          { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
-          { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
+          { text: '✅ Прочитано', callback_data: 'logs_mark_visible_read' },
+          { text: '🔄 Обновить', callback_data: 'logs_refresh_0_info+' },
         ],
-        [
-          { text: '📁 Скачать как файл', callback_data: 'logs_download_0_all' },
-        ],
+        [{ text: '📁 Скачать как файл', callback_data: 'logs_download_0_info+' }],
       ],
     };
 
@@ -586,8 +602,7 @@ bot.action(/logs_(.+)_(\d+)_(.+)/, async ctx => {
         newOffset = Math.max(0, offset - 7);
         break;
       case 'next':
-        const totalCount = getLogsCount();
-        newOffset = Math.min(totalCount - 1, offset + 7);
+        newOffset = offset + 7;
         break;
       case 'refresh':
         newOffset = offset;
@@ -597,11 +612,29 @@ bot.action(/logs_(.+)_(\d+)_(.+)/, async ctx => {
         return;
     }
 
-    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 7, newOffset) : getRecentLogs(7, newOffset);
+    let logs;
+    if (levelFilter === 'unread') {
+      logs = getRecentUnreadLogs(7, newOffset);
+    } else if (levelFilter === 'info+') {
+      logs = getRecentUnreadInfoLogs(7, newOffset);
+    } else if (levelFilter && levelFilter !== 'all') {
+      logs = getRecentLogsByLevel(levelFilter, 7, newOffset);
+    } else {
+      logs = getRecentLogs(7, newOffset);
+    }
     const totalCount = getLogsCount();
     const unreadCount = getUnreadLogsCount();
     const filterSuffix = levelFilter || 'all';
-    const filterName = levelFilter ? levelFilter.toUpperCase() : 'Все';
+    let filterName: string;
+    if (!levelFilter || levelFilter === 'all') {
+      filterName = 'Все';
+    } else if (levelFilter === 'unread') {
+      filterName = 'Непрочитанные';
+    } else if (levelFilter === 'info+') {
+      filterName = 'INFO и выше';
+    } else {
+      filterName = levelFilter.toUpperCase();
+    }
 
     if (logs.length === 0) {
       await ctx.answerCbQuery('📭 Логов больше нет');
@@ -630,9 +663,7 @@ bot.action(/logs_(.+)_(\d+)_(.+)/, async ctx => {
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: `logs_refresh_${newOffset}_${filterSuffix}` },
         ],
-        [
-          { text: '📁 Скачать как файл', callback_data: `logs_download_${newOffset}_${filterSuffix}` },
-        ],
+        [{ text: '📁 Скачать как файл', callback_data: `logs_download_${newOffset}_${filterSuffix}` }],
       ],
     };
 
@@ -663,6 +694,10 @@ bot.action('logs_filter_menu', async ctx => {
     inline_keyboard: [
       [
         { text: '📄 Все', callback_data: 'logs_filter_all' },
+        { text: '🆕 Непрочитанные', callback_data: 'logs_filter_unread' },
+        { text: '📝 INFO+', callback_data: 'logs_filter_info+' },
+      ],
+      [
         { text: '🐛 DEBUG', callback_data: 'logs_filter_debug' },
         { text: '📝 INFO', callback_data: 'logs_filter_info' },
       ],
@@ -671,7 +706,7 @@ bot.action('logs_filter_menu', async ctx => {
         { text: '❌ ERROR', callback_data: 'logs_filter_error' },
         { text: '💀 FATAL', callback_data: 'logs_filter_fatal' },
       ],
-      [{ text: '◀️ Назад к логам', callback_data: 'logs_refresh_0_all' }],
+      [{ text: '◀️ Назад к логам', callback_data: 'logs_refresh_0_info+' }],
     ],
   };
 
@@ -696,10 +731,30 @@ bot.action(/logs_filter_(.+)/, async ctx => {
   const level = ctx.match![1];
   const levelFilter = level === 'all' ? null : level;
   const filterSuffix = level;
-  const filterName = level === 'all' ? 'Все' : level.toUpperCase();
+  let filterName: string;
+
+  if (level === 'all') {
+    filterName = 'Все';
+  } else if (level === 'unread') {
+    filterName = 'Непрочитанные';
+  } else if (level === 'info+') {
+    filterName = 'INFO и выше';
+  } else {
+    filterName = level.toUpperCase();
+  }
 
   try {
-    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 7, 0) : getRecentLogs(7, 0);
+    let logs;
+    if (level === 'unread') {
+      logs = getRecentUnreadLogs(7, 0);
+    } else if (level === 'info+') {
+      logs = getRecentUnreadInfoLogs(7, 0);
+    } else if (levelFilter && level !== 'all') {
+      logs = getRecentLogsByLevel(levelFilter, 7, 0);
+    } else {
+      logs = getRecentLogs(7, 0);
+    }
+
     const totalCount = getLogsCount();
     const unreadCount = getUnreadLogsCount();
 
@@ -710,7 +765,9 @@ bot.action(/logs_filter_(.+)/, async ctx => {
 
     let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
     message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
-    message += `📄 Показано: ${logs.length} из ${totalCount} | 🔍 Фильтр: ${filterName}\n\n`;
+
+    const displayCount = level === 'unread' ? unreadCount : totalCount;
+    message += `📄 Показано: ${logs.length} из ${displayCount} | 🔍 Фильтр: ${filterName}\n\n`;
 
     logs.forEach((log, index) => {
       message += formatLogEntry(log, index) + '\n\n';
@@ -725,12 +782,10 @@ bot.action(/logs_filter_(.+)/, async ctx => {
         ],
         [
           { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
-          { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
+          { text: '✅ Прочитано', callback_data: 'logs_mark_visible_read' },
           { text: '🔄 Обновить', callback_data: `logs_refresh_0_${filterSuffix}` },
         ],
-        [
-          { text: '📁 Скачать как файл', callback_data: `logs_download_0_${filterSuffix}` },
-        ],
+        [{ text: '📁 Скачать как файл', callback_data: `logs_download_0_${filterSuffix}` }],
       ],
     };
 
@@ -844,9 +899,7 @@ bot.action('logs_mark_all_read', async ctx => {
           { text: '✅ Все прочитано', callback_data: 'logs_mark_all_read' },
           { text: '🔄 Обновить', callback_data: 'logs_refresh_0_all' },
         ],
-        [
-          { text: '📁 Скачать как файл', callback_data: 'logs_download_0_all' },
-        ],
+        [{ text: '📁 Скачать как файл', callback_data: 'logs_download_0_all' }],
       ],
     };
 
@@ -857,6 +910,75 @@ bot.action('logs_mark_all_read', async ctx => {
   } catch (e) {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка отметки всех логов');
+    await ctx.answerCbQuery('❌ Ошибка при отметке логов');
+  }
+});
+
+// Обработчик для отметки видимых логов как прочитанных
+bot.action('logs_mark_visible_read', async ctx => {
+  const chatId = ctx.chat?.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  if (chatId !== adminChatId) {
+    await ctx.answerCbQuery('❌ Доступ запрещен');
+    return;
+  }
+
+  try {
+    // Нужно получить информацию о текущем состоянии логов из сообщения
+    // Это сложно сделать из callback, поэтому пока сделаем simple approach
+
+    // Получаем последние 7 непрочитанных INFO+ логов (текущие видимые по умолчанию)
+    const logs = getRecentUnreadInfoLogs(7, 0);
+
+    if (logs.length === 0) {
+      await ctx.answerCbQuery('📭 Нет видимых логов для пометки');
+      return;
+    }
+
+    // Помечаем все видимые логи как прочитанные
+    const logIds = logs.map(log => log.id);
+    markLogsAsRead(logIds);
+
+    await ctx.answerCbQuery(`✅ Помечено ${logs.length} логов как прочитанные`);
+
+    // Обновляем сообщение, показывая те же логи но уже как прочитанные
+    const totalCount = getLogsCount();
+    const unreadCount = getUnreadLogsCount();
+
+    let message = `📝 <b>ЛОГИ СИСТЕМЫ</b>\n\n`;
+    message += `📊 Всего: ${totalCount} | 🆕 Непрочитано: ${unreadCount}\n`;
+    message += `📄 Показано: ${logs.length} логов (помечены как прочитанные) | 🔍 Фильтр: Просмотренные\n\n`;
+
+    // Принудительно показываем логи как прочитанные
+    logs.forEach((log, index) => {
+      log.is_read = true;
+      message += formatLogEntry(log, index) + '\n\n';
+    });
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⬅️ Предыдущие', callback_data: 'logs_prev_0_info+' },
+          { text: '📊 Статистика', callback_data: 'logs_stats' },
+          { text: 'Следующие ➡️', callback_data: 'logs_next_7_info+' },
+        ],
+        [
+          { text: '🔍 Фильтр', callback_data: 'logs_filter_menu' },
+          { text: '✅ Уже прочитано', callback_data: 'logs_mark_visible_read' },
+          { text: '🔄 Обновить', callback_data: 'logs_refresh_0_info+' },
+        ],
+        [{ text: '📁 Скачать как файл', callback_data: 'logs_download_0_info+' }],
+      ],
+    };
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка отметки видимых логов');
     await ctx.answerCbQuery('❌ Ошибка при отметке логов');
   }
 });
@@ -900,8 +1022,17 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
     await ctx.answerCbQuery('📥 Подготавливаю файл...');
 
     // Получаем больше логов для файла (например, последние 100)
-    const logs = levelFilter ? getRecentLogsByLevel(levelFilter, 100, offset) : getRecentLogs(100, offset);
-    
+    let logs;
+    if (levelFilter === 'unread') {
+      logs = getRecentUnreadLogs(100, offset);
+    } else if (levelFilter === 'info+') {
+      logs = getRecentUnreadInfoLogs(100, offset);
+    } else if (levelFilter && levelFilter !== 'all') {
+      logs = getRecentLogsByLevel(levelFilter, 100, offset);
+    } else {
+      logs = getRecentLogs(100, offset);
+    }
+
     if (logs.length === 0) {
       await ctx.reply('📭 Логи для скачивания отсутствуют');
       return;
@@ -916,7 +1047,9 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
       await ctx.replyWithDocument(
         { source: filePath, filename },
         {
-          caption: `📁 <b>Экспорт логов</b>\n\n📄 Записей в файле: ${logs.length}\n🔍 Фильтр: ${levelFilter ? levelFilter.toUpperCase() : 'Все'}\n📅 Создан: ${new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}`,
+          caption: `📁 <b>Экспорт логов</b>\n\n📄 Записей в файле: ${logs.length}\n🔍 Фильтр: ${
+            levelFilter ? levelFilter.toUpperCase() : 'Все'
+          }\n📅 Создан: ${new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}`,
           parse_mode: 'HTML',
         }
       );
