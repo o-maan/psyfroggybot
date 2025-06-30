@@ -237,7 +237,7 @@ The app is designed for production deployment with:
 - Always respond in Russian. Always write code comments and strings in russian. If you find code/comments/ui texts in english, translate it to russian
 - Отвечай программисту в чате по русски, и код/комменты/UI-тексты/коммиты пиши тоже по русски
 - Тесты:
-  - Технологии: vitest, memfs, storybook
+  - Технологии: vitest, memfs
   - Пиши тесты в BDD виде, см примеры в файле app/utils/companies.test.ts, разделяй бизнес-логику и детали реализации
 - Use playwright mcp, base url: <http://localhost:4000>
   Use it to check your changes and collect additional info about ui layout.

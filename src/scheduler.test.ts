@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import * as fs from 'fs';
 import type { Telegraf } from 'telegraf';
 import type { CalendarService } from './calendar';
+import * as llm from './llm';
 import { Scheduler } from './scheduler';
 
 // Моки для зависимостей
@@ -9,68 +11,234 @@ const mockCalendarService = {} as CalendarService;
 
 describe('Scheduler', () => {
   let scheduler: Scheduler;
-  let hasFlightEvent: (events: any[]) => boolean;
+  let detectUserBusy: (events: any[]) => Promise<{ probably_busy: boolean; busy_reason: string | null }>;
+
+  // Создаем моки
+  const mockReadFileSync = spyOn(fs, 'readFileSync');
+  const mockReaddirSync = spyOn(fs, 'readdirSync');
+  const mockGenerateMessage = spyOn(llm, 'generateMessage');
 
   beforeEach(() => {
+    // Настраиваем моки
+    mockReadFileSync.mockReset();
+    mockReaddirSync.mockReset();
+    mockGenerateMessage.mockReset();
+
+    // Дефолтные возвращаемые значения
+    mockReadFileSync.mockReturnValue('Тестовый промпт для detect-busy');
+    mockReaddirSync.mockReturnValue([]);
+    mockGenerateMessage.mockResolvedValue(
+      JSON.stringify({
+        probably_busy: false,
+        busy_reason: null,
+      })
+    );
+
+    // Мокаем функции из db модуля
+    const db = require('./db');
+    spyOn(db, 'getAllUsers').mockReturnValue([]);
+    spyOn(db, 'getUserImageIndex').mockReturnValue(null);
+    spyOn(db, 'saveUserImageIndex').mockImplementation(() => {});
+    spyOn(db, 'addUser').mockImplementation(() => {});
+
+    // Мокаем логгеры
+    const { logger, schedulerLogger, botLogger, calendarLogger, databaseLogger } = require('./logger');
+    spyOn(logger, 'info').mockImplementation(() => {});
+    spyOn(logger, 'error').mockImplementation(() => {});
+    spyOn(schedulerLogger, 'info').mockImplementation(() => {});
+    spyOn(schedulerLogger, 'error').mockImplementation(() => {});
+    spyOn(schedulerLogger, 'debug').mockImplementation(() => {});
+    spyOn(schedulerLogger, 'warn').mockImplementation(() => {});
+    spyOn(botLogger, 'info').mockImplementation(() => {});
+    spyOn(botLogger, 'error').mockImplementation(() => {});
+    spyOn(calendarLogger, 'error').mockImplementation(() => {});
+    spyOn(databaseLogger, 'info').mockImplementation(() => {});
+
     scheduler = new Scheduler(mockBot, mockCalendarService);
     // Получаем доступ к приватному методу для тестирования
-    hasFlightEvent = (scheduler as any).hasFlightEvent.bind(scheduler);
+    detectUserBusy = (scheduler as any).detectUserBusy.bind(scheduler);
   });
 
-  describe('hasFlightEvent', () => {
-    it('should return true for "перелет"', () => {
-      const events = [{ summary: 'У меня завтра перелет' }];
-      expect(hasFlightEvent(events)).toBe(true);
+  describe('detectUserBusy', () => {
+    it('должен определить занятость при наличии перелета', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: true,
+          busy_reason: 'flight',
+        })
+      );
+
+      const events = [
+        {
+          summary: 'Перелет в Москву',
+          start: { dateTime: '2024-01-01T15:00:00' },
+          end: { dateTime: '2024-01-01T18:00:00' },
+          location: 'Аэропорт Домодедово',
+        },
+      ];
+
+      const result = await detectUserBusy(events);
+      expect(result.probably_busy).toBe(true);
+      expect(result.busy_reason).toBe('flight');
+
+      // Проверяем что промпт содержит информацию о событии
+      expect(mockGenerateMessage).toHaveBeenCalled();
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Перелет в Москву');
+      expect(callArg).toContain('15:00');
+      expect(callArg).toContain('Аэропорт Домодедово');
     });
 
-    it('should return true for "аэропорт"', () => {
-      const events = [{ summary: 'Встреча в аэропорту' }];
-      expect(hasFlightEvent(events)).toBe(true);
+    it('должен определить занятость при наличии поезда', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: true,
+          busy_reason: 'flight',
+        })
+      );
+
+      const events = [
+        {
+          summary: 'Поездка на поезде',
+          start: { dateTime: '2024-01-01T10:00:00' },
+          end: { dateTime: '2024-01-01T16:00:00' },
+          transparency: 'opaque',
+        },
+      ];
+
+      const result = await detectUserBusy(events);
+      expect(result.probably_busy).toBe(true);
+
+      // Проверяем что промпт содержит статус "Занят"
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Занят');
     });
 
-    it('should return true for "рейс"', () => {
-      const events = [{ summary: 'Мой рейс задерживается' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
+    it('должен вернуть false если нет событий', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: false,
+          busy_reason: null,
+        })
+      );
 
-    it('should return true for "поезд"', () => {
-      const events = [{ summary: 'Еду на поезде' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
-
-    it('should return true for "flight"', () => {
-      const events = [{ summary: 'My flight is delayed' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
-
-    it('should return true for "airport"', () => {
-      const events = [{ summary: 'Meeting at the airport' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
-
-    it('should return true for "train"', () => {
-      const events = [{ summary: 'I am on a train' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
-
-    it('should be case-insensitive', () => {
-      const events = [{ summary: 'Большой АЭРОПОРТ' }];
-      expect(hasFlightEvent(events)).toBe(true);
-    });
-
-    it('should return false if no keywords are present', () => {
-      const events = [{ summary: 'Обычная встреча в кафе' }];
-      expect(hasFlightEvent(events)).toBe(false);
-    });
-
-    it('should return false for an empty event list', () => {
       const events: any[] = [];
-      expect(hasFlightEvent(events)).toBe(false);
+      const result = await detectUserBusy(events);
+      expect(result.probably_busy).toBe(false);
+      expect(result.busy_reason).toBe(null);
+
+      // Проверяем что промпт содержит "Нет событий"
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Нет событий в календаре');
     });
 
-    it('should return false if summary is null or undefined', () => {
-      const events = [{ summary: null }, { summary: undefined }];
-      expect(hasFlightEvent(events)).toBe(false);
+    it('должен обработать событие на весь день', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: false,
+          busy_reason: null,
+        })
+      );
+
+      const events = [
+        {
+          summary: 'Конференция',
+          start: { date: '2024-01-01' }, // Событие на весь день
+          location: 'Онлайн',
+        },
+      ];
+
+      await detectUserBusy(events);
+
+      // Проверяем что промпт содержит "Весь день"
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Весь день');
+    });
+
+    it('должен обработать ошибку LLM', async () => {
+      mockGenerateMessage.mockResolvedValueOnce('HF_JSON_ERROR');
+
+      const events = [{ summary: 'Встреча' }];
+      const result = await detectUserBusy(events);
+
+      expect(result.probably_busy).toBe(false);
+      expect(result.busy_reason).toBe(null);
+    });
+
+    it('должен обработать невалидный JSON от LLM', async () => {
+      mockGenerateMessage.mockResolvedValueOnce('Это не JSON');
+
+      const events = [{ summary: 'Встреча' }];
+      const result = await detectUserBusy(events);
+
+      expect(result.probably_busy).toBe(false);
+      expect(result.busy_reason).toBe(null);
+    });
+
+    it('должен правильно обработать статус занятости (свободен)', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: false,
+          busy_reason: null,
+        })
+      );
+
+      const events = [
+        {
+          summary: 'Встреча',
+          transparency: 'transparent', // Свободен
+        },
+      ];
+
+      await detectUserBusy(events);
+
+      // Проверяем что промпт содержит "Свободен"
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Свободен');
+    });
+
+    it('должен обработать исключение при чтении файла', async () => {
+      mockReadFileSync.mockImplementationOnce(() => {
+        throw new Error('File not found');
+      });
+
+      const events = [{ summary: 'Встреча' }];
+      const result = await detectUserBusy(events);
+
+      expect(result.probably_busy).toBe(false);
+      expect(result.busy_reason).toBe(null);
+    });
+
+    it('должен обработать несколько событий', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        JSON.stringify({
+          probably_busy: true,
+          busy_reason: 'flight',
+        })
+      );
+
+      const events = [
+        {
+          summary: 'Утренняя встреча',
+          start: { dateTime: '2024-01-01T09:00:00' },
+          end: { dateTime: '2024-01-01T10:00:00' },
+        },
+        {
+          summary: 'Перелет',
+          start: { dateTime: '2024-01-01T15:00:00' },
+          end: { dateTime: '2024-01-01T18:00:00' },
+          location: 'Шереметьево',
+        },
+      ];
+
+      const result = await detectUserBusy(events);
+      expect(result.probably_busy).toBe(true);
+
+      // Проверяем что промпт содержит оба события
+      const callArg = mockGenerateMessage.mock.calls[0][0];
+      expect(callArg).toContain('Утренняя встреча');
+      expect(callArg).toContain('Перелет');
+      expect(callArg).toContain('Шереметьево');
     });
   });
 });
