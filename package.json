@@ -8,7 +8,8 @@
     "migrate": "bun install && knex --knexfile knexfile.cjs migrate:latest",
     "build": "bun build src/bot.ts --outdir dist --target node",
     "pm2:start": "NODE_ENV=production bun run build && NODE_ENV=production pm2 start ecosystem.config.cjs",
-    "lint": "tsc --noEmit --skipLibCheck"
+    "lint": "tsc --noEmit --skipLibCheck",
+    "logs": "ssh www-data@104.248.84.190 '. .profile && cd /var/www/psy_froggy_bot && pm2 logs --nostream psy_froggy_bot'"
   },
   "dependencies": {
     "@huggingface/inference": "^3.14.0",

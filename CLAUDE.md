@@ -144,3 +144,25 @@ The app is designed for production deployment with:
 - `/test_schedule`: Create test cron job for next minute
 - `/next_image`: Debug image rotation
 - `/minimalTestLLM`: Test LLM connection
+
+# User settings
+
+## Important rules to follow
+
+- Always respond in Russian. Always write code comments and strings in russian. If you find code/comments/ui texts in english, translate it to russian
+- Отвечай программисту в чате по русски, и код/комменты/UI-тексты/коммиты пиши тоже по русски
+- Тесты:
+  - Технологии: vitest, memfs, storybook
+  - Пиши тесты в BDD виде, см примеры в файле app/utils/companies.test.ts, разделяй бизнес-логику и детали реализации
+- Use playwright mcp, base url: <http://localhost:4000>
+  Use it to check your changes and collect additional info about ui layout.
+- Никогда не предлагай перезапустить проект (kill, killall, ..., npm run dev) кроме случаев когда изменяются модели базы данных, тогда настаивай на перезапуске но предлагай это сделать мне самостоятельно
+- Пиши код и изменения в проекте только на английском, в чат - на русском,
+- После выполнения задачи критически оценивай ее результат (не процесс работы над ней) по 10-и бальной шкале когда это уместно и предлагай улучшения,
+- Пиши и запускай тесты
+- Изучай документацию и проект
+- Следуй принципу бритвы Оккама, используй существующие компоненты, утилиты
+- По возможности используй dom api, когда это уместно, например input accept
+- Не усложняй без необходимости
+- Если пользвоатель сообщает о том что твой подход не работает, добавь логов
+- По окончанию проверяй можно ли упростить реализацию и убрать часть изменений

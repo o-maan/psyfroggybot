@@ -5,7 +5,9 @@
       "Bash(git add:*)",
       "Bash(rg:*)",
       "Bash(bun run lint:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(pm2 logs:*)",
+      "Bash(bun run logs:*)"
     ],
     "deny": []
   }
