@@ -256,5 +256,37 @@ describe('Scheduler', () => {
       expect(result.probably_busy).toBe(true);
       expect(result.busy_reason).toBe('flight');
     });
+
+    it('должен удалять теги <think> с HTML внутри', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        '<think>Анализирую события...<br>Вижу перелет<b>важно!</b></think>' +
+        JSON.stringify({
+          probably_busy: true,
+          busy_reason: 'flight',
+        })
+      );
+
+      const events = [{ summary: 'Перелет в Москву' }];
+      const result = await detectUserBusy(events);
+      
+      expect(result.probably_busy).toBe(true);
+      expect(result.busy_reason).toBe('flight');
+    });
+
+    it('должен удалять вложенные теги <think>', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        '<think>Первая мысль <think>вложенная мысль</think> продолжение</think>' +
+        JSON.stringify({
+          probably_busy: false,
+          busy_reason: null,
+        })
+      );
+
+      const events = [{ summary: 'Встреча' }];
+      const result = await detectUserBusy(events);
+      
+      expect(result.probably_busy).toBe(false);
+      expect(result.busy_reason).toBe(null);
+    });
   });
 });

@@ -23,6 +23,20 @@ function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Функция удаления тегов <think>...</think> из ответа LLM
+function removeThinkTags(text: string): string {
+  // Ищем от начала строки до последнего вхождения </think>
+  const lastThinkClose = text.lastIndexOf('</think>');
+  if (lastThinkClose !== -1) {
+    // Проверяем, есть ли открывающий тег <think> в начале
+    if (text.trim().startsWith('<think>')) {
+      // Удаляем всё от начала до конца последнего </think>
+      return text.substring(lastThinkClose + 8).trim();
+    }
+  }
+  return text;
+}
+
 export class Scheduler {
   private bot: Telegraf;
   private reminderTimeouts: Map<number, NodeJS.Timeout> = new Map();
@@ -156,7 +170,7 @@ export class Scheduler {
       }
 
       // Удаляем теги <think>...</think> из ответа
-      response = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      response = removeThinkTags(response);
 
       try {
         const result = JSON.parse(response.replace(/```json|```/gi, '').trim());
@@ -308,7 +322,7 @@ export class Scheduler {
       schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
 
       // Удаляем теги <think>...</think>
-      text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      text = removeThinkTags(text);
 
       if (text.length > 555) text = text.slice(0, 552) + '...';
       // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
@@ -359,7 +373,7 @@ export class Scheduler {
       }
 
       // Удаляем теги <think>...</think>
-      jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      jsonText = removeThinkTags(jsonText);
 
       // Пост-обработка: убираем markdown-блоки и экранирование
       jsonText = jsonText.replace(/```json|```/gi, '').trim();
