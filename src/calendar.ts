@@ -1,5 +1,5 @@
-import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { google } from 'googleapis';
 import { calendarLogger } from './logger';
 
 import { config } from 'dotenv';
@@ -184,7 +184,7 @@ export async function getUserTodayEvents(chatId: number): Promise<string | null>
   try {
     const { getLastUserToken } = await import('./db.ts');
     const tokenData = getLastUserToken(chatId);
-    
+
     if (!tokenData) {
       calendarLogger.debug({ chatId }, 'У пользователя нет токена календаря');
       return null;
@@ -193,9 +193,9 @@ export async function getUserTodayEvents(chatId: number): Promise<string | null>
     const calendarService = new CalendarService();
     const tokens = JSON.parse(tokenData.token);
     calendarService.setToken(tokens);
-    
+
     const events = await calendarService.getTodayEvents();
-    
+
     if (!events || events.length === 0) {
       calendarLogger.debug({ chatId }, 'У пользователя нет событий на сегодня');
       return null;
@@ -207,7 +207,7 @@ export async function getUserTodayEvents(chatId: number): Promise<string | null>
         const summary = event.summary || 'Событие без названия';
         const start = event.start?.dateTime || event.start?.date;
         const location = event.location ? ` (${event.location})` : '';
-        
+
         if (start) {
           const eventTime = new Date(start).toLocaleTimeString('ru', {
             hour: '2-digit',
@@ -221,7 +221,6 @@ export async function getUserTodayEvents(chatId: number): Promise<string | null>
 
     calendarLogger.info({ chatId, eventsCount: events.length }, 'События календаря получены для пользователя');
     return eventsText;
-    
   } catch (error) {
     const err = error as Error;
     calendarLogger.error(

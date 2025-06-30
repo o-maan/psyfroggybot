@@ -47,7 +47,6 @@ db.query(
 `
 ).run();
 
-
 // Создаем таблицу для хранения токенов пользователя
 // Таблица user_tokens: id, chat_id, token, created_at
 
@@ -400,7 +399,7 @@ export const markLogAsRead = (logId: number) => {
 // Пометить несколько логов как прочитанные по их ID
 export const markLogsAsRead = (logIds: number[]) => {
   if (logIds.length === 0) return;
-  
+
   const placeholders = logIds.map(() => '?').join(',');
   const updateLogs = db.query(`
     UPDATE logs
@@ -442,7 +441,7 @@ export const getLogsByLevel = (level: string, limit: number = 50) => {
 
 // Получить последние логи с фильтром по уровню
 export const getRecentLogsByLevel = (level: string | null, limit: number = 7, offset: number = 0) => {
-  const query = level 
+  const query = level
     ? `SELECT id, level, message, data, timestamp, is_read, created_at
        FROM logs
        WHERE level = ?
@@ -452,12 +451,10 @@ export const getRecentLogsByLevel = (level: string | null, limit: number = 7, of
        FROM logs
        ORDER BY timestamp DESC, id DESC
        LIMIT ? OFFSET ?`;
-       
+
   const getLogs = db.query(query);
-  
-  return level 
-    ? getLogs.all(level, limit, offset)
-    : getLogs.all(limit, offset);
+
+  return level ? getLogs.all(level, limit, offset) : getLogs.all(limit, offset);
 };
 
 // Очистить старые логи (старше N дней)

@@ -1,9 +1,4 @@
 {
-  "recommendations": [
-    "esbenp.prettier-vscode",
-    "yzhang.markdown-all-in-one",
-  ],
-  "unwantedRecommendations": [
-    "ms-vscode.vscode-typescript"
-  ]
+  "recommendations": ["esbenp.prettier-vscode", "yzhang.markdown-all-in-one"],
+  "unwantedRecommendations": ["ms-vscode.vscode-typescript"]
 }

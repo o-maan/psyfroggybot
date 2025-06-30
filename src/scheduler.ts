@@ -41,6 +41,11 @@ export class Scheduler {
     this.initializeDailySchedule();
   }
 
+  // Геттер для получения сервиса календаря (для тестирования)
+  getCalendarService(): CalendarService {
+    return this.calendarService;
+  }
+
   // Загрузить список картинок при старте
   private loadImages() {
     const imagesDir = path.join(process.cwd(), 'images');
@@ -91,9 +96,73 @@ export class Scheduler {
     schedulerLogger.debug({ chatId }, 'Пользователь добавлен в планировщик');
   }
 
-  // Вспомогательная функция для проверки перелёта/аэропорта в событиях
-  private hasFlightEvent(events: any[]): boolean {
-    return events.some(e => /перел[её]т|аэропорт|рейс|поезд|flight|airport|train/i.test(e.summary || ''));
+  // Определяем занятость пользователя через LLM анализ календаря
+  private async detectUserBusy(events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
+    try {
+      const detectPrompt = readFileSync('assets/prompts/detect-busy.md', 'utf-8');
+      
+      // Формируем подробное описание событий
+      let eventsDescription = '';
+      if (events.length > 0) {
+        eventsDescription = 'События в календаре сегодня:\n';
+        events.forEach((event, index) => {
+          eventsDescription += `${index + 1}. ${event.summary || 'Без названия'}\n`;
+          
+          // Добавляем время
+          if (event.start) {
+            const startDate = new Date(event.start.dateTime || event.start.date);
+            const endDate = event.end ? new Date(event.end.dateTime || event.end.date) : null;
+            
+            if (event.start.date && !event.start.dateTime) {
+              eventsDescription += `   - Весь день\n`;
+            } else {
+              eventsDescription += `   - Время: ${startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+              if (endDate) {
+                eventsDescription += ` - ${endDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+              }
+              eventsDescription += '\n';
+            }
+          }
+          
+          // Статус занятости
+          if (event.transparency) {
+            eventsDescription += `   - Статус: ${event.transparency === 'transparent' ? 'Свободен' : 'Занят'}\n`;
+          }
+          
+          // Место
+          if (event.location) {
+            eventsDescription += `   - Место: ${event.location}\n`;
+          }
+          
+          eventsDescription += '\n';
+        });
+      } else {
+        eventsDescription = 'Нет событий в календаре';
+      }
+      
+      const fullPrompt = detectPrompt + '\n\n' + eventsDescription;
+      
+      const response = await generateMessage(fullPrompt);
+      
+      if (response === 'HF_JSON_ERROR') {
+        // По умолчанию считаем, что не занят
+        return { probably_busy: false, busy_reason: null };
+      }
+      
+      try {
+        const result = JSON.parse(response.replace(/```json|```/gi, '').trim());
+        return {
+          probably_busy: result.probably_busy || false,
+          busy_reason: result.busy_reason || null
+        };
+      } catch {
+        // Если не удалось распарсить, считаем что не занят
+        return { probably_busy: false, busy_reason: null };
+      }
+    } catch (error) {
+      schedulerLogger.error({ error }, 'Ошибка определения занятости пользователя');
+      return { probably_busy: false, busy_reason: null };
+    }
   }
 
   // Вспомогательная функция для формирования сообщения по правилам
@@ -199,26 +268,28 @@ export class Scheduler {
       // Не логируем, это не критично
     }
 
-    const hasFlight = this.hasFlightEvent(events || []);
-    const promptPath = hasFlight ? 'assets/prompts/scheduled-message-flight.md' : 'assets/prompts/scheduled-message.md';
+    // Определяем занятость пользователя через анализ календаря
+    const busyStatus = await this.detectUserBusy(events || []);
+    const promptPath = busyStatus.probably_busy ? 'assets/prompts/scheduled-message-flight.md' : 'assets/prompts/scheduled-message.md';
 
     // Добавляем логирование для отладки
     schedulerLogger.info(
       {
         chatId,
-        hasFlight,
+        probably_busy: busyStatus.probably_busy,
+        busy_reason: busyStatus.busy_reason,
         promptPath,
         eventsCount: events?.length || 0,
       },
-      `🔍 Выбор промпта: ${hasFlight ? 'FLIGHT' : 'NORMAL'}`
+      `🔍 Выбор промпта: ${busyStatus.probably_busy ? 'BUSY' : 'NORMAL'}`
     );
 
     let promptBase = readFileSync(promptPath, 'utf-8');
 
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
-    if (hasFlight) {
-      // Если есть перелёт — полностью генерируем текст через HF, ограничиваем 555 символами
-      schedulerLogger.info({ chatId }, '✈️ Используем FLIGHT промпт');
+    if (busyStatus.probably_busy) {
+      // Если пользователь занят — полностью генерируем текст через HF, ограничиваем 555 символами
+      schedulerLogger.info({ chatId, busy_reason: busyStatus.busy_reason }, '✈️ Пользователь занят, используем упрощенный промпт');
       let text = await generateMessage(prompt);
       schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
 
@@ -253,14 +324,14 @@ export class Scheduler {
           return encouragement;
         }
       } catch {}
-      // Fallback для перелёта
-      const fallbackFlight =
-        'Кажется чатик не хочет работать - негодяй!\n\nКайфового полета :) Давай пока ты будешь лететь ты подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
-      saveMessage(chatId, fallbackFlight, new Date().toISOString());
-      return fallbackFlight;
+      // Fallback для занятого пользователя
+      const fallbackBusy =
+        'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
+      saveMessage(chatId, fallbackBusy, new Date().toISOString());
+      return fallbackBusy;
     } else {
       // Обычный день — используем структуру с пунктами
-      schedulerLogger.info({ chatId }, '📅 Используем NORMAL промпт');
+      schedulerLogger.info({ chatId }, '📅 Пользователь не занят, используем обычный промпт');
       let jsonText = await generateMessage(prompt);
       schedulerLogger.info({ chatId, jsonLength: jsonText?.length || 0 }, `📝 LLM ответ получен: ${jsonText}`);
 

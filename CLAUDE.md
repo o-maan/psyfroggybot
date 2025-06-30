@@ -45,13 +45,91 @@ bun run lint                   # TypeScript type checking
 - Handles all bot commands and message processing
 - Manages user interactions and admin commands
 
-**Scheduler (`src/scheduler.ts`)**
+**Scheduler (`src/scheduler.ts`)** - Основной модуль планировщика
 
-- Cron-based daily message scheduling (19:30 MSK)
-- Image rotation system with user-specific indexing
-- Reminder system (1.5 hours after message)
-- Message generation with calendar integration
-- Mass messaging with error handling and admin reporting
+Класс `Scheduler` управляет автоматической рассылкой психологических сообщений:
+
+**Основные компоненты:**
+
+- `bot: Telegraf` - экземпляр Telegram бота
+- `reminderTimeouts: Map<number, NodeJS.Timeout>` - таймеры напоминаний для пользователей
+- `users: Set<number>` - набор ID активных пользователей
+- `imageFiles: string[]` - массив путей к изображениям лягушки
+- `CHANNEL_ID = -1002405993986` - ID канала для публикации
+- `calendarService: CalendarService` - сервис интеграции с Google Calendar
+- `dailyCronJob: cron.ScheduledTask` - задача ежедневной рассылки
+
+**Ключевые методы:**
+
+1. **Инициализация:**
+
+   - `constructor()` - загружает изображения, пользователей, запускает cron
+   - `loadImages()` - сканирует папку `/images` для jpg/png файлов
+   - `loadUsers()` - загружает пользователей из SQLite базы
+   - `initializeDailySchedule()` - настраивает cron job на 19:30 MSK
+
+2. **Определение занятости пользователя:**
+
+   - `detectUserBusy(events)` - анализирует календарь через LLM
+   - Передает в промпт: название события, время, статус (busy/free), место
+   - Возвращает `{probably_busy: boolean, busy_reason: string|null}`
+
+3. **Генерация сообщений:**
+
+   - `generateScheduledMessage(chatId)` - основная логика генерации
+   - Получает события календаря с 18:00 до завтра
+   - Анализирует занятость через `detectUserBusy()`
+   - Выбирает промпт: `scheduled-message-flight.md` (занят) или `scheduled-message.md`
+   - Для занятых: упрощенное сообщение (encouragement + задание)
+   - Для свободных: полное структурированное сообщение
+
+4. **Структура обычного сообщения** (`buildScheduledMessageFromHF`):
+
+   - Вдохновляющий текст (всегда)
+   - Выгрузка неприятных переживаний (50% вероятность)
+   - Плюшки для лягушки (всегда)
+   - Чувства и эмоции (всегда)
+   - Рейтинг дня (всегда)
+   - Расслабление/Дыхание (50/50 выбор)
+
+5. **Отправка сообщений:**
+
+   - `sendDailyMessage(chatId)` - отправка одному пользователю
+   - Генерирует текст и AI-изображение лягушки
+   - Отправляет в канал с изображением
+   - Устанавливает напоминание через 1.5 часа
+   - Сохраняет в историю сообщений
+
+6. **Массовая рассылка:**
+
+   - `sendDailyMessagesToAll(adminChatId)` - рассылка всем пользователям
+   - Последовательная обработка с `setImmediate()` для неблокирующей работы
+   - Сбор статистики успешных/неудачных отправок
+   - Отчет администратору после завершения
+
+7. **Система напоминаний:**
+
+   - `setReminder(chatId, sentTime)` - таймер на 1.5 часа
+   - Проверяет, ответил ли пользователь
+   - Анализирует календарь за последнюю неделю
+   - Генерирует персонализированное напоминание
+
+8. **Управление изображениями:**
+
+   - `getNextImage(chatId)` - циклическая ротация per-user
+   - Сохраняет индекс текущего изображения в БД
+
+9. **Служебные методы:**
+   - `getSchedulerStatus()` - информация о состоянии планировщика
+   - `destroy()` - корректное завершение работы
+
+**Особенности реализации:**
+
+- Робастная обработка ошибок с fallback механизмами
+- Интеграция с Google Calendar для контекстной генерации
+- AI-генерация изображений на основе состояния пользователя
+- Детальное логирование всех этапов работы
+- Уведомления админу о критических ошибках
 
 **Calendar Integration (`src/calendar.ts`)**
 
@@ -144,11 +222,18 @@ The app is designed for production deployment with:
 - `/test_schedule`: Create test cron job for next minute
 - `/next_image`: Debug image rotation
 - `/minimalTestLLM`: Test LLM connection
+- `/test_busy`: Test user busy detection via calendar analysis
 
-# User settings
+## LLM inferring post processing
 
-## Important rules to follow
+- Всегда вырезай `<think>...</think>`
 
+## User settings
+
+### Important rules to follow
+
+- Я начинашечка, объясняй понятно и доступно, не используй сложные слова и термины, если не знаешь, спроси у меня
+  Когда я прошу тебя объяснить код ты можешь использовать термины, но в скобочках или отдельно объясняй их
 - Always respond in Russian. Always write code comments and strings in russian. If you find code/comments/ui texts in english, translate it to russian
 - Отвечай программисту в чате по русски, и код/комменты/UI-тексты/коммиты пиши тоже по русски
 - Тесты:
@@ -164,5 +249,5 @@ The app is designed for production deployment with:
 - Следуй принципу бритвы Оккама, используй существующие компоненты, утилиты
 - По возможности используй dom api, когда это уместно, например input accept
 - Не усложняй без необходимости
-- Если пользвоатель сообщает о том что твой подход не работает, добавь логов
+- Если пользователь сообщает о том что твой подход не работает, добавь логов
 - По окончанию проверяй можно ли упростить реализацию и убрать часть изменений
