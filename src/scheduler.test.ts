@@ -240,5 +240,21 @@ describe('Scheduler', () => {
       expect(callArg).toContain('Перелет');
       expect(callArg).toContain('Шереметьево');
     });
+
+    it('должен удалять теги <think> из ответа LLM', async () => {
+      mockGenerateMessage.mockResolvedValueOnce(
+        '<think>Размышляю о календаре...</think>' +
+        JSON.stringify({
+          probably_busy: true,
+          busy_reason: 'flight',
+        })
+      );
+
+      const events = [{ summary: 'Перелет' }];
+      const result = await detectUserBusy(events);
+      
+      expect(result.probably_busy).toBe(true);
+      expect(result.busy_reason).toBe('flight');
+    });
   });
 });

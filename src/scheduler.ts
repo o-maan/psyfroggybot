@@ -100,60 +100,69 @@ export class Scheduler {
   private async detectUserBusy(events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
     try {
       const detectPrompt = readFileSync('assets/prompts/detect-busy.md', 'utf-8');
-      
+
       // Формируем подробное описание событий
       let eventsDescription = '';
       if (events.length > 0) {
         eventsDescription = 'События в календаре сегодня:\n';
         events.forEach((event, index) => {
           eventsDescription += `${index + 1}. ${event.summary || 'Без названия'}\n`;
-          
+
           // Добавляем время
           if (event.start) {
             const startDate = new Date(event.start.dateTime || event.start.date);
             const endDate = event.end ? new Date(event.end.dateTime || event.end.date) : null;
-            
+
             if (event.start.date && !event.start.dateTime) {
               eventsDescription += `   - Весь день\n`;
             } else {
-              eventsDescription += `   - Время: ${startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+              eventsDescription += `   - Время: ${startDate.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}`;
               if (endDate) {
-                eventsDescription += ` - ${endDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+                eventsDescription += ` - ${endDate.toLocaleTimeString('ru-RU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}`;
               }
               eventsDescription += '\n';
             }
           }
-          
+
           // Статус занятости
           if (event.transparency) {
             eventsDescription += `   - Статус: ${event.transparency === 'transparent' ? 'Свободен' : 'Занят'}\n`;
           }
-          
+
           // Место
           if (event.location) {
             eventsDescription += `   - Место: ${event.location}\n`;
           }
-          
+
           eventsDescription += '\n';
         });
       } else {
         eventsDescription = 'Нет событий в календаре';
       }
-      
+
       const fullPrompt = detectPrompt + '\n\n' + eventsDescription;
-      
-      const response = await generateMessage(fullPrompt);
-      
+
+      let response = await generateMessage(fullPrompt);
+
       if (response === 'HF_JSON_ERROR') {
         // По умолчанию считаем, что не занят
         return { probably_busy: false, busy_reason: null };
       }
-      
+
+      // Удаляем теги <think>...</think> из ответа
+      response = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
       try {
         const result = JSON.parse(response.replace(/```json|```/gi, '').trim());
         return {
           probably_busy: result.probably_busy || false,
-          busy_reason: result.busy_reason || null
+          busy_reason: result.busy_reason || null,
         };
       } catch {
         // Если не удалось распарсить, считаем что не занят
@@ -270,7 +279,9 @@ export class Scheduler {
 
     // Определяем занятость пользователя через анализ календаря
     const busyStatus = await this.detectUserBusy(events || []);
-    const promptPath = busyStatus.probably_busy ? 'assets/prompts/scheduled-message-flight.md' : 'assets/prompts/scheduled-message.md';
+    const promptPath = busyStatus.probably_busy
+      ? 'assets/prompts/scheduled-message-flight.md'
+      : 'assets/prompts/scheduled-message.md';
 
     // Добавляем логирование для отладки
     schedulerLogger.info(
@@ -289,9 +300,15 @@ export class Scheduler {
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
     if (busyStatus.probably_busy) {
       // Если пользователь занят — полностью генерируем текст через HF, ограничиваем 555 символами
-      schedulerLogger.info({ chatId, busy_reason: busyStatus.busy_reason }, '✈️ Пользователь занят, используем упрощенный промпт');
+      schedulerLogger.info(
+        { chatId, busy_reason: busyStatus.busy_reason },
+        '✈️ Пользователь занят, используем упрощенный промпт'
+      );
       let text = await generateMessage(prompt);
       schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
+
+      // Удаляем теги <think>...</think>
+      text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
       if (text.length > 555) text = text.slice(0, 552) + '...';
       // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
@@ -340,6 +357,10 @@ export class Scheduler {
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }
+
+      // Удаляем теги <think>...</think>
+      jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
       // Пост-обработка: убираем markdown-блоки и экранирование
       jsonText = jsonText.replace(/```json|```/gi, '').trim();
       // Если строка начинается и заканчивается кавычками, убираем их
