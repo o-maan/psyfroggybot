@@ -120,7 +120,7 @@ bot.command('start', async ctx => {
 
   await ctx.reply(
     'Привет! Я бот-лягушка 🐸\n\n' +
-      'Я буду отправлять сообщения в канал каждый день в 19:30.\n' +
+      'Я буду отправлять сообщения в канал каждый день в 22:00.\n' +
       'Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание.\n\n' +
       'Доступные команды:\n' +
       '/fro - отправить сообщение сейчас\n' +
@@ -146,13 +146,13 @@ bot.command('test', async ctx => {
 bot.command('test_busy', async ctx => {
   const chatId = ctx.chat.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
+
   // Проверяем, что команду выполняет админ
   if (chatId !== adminChatId) {
     await ctx.reply('❌ Эта команда доступна только администратору');
     return;
   }
-  
+
   try {
     // Получаем события календаря для сегодня
     const now = new Date();
@@ -160,25 +160,25 @@ bot.command('test_busy', async ctx => {
     evening.setHours(18, 0, 0, 0);
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
-    
+
     const calendarService = scheduler.getCalendarService();
     const events = await calendarService.getEvents(evening.toISOString(), tomorrow.toISOString());
-    
+
     // Тестируем функцию определения занятости
     const busyStatus = await (scheduler as any).detectUserBusy(events || []);
-    
+
     let message = '🔍 <b>ТЕСТ ОПРЕДЕЛЕНИЯ ЗАНЯТОСТИ</b>\n\n';
-    
+
     if (events && events.length > 0) {
       message += '📅 <b>События в календаре:</b>\n';
       events.forEach((event: any, i: number) => {
         message += `${i + 1}. ${event.summary || 'Без названия'}\n`;
-        
+
         // Время события
         if (event.start) {
           const startDate = new Date(event.start.dateTime || event.start.date);
           const endDate = event.end ? new Date(event.end.dateTime || event.end.date) : null;
-          
+
           if (event.start.date && !event.start.dateTime) {
             message += `   • Весь день\n`;
           } else {
@@ -189,12 +189,12 @@ bot.command('test_busy', async ctx => {
             message += '\n';
           }
         }
-        
+
         // Статус занятости
         if (event.transparency) {
           message += `   • Статус: ${event.transparency === 'transparent' ? '✅ Свободен' : '🔴 Занят'}\n`;
         }
-        
+
         // Место
         if (event.location) {
           message += `   • Место: ${event.location}\n`;
@@ -204,14 +204,16 @@ bot.command('test_busy', async ctx => {
     } else {
       message += '📅 <i>Нет событий в календаре</i>\n\n';
     }
-    
+
     message += `🤖 <b>Результат анализа:</b>\n`;
     message += `• Занят: ${busyStatus.probably_busy ? '✅ Да' : '❌ Нет'}\n`;
     if (busyStatus.busy_reason) {
       message += `• Причина: ${busyStatus.busy_reason}\n`;
     }
-    message += `\n📄 Будет использован промпт: <code>${busyStatus.probably_busy ? 'scheduled-message-flight.md' : 'scheduled-message.md'}</code>`;
-    
+    message += `\n📄 Будет использован промпт: <code>${
+      busyStatus.probably_busy ? 'scheduled-message-flight.md' : 'scheduled-message.md'
+    }</code>`;
+
     await ctx.reply(message, { parse_mode: 'HTML' });
   } catch (e) {
     const error = e as Error;
@@ -235,7 +237,7 @@ bot.command('sendnow', async ctx => {
 // Обработка команды /fro
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
-  // Генерируем сообщение по тем же правилам, что и для 19:30
+  // Генерируем сообщение по тем же правилам, что и для 22:00
   const message = await scheduler.generateScheduledMessage(chatId);
   const imagePath = scheduler.getNextImage(chatId);
   const caption = message.length > 1024 ? undefined : message;

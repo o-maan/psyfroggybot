@@ -2,8 +2,8 @@ name: Daily Froggy Bot Scheduler
 
 on:
   schedule:
-    # Каждый вечер в 19:30 по Москве (UTC+3) = 16:30 UTC
-    - cron: "30 16 * * *"
+        # Каждый вечер в 22:00 по Москве (UTC+3) = 19:00 UTC
+      - cron: "0 19 * * *"
   # Ручной запуск по адресу https://github.com/o-maan/psy_froggy_bot/actions/workflows/wake.yaml
   workflow_dispatch:
 

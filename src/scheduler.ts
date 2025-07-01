@@ -640,7 +640,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     this.startDailyCronJob();
   }
 
-  // Запуск cron job для ежедневной отправки в 19:30
+  // Запуск cron job для ежедневной отправки в 22:00
   private startDailyCronJob() {
     // Останавливаем предыдущий job, если он есть
     if (this.dailyCronJob) {
@@ -663,10 +663,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     });
     schedulerLogger.info('cronStart'); // Создание cron job
 
-    // Создаем новый cron job: каждый день в 19:30
-    // Формат: "минуты часы * * *" (30 19 * * * = 19:30 каждый день)
+    // Создаем новый cron job: каждый день в 22:00
+    // Формат: "минуты часы * * *" (0 22 * * * = 22:00 каждый день)
     this.dailyCronJob = cron.schedule(
-      '30 19 * * *',
+      '0 22 * * *',
       async () => {
         const startTime = new Date();
         const startTimeMoscow = startTime.toLocaleString('ru-RU', {
@@ -751,7 +751,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     // Вычисляем время до следующего запуска
     const nextRun = new Date();
-    nextRun.setHours(19, 30, 0, 0);
+    nextRun.setHours(22, 0, 0, 0);
     if (nextRun <= now) {
       nextRun.setDate(nextRun.getDate() + 1);
     }
@@ -769,9 +769,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       isRunning,
       usersCount,
       usersList,
-      cronExpression: '30 19 * * *',
+      cronExpression: '0 22 * * *',
       timezone: 'Europe/Moscow',
-      description: 'Ежедневно в 19:30 МСК',
+      description: 'Ежедневно в 22:00 МСК',
       currentTime: moscowTime,
       nextRunTime: nextRunMoscow,
       adminChatId: Number(process.env.ADMIN_CHAT_ID || 0),

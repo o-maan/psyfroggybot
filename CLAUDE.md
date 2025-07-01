@@ -66,7 +66,7 @@ bun run lint                   # TypeScript type checking
    - `constructor()` - загружает изображения, пользователей, запускает cron
    - `loadImages()` - сканирует папку `/images` для jpg/png файлов
    - `loadUsers()` - загружает пользователей из SQLite базы
-   - `initializeDailySchedule()` - настраивает cron job на 19:30 MSK
+   - `initializeDailySchedule()` - настраивает cron job на 22:00 MSK
 
 2. **Определение занятости пользователя:**
 
@@ -156,7 +156,7 @@ bun run lint                   # TypeScript type checking
 
 #### Automated Scheduling
 
-- Uses node-cron for reliable daily execution at 19:30 MSK
+- Uses node-cron for reliable daily execution at 22:00 MSK
 - Timezone-aware with proper error handling
 - Graceful degradation with admin notifications
 
