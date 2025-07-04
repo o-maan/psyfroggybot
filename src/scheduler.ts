@@ -522,10 +522,10 @@ export class Scheduler {
           parse_mode: 'HTML',
         });
       }
-      const sentTime = new Date().toISOString();
-      saveMessage(chatId, message, sentTime);
-      // Устанавливаем напоминание через 1.5 часа
-      this.setReminder(chatId, sentTime);
+      // Убираем сохранение и напоминание - это теперь делается в sendDailyMessagesToAll
+      // const sentTime = new Date().toISOString();
+      // saveMessage(chatId, message, sentTime);
+      // this.setReminder(chatId, sentTime);
     } catch (e) {
       const error = e as Error;
       schedulerLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка отправки сообщения');
@@ -582,29 +582,30 @@ export class Scheduler {
       return;
     }
 
-    // Обрабатываем пользователей по одному с yield для event loop
-    for (const chatId of this.users) {
-      try {
-        await this.sendDailyMessage(chatId);
-        successCount++;
-        schedulerLogger.info('messageGenerated', chatId, 0, 0); // Логируем успешную отправку
-
-        // Даем event loop возможность обработать другие задачи
-        // Это критично для предотвращения блокировки cron job
-        await new Promise(resolve => setImmediate(resolve));
-      } catch (error) {
-        errorCount++;
-        const errorMsg = `Ошибка для пользователя ${chatId}: ${error}`;
-        errors.push(errorMsg);
-        logger.error(`Рассылка пользователю ${chatId}`, error as Error);
+    // Отправляем ОДИН пост в канал (используем ID админа для генерации)
+    try {
+      await this.sendDailyMessage(adminChatId);
+      successCount = 1;
+      schedulerLogger.info('messageGenerated', adminChatId, 0, 0); // Логируем успешную отправку
+      
+      // Устанавливаем напоминания для всех пользователей
+      const sentTime = new Date().toISOString();
+      for (const userId of this.users) {
+        this.setReminder(userId, sentTime);
+        schedulerLogger.debug({ userId }, 'Напоминание установлено для пользователя');
       }
+    } catch (error) {
+      errorCount = 1;
+      const errorMsg = `Ошибка отправки поста: ${error}`;
+      errors.push(errorMsg);
+      logger.error('Ошибка отправки ежедневного поста', error as Error);
     }
 
     // Отправляем отчет админу
-    const reportMessage = `📊 Отчет о массовой рассылке:
-✅ Успешно: ${successCount}
+    const reportMessage = `📊 Отчет о ежедневной отправке:
+✅ Пост отправлен: ${successCount === 1 ? 'Да' : 'Нет'}
 ❌ Ошибок: ${errorCount}
-👥 Всего пользователей: ${this.users.size}
+📨 Напоминания установлены для: ${this.users.size} пользователей
 
 ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}` : ''}`;
 

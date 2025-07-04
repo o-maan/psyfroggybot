@@ -32,6 +32,20 @@ config();
 // Создаем экземпляр бота
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
+// Обработчик ошибок
+bot.catch((err: any, ctx) => {
+  botLogger.error(
+    { 
+      error: err?.message || String(err), 
+      stack: err?.stack,
+      updateType: ctx.updateType,
+      chatId: ctx.chat?.id,
+      userId: ctx.from?.id
+    }, 
+    '❌ Ошибка в обработчике бота'
+  );
+});
+
 // Создаем планировщик
 const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
@@ -137,11 +151,14 @@ bot.command('start', async ctx => {
       '/calendar - настроить доступ к календарю\n\n' +
       'Админские команды:\n' +
       '/status - статус планировщика\n' +
+      '/users - список пользователей\n' +
       '/last_run - время последней рассылки\n' +
       '/logs - просмотр системных логов\n' +
       '/test_schedule - тест планировщика на следующую минуту\n' +
       '/test_now - немедленный тест рассылки\n' +
       '/test_reminder - тест напоминания\n' +
+      '/test_reply - тест обработки сообщений\n' +
+      '/chat_info - информация о чате\n' +
       '/minimalTestLLM - тест LLM подключения'
   );
 });
@@ -367,6 +384,39 @@ bot.command('chat_info', async ctx => {
   );
 });
 
+// Команда для проверки пользователей в базе
+bot.command('users', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  const { getAllUsers } = await import('./db.ts');
+  const users = getAllUsers();
+  
+  let message = `👥 <b>ПОЛЬЗОВАТЕЛИ В БАЗЕ</b>\n\n`;
+  message += `Всего: ${users.length}\n\n`;
+  
+  users.forEach((user, index) => {
+    message += `${index + 1}. User ID: <code>${user.chat_id}</code>\n`;
+    if (user.username) message += `   Username: @${user.username}\n`;
+    message += `   Ответов: ${user.response_count || 0}\n`;
+    if (user.last_response_time) {
+      const lastResponse = new Date(user.last_response_time).toLocaleString('ru-RU', {
+        timeZone: 'Europe/Moscow'
+      });
+      message += `   Последний ответ: ${lastResponse}\n`;
+    }
+    message += '\n';
+  });
+  
+  await ctx.reply(message, { parse_mode: 'HTML' });
+});
+
 // Команда для дебага индекса картинки
 bot.command('next_image', async ctx => {
   const chatId = ctx.chat.id;
@@ -577,6 +627,23 @@ bot.command('test_reminder', async ctx => {
 
   // Сохраняем timeout для возможности отмены
   scheduler['reminderTimeouts'].set(chatId, timeout);
+});
+
+// Команда для теста обработки сообщений
+bot.command('test_reply', async ctx => {
+  const chatId = ctx.chat.id;
+  const chatType = ctx.chat.type;
+  const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+  
+  await ctx.reply(
+    `🧪 <b>ТЕСТ ОБРАБОТКИ СООБЩЕНИЙ</b>\n\n` +
+    `📍 Текущий чат ID: <code>${chatId}</code>\n` +
+    `📝 Тип чата: <code>${chatType}</code>\n` +
+    `🎯 Целевой CHAT_ID: <code>${CHAT_ID || 'НЕ УСТАНОВЛЕН'}</code>\n` +
+    `✅ Бот обрабатывает сообщения: ${!CHAT_ID || chatId === CHAT_ID ? 'ДА' : 'НЕТ'}\n\n` +
+    `Напишите любое сообщение для теста...`,
+    { parse_mode: 'HTML' }
+  );
 });
 
 // ========== КОМАНДЫ ДЛЯ ПРОСМОТРА ЛОГОВ ==========
@@ -1274,12 +1341,33 @@ bot.on('text', async ctx => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id || 0;
   
-  // Проверяем, что сообщение пришло из чата (группы), привязанного к каналу
-  // TODO: Нужно добавить CHAT_ID в конфигурацию
-  const CHAT_ID = Number(process.env.CHAT_ID || scheduler.CHANNEL_ID); // Временно используем ID канала
+  // Получаем ID чата и канала
+  const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+  const CHANNEL_ID = scheduler.CHANNEL_ID;
   
-  if (chatId !== CHAT_ID) {
-    // Игнорируем сообщения не из нужного чата
+  // Логируем для отладки
+  botLogger.info(
+    { 
+      chatId, 
+      CHAT_ID, 
+      CHANNEL_ID,
+      message: message.substring(0, 50) 
+    }, 
+    '🔍 Проверка сообщения'
+  );
+  
+  // Проверяем, что сообщение пришло либо из канала, либо из чата
+  const isFromChannel = chatId === CHANNEL_ID;
+  const isFromChat = CHAT_ID && chatId === CHAT_ID;
+  
+  if (!isFromChannel && !isFromChat) {
+    // Игнорируем сообщения не из канала и не из чата
+    botLogger.debug({ chatId, CHAT_ID, CHANNEL_ID }, 'Сообщение не из целевого канала/чата, игнорируем');
+    return;
+  }
+  
+  if (!CHAT_ID) {
+    botLogger.warn('⚠️ CHAT_ID не установлен в .env! Бот не сможет отвечать в чат');
     return;
   }
   
@@ -1332,8 +1420,15 @@ bot.on('text', async ctx => {
     // Генерируем контекстуальный ответ через LLM
     const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
 
-    // Отправляем текстовый ответ как reply на сообщение пользователя
-    await ctx.reply(textResponse, { reply_parameters: { message_id: ctx.message.message_id } });
+    // Отправляем текстовый ответ ВСЕГДА в чат (группу), а не в канал
+    // Если сообщение пришло из канала, отвечаем в чат
+    // Если сообщение пришло из чата, отвечаем в тот же чат
+    await bot.telegram.sendMessage(CHAT_ID, textResponse, { 
+      reply_parameters: { 
+        message_id: ctx.message.message_id,
+        chat_id: chatId // указываем исходный чат для правильной ссылки на сообщение
+      } 
+    });
 
     // Сохраняем ответ бота в БД (author_id = 0 для бота)
     const botResponseTime = new Date().toISOString();
@@ -1344,9 +1439,14 @@ bot.on('text', async ctx => {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack, userId, chatId }, 'Ошибка генерации ответа пользователю');
 
-    // Fallback ответ при ошибке
+    // Fallback ответ при ошибке - также отправляем в чат, а не в исходный канал
     const fallbackMessage = 'Спасибо, что поделился! 🤍';
-    await ctx.reply(fallbackMessage);
+    await bot.telegram.sendMessage(CHAT_ID, fallbackMessage, {
+      reply_parameters: {
+        message_id: ctx.message.message_id,
+        chat_id: chatId
+      }
+    });
 
     // Сохраняем fallback ответ в БД
     const fallbackTime = new Date().toISOString();
@@ -1357,8 +1457,14 @@ bot.on('text', async ctx => {
 // Запускаем бота
 
 // --- Telegraf polling ---
-bot.launch();
-logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
+bot.launch()
+  .then(() => {
+    logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
+  })
+  .catch(error => {
+    logger.error({ error: error.message, stack: error.stack }, '❌ Ошибка запуска бота');
+    process.exit(1);
+  });
 
 // Отправляем уведомление админу о запуске
 const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
