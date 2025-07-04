@@ -87,14 +87,23 @@ restServ.get('/status', (req: Request, res: Response) => {
 restServ.all('/sendDailyMessage', async (req: Request, res: Response) => {
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
   try {
+    logger.info({ 
+      method: req.method, 
+      ip: req.ip,
+      userAgent: req.headers['user-agent'] 
+    }, 'REST API: Получен запрос на ручную рассылку');
+    
     await scheduler.sendDailyMessagesToAll(adminChatId);
+    
+    // Если рассылка была заблокирована из-за дублирования, метод вернется без ошибки
+    // но сообщений не отправит
     res
       .status(200)
-      .send(`Cообщения отправлены успешно, пользователей: ${scheduler['users'].size}, админ: ${adminChatId}`);
-    logger.info({ usersCount: scheduler['users'].size }, 'Ручная рассылка завершена успешно');
+      .send(`Запрос на рассылку обработан. Пользователей: ${scheduler['users'].size}, админ: ${adminChatId}`);
+    logger.info({ usersCount: scheduler['users'].size }, 'REST API: Запрос на рассылку обработан');
   } catch (e) {
     const error = e as Error;
-    botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка ручной рассылки');
+    botLogger.error({ error: error.message, stack: error.stack }, 'Ошибка ручной рассылки через REST API');
     res.status(500).send(String(error));
   }
 });
@@ -127,6 +136,7 @@ bot.command('start', async ctx => {
       '/calendar - настроить доступ к календарю\n\n' +
       'Админские команды:\n' +
       '/status - статус планировщика\n' +
+      '/last_run - время последней рассылки\n' +
       '/logs - просмотр системных логов\n' +
       '/test_schedule - тест планировщика на следующую минуту\n' +
       '/test_now - немедленный тест рассылки\n' +
@@ -139,7 +149,21 @@ bot.command('test', async ctx => {
   const chatId = ctx.chat.id;
   const fromId = ctx.from?.id;
   botLogger.info({ userId: fromId || 0, chatId }, `📱 Команда /test от пользователя ${fromId}`);
-  await scheduler.sendDailyMessage(fromId);
+  
+  // Генерируем сообщение и проверяем его длину
+  const message = await scheduler.generateScheduledMessage(fromId);
+  await ctx.reply(
+    `📊 <b>ТЕСТ ГЕНЕРАЦИИ СООБЩЕНИЯ</b>\n\n` +
+    `📏 Длина: ${message.length} символов\n` +
+    `${message.length > 1024 ? `❌ ПРЕВЫШЕН ЛИМИТ на ${message.length - 1024} символов!` : '✅ В пределах лимита'}\n\n` +
+    `<b>Сообщение:</b>\n${message}`,
+    { parse_mode: 'HTML' }
+  );
+  
+  // Отправляем в канал только если не превышен лимит
+  if (message.length <= 1024) {
+    await scheduler.sendDailyMessage(fromId);
+  }
 });
 
 // Команда для тестирования определения занятости пользователя
@@ -351,6 +375,52 @@ bot.command('fly1', async ctx => {
     await ctx.reply('✅ Тестовое сообщение отправлено в канал!');
   } catch (error) {
     await ctx.reply(`❌ Ошибка отправки: ${error}`);
+  }
+});
+
+// Команда для проверки времени последней рассылки
+bot.command('last_run', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  try {
+    // Получаем время последней рассылки через приватный метод
+    const lastRun = await (scheduler as any).getLastDailyRunTime();
+    
+    if (lastRun) {
+      const moscowTime = lastRun.toLocaleString('ru-RU', {
+        timeZone: 'Europe/Moscow',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      
+      const now = new Date();
+      const timeDiff = now.getTime() - lastRun.getTime();
+      const hoursDiff = Math.floor(timeDiff / (1000 * 60 * 60));
+      const minutesDiff = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+      
+      await ctx.reply(
+        `📅 <b>ПОСЛЕДНЯЯ РАССЫЛКА</b>\n\n` +
+        `🕐 Время: <code>${moscowTime}</code>\n` +
+        `⏱️ Прошло: ${hoursDiff} ч. ${minutesDiff} мин.\n\n` +
+        `${hoursDiff < 20 ? '✅ Сегодняшняя рассылка уже выполнена' : '⏳ Ожидается сегодняшняя рассылка в 22:00'}`,
+        { parse_mode: 'HTML' }
+      );
+    } else {
+      await ctx.reply('📭 Информация о последней рассылке отсутствует');
+    }
+  } catch (error) {
+    await ctx.reply(`❌ Ошибка получения информации: ${error}`);
   }
 });
 
@@ -1223,15 +1293,20 @@ bot.on('text', async ctx => {
 
 // --- Telegraf polling ---
 bot.launch();
-logger.info('🚀 Telegram бот запущен в режиме polling');
+logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
 
 // Отправляем уведомление админу о запуске
 const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
 if (adminChatId) {
+  const processInfo = `PID: ${process.pid}${process.env.pm_id ? ` | PM2 ID: ${process.env.pm_id}` : ''}`;
   bot.telegram
-    .sendMessage(adminChatId, '🚀 <b>БОТ ЗАПУЩЕН</b>\n\nТелеграм бот успешно запущен в режиме polling', {
-      parse_mode: 'HTML',
-    })
+    .sendMessage(
+      adminChatId, 
+      `🚀 <b>БОТ ЗАПУЩЕН</b>\n\n` +
+      `Телеграм бот успешно запущен в режиме polling\n` +
+      `🔧 ${processInfo}`, 
+      { parse_mode: 'HTML' }
+    )
     .catch(error => {
       logger.error({ error: error.message, adminChatId }, 'Ошибка отправки уведомления админу о запуске');
     });

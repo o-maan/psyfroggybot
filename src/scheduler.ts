@@ -407,6 +407,18 @@ export class Scheduler {
         return fallback;
       }
       let message = this.buildScheduledMessageFromHF(json);
+      
+      // Проверяем длину сообщения и логируем предупреждение если оно слишком длинное
+      if (message.length > 1024) {
+        schedulerLogger.warn(
+          { 
+            chatId, 
+            messageLength: message.length,
+            overflow: message.length - 1024 
+          }, 
+          `⚠️ Сгенерированное сообщение превышает лимит Telegram на ${message.length - 1024} символов!`
+        );
+      }
 
       return message;
     }
@@ -450,6 +462,19 @@ export class Scheduler {
         );
       }
 
+      // Логируем длину сообщения для отладки
+      if (message.length > 1024) {
+        schedulerLogger.error(
+          { 
+            chatId, 
+            messageLength: message.length,
+            overflow: message.length - 1024,
+            message: message.substring(0, 200) + '...' 
+          }, 
+          `❌ КРИТИЧЕСКАЯ ОШИБКА: Сообщение превышает лимит на ${message.length - 1024} символов!`
+        );
+      }
+      
       const caption = message.length > 1024 ? message.slice(0, 1020) + '...' : message;
 
       if (imageBuffer) {
@@ -509,6 +534,38 @@ export class Scheduler {
 
   // Массовая рассылка по всем пользователям
   async sendDailyMessagesToAll(adminChatId: number) {
+    // Проверяем, не была ли уже отправлена рассылка сегодня
+    const lastDailyRun = await this.getLastDailyRunTime();
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    
+    if (lastDailyRun && lastDailyRun >= todayStart) {
+      const lastRunStr = lastDailyRun.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+      schedulerLogger.warn(
+        { lastRun: lastRunStr, todayStart: todayStart.toISOString() },
+        '⚠️ Рассылка уже была выполнена сегодня, пропускаем повторную отправку'
+      );
+      
+      // Уведомляем админа о попытке дублирования
+      try {
+        await this.bot.telegram.sendMessage(
+          adminChatId,
+          `⚠️ <b>ПРЕДУПРЕЖДЕНИЕ: Попытка повторной рассылки</b>\n\n` +
+          `📅 Последняя рассылка была: <code>${lastRunStr}</code>\n` +
+          `🚫 Повторная отправка заблокирована для предотвращения дублирования`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (e) {
+        schedulerLogger.error(e as Error, 'Ошибка отправки предупреждения админу');
+      }
+      
+      return;
+    }
+    
+    // Сохраняем время начала рассылки
+    await this.saveLastDailyRunTime(now);
+    
     schedulerLogger.info(
       { usersCount: this.users.size },
       `🚀 Автоматическая рассылка запущена для ${this.users.size} пользователей`
@@ -649,6 +706,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       this.dailyCronJob.destroy();
       this.dailyCronJob = null;
     }
+    
+    // Добавляем уникальный идентификатор процесса для отладки
+    const processId = `${process.pid}_${Date.now()}`;
 
     // Показываем текущее время для диагностики
     const now = new Date();
@@ -661,7 +721,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       minute: '2-digit',
       second: '2-digit',
     });
-    schedulerLogger.info('cronStart'); // Создание cron job
+    schedulerLogger.info({ processId }, 'cronStart'); // Создание cron job
 
     // Создаем новый cron job: каждый день в 22:00
     // Формат: "минуты часы * * *" (0 22 * * * = 22:00 каждый день)
@@ -679,7 +739,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           second: '2-digit',
         });
 
-        schedulerLogger.info('cronTrigger', this.users.size);
+        schedulerLogger.info({ processId, usersCount: this.users.size }, 'cronTrigger');
 
         try {
           const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
@@ -725,7 +785,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     // Проверяем, что cron job действительно создался
     if (this.dailyCronJob) {
-      schedulerLogger.info('cronStart');
+      schedulerLogger.info({ processId, expression: '0 22 * * *' }, 'Cron job успешно создан');
     } else {
       logger.error('Планировщик', new Error('Cron job не был создан'));
     }
@@ -778,6 +838,37 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     };
   }
 
+  // Получить время последней ежедневной рассылки
+  private async getLastDailyRunTime(): Promise<Date | null> {
+    try {
+      const { db } = await import('./db');
+      const row = db.query(`
+        SELECT value FROM system_settings WHERE key = 'last_daily_run'
+      `).get() as { value: string } | undefined;
+      
+      if (row && row.value) {
+        return new Date(row.value);
+      }
+      return null;
+    } catch (error) {
+      schedulerLogger.error(error as Error, 'Ошибка получения времени последней рассылки');
+      return null;
+    }
+  }
+
+  // Сохранить время последней ежедневной рассылки
+  private async saveLastDailyRunTime(time: Date): Promise<void> {
+    try {
+      const { db } = await import('./db');
+      db.query(`
+        INSERT OR REPLACE INTO system_settings (key, value) 
+        VALUES ('last_daily_run', ?)
+      `).run(time.toISOString());
+    } catch (error) {
+      schedulerLogger.error(error as Error, 'Ошибка сохранения времени последней рассылки');
+    }
+  }
+
   // Очистка всех таймеров при завершении работы
   destroy() {
     logger.info('Stop scheduler...');
@@ -790,7 +881,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
 
     // Очищаем все напоминания
-    for (const [chatId, timeout] of this.reminderTimeouts.entries()) {
+    for (const [, timeout] of this.reminderTimeouts.entries()) {
       clearTimeout(timeout);
     }
     this.reminderTimeouts.clear();
