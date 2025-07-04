@@ -20,6 +20,7 @@ import {
   markLogsAsRead,
   saveMessage,
   saveUserToken,
+  updateUserResponse,
 } from './db.ts';
 import { generateUserResponse, minimalTestLLM } from './llm.ts';
 import { botLogger, logger } from './logger.ts';
@@ -130,7 +131,7 @@ bot.command('start', async ctx => {
   await ctx.reply(
     'Привет! Я бот-лягушка 🐸\n\n' +
       'Я буду отправлять сообщения в канал каждый день в 22:00.\n' +
-      'Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание.\n\n' +
+      'Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание в личку.\n\n' +
       'Доступные команды:\n' +
       '/fro - отправить сообщение сейчас\n' +
       '/calendar - настроить доступ к календарю\n\n' +
@@ -140,6 +141,7 @@ bot.command('start', async ctx => {
       '/logs - просмотр системных логов\n' +
       '/test_schedule - тест планировщика на следующую минуту\n' +
       '/test_now - немедленный тест рассылки\n' +
+      '/test_reminder - тест напоминания\n' +
       '/minimalTestLLM - тест LLM подключения'
   );
 });
@@ -347,6 +349,24 @@ bot.command('minimalTestLLM', async ctx => {
   }
 });
 
+// Команда для проверки ID чата
+bot.command('chat_info', async ctx => {
+  const chatId = ctx.chat.id;
+  const chatType = ctx.chat.type;
+  const userId = ctx.from?.id || 0;
+  const username = ctx.from?.username || 'unknown';
+  
+  await ctx.reply(
+    `📊 <b>ИНФОРМАЦИЯ О ЧАТЕ</b>\n\n` +
+    `🆔 Chat ID: <code>${chatId}</code>\n` +
+    `📝 Тип: <code>${chatType}</code>\n` +
+    `👤 User ID: <code>${userId}</code>\n` +
+    `👤 Username: @${username}\n\n` +
+    `💡 Добавьте CHAT_ID=${chatId} в файл .env`,
+    { parse_mode: 'HTML' }
+  );
+});
+
 // Команда для дебага индекса картинки
 bot.command('next_image', async ctx => {
   const chatId = ctx.chat.id;
@@ -528,6 +548,35 @@ bot.command('test_now', async ctx => {
       parse_mode: 'HTML',
     });
   }
+});
+
+// Команда для теста напоминания
+bot.command('test_reminder', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  await ctx.reply(
+    '🧪 <b>ТЕСТ НАПОМИНАНИЯ</b>\n\n' +
+    'Устанавливаю напоминание на 10 секунд...\n' +
+    'Оно придет вам в личку',
+    { parse_mode: 'HTML' }
+  );
+
+  // Создаем временное напоминание через 10 секунд
+  const timeout = setTimeout(async () => {
+    const reminderText = '🐸 Привет! Не забудь ответить на сегодняшнее задание, если еще не успел(а)';
+    await bot.telegram.sendMessage(chatId, reminderText);
+    await ctx.reply('✅ Напоминание отправлено!');
+  }, 10 * 1000); // 10 секунд
+
+  // Сохраняем timeout для возможности отмены
+  scheduler['reminderTimeouts'].set(chatId, timeout);
 });
 
 // ========== КОМАНДЫ ДЛЯ ПРОСМОТРА ЛОГОВ ==========
@@ -1223,18 +1272,33 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
 bot.on('text', async ctx => {
   const message = ctx.message.text;
   const chatId = ctx.chat.id;
-  botLogger.debug({ userId: ctx.from?.id || 0, chatId, messageLength: message.length }, `💬 Сообщение от пользователя`);
-  // scheduler.updateUserResponseTime(chatId, sentTime); // Удалено, чтобы не было ошибки
-  scheduler.clearReminder(chatId);
+  const userId = ctx.from?.id || 0;
+  
+  // Проверяем, что сообщение пришло из чата (группы), привязанного к каналу
+  // TODO: Нужно добавить CHAT_ID в конфигурацию
+  const CHAT_ID = Number(process.env.CHAT_ID || scheduler.CHANNEL_ID); // Временно используем ID канала
+  
+  if (chatId !== CHAT_ID) {
+    // Игнорируем сообщения не из нужного чата
+    return;
+  }
+  
+  botLogger.debug({ userId, chatId, messageLength: message.length }, `💬 Сообщение от пользователя в чате`);
+  
+  // Обновляем время ответа пользователя
+  const responseTime = new Date().toISOString();
+  updateUserResponse(userId, responseTime);
+  
+  // Очищаем напоминание для этого пользователя
+  scheduler.clearReminder(userId);
 
   try {
-    // Сохраняем сообщение пользователя в БД (author_id = userId пользователя)
-    const userId = ctx.from?.id || 0;
+    // Сохраняем сообщение пользователя в БД
     const userMessageTime = new Date().toISOString();
-    saveMessage(chatId, message, userMessageTime, userId);
+    saveMessage(userId, message, userMessageTime, userId);
 
-    // Получаем последние 7 сообщений в хронологическом порядке
-    const lastMessages = getLastNMessages(chatId, 7);
+    // Получаем последние 7 сообщений пользователя в хронологическом порядке
+    const lastMessages = getLastNMessages(userId, 7);
 
     // Форматируем сообщения с датами для контекста - в правильном хронологическом порядке
     const conversationHistory = lastMessages
@@ -1252,11 +1316,12 @@ bot.on('text', async ctx => {
       })
       .join('\n');
 
-    // Получаем события календаря на сегодня
-    const calendarEvents = await getUserTodayEvents(chatId);
+    // Получаем события календаря на сегодня для пользователя
+    const calendarEvents = await getUserTodayEvents(userId);
 
     botLogger.info(
       {
+        userId,
         chatId,
         hasConversationHistory: !!conversationHistory,
         hasCalendarEvents: !!calendarEvents,
@@ -1272,12 +1337,12 @@ bot.on('text', async ctx => {
 
     // Сохраняем ответ бота в БД (author_id = 0 для бота)
     const botResponseTime = new Date().toISOString();
-    saveMessage(chatId, textResponse, botResponseTime, 0);
+    saveMessage(userId, textResponse, botResponseTime, 0);
 
-    botLogger.info({ chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
+    botLogger.info({ userId, chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
   } catch (error) {
     const err = error as Error;
-    botLogger.error({ error: err.message, stack: err.stack, chatId }, 'Ошибка генерации ответа пользователю');
+    botLogger.error({ error: err.message, stack: err.stack, userId, chatId }, 'Ошибка генерации ответа пользователю');
 
     // Fallback ответ при ошибке
     const fallbackMessage = 'Спасибо, что поделился! 🤍';
@@ -1285,7 +1350,7 @@ bot.on('text', async ctx => {
 
     // Сохраняем fallback ответ в БД
     const fallbackTime = new Date().toISOString();
-    saveMessage(chatId, fallbackMessage, fallbackTime, 0);
+    saveMessage(userId, fallbackMessage, fallbackTime, 0);
   }
 });
 
