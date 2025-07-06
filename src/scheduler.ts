@@ -642,6 +642,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Установить напоминание с учётом календаря и генерацией креативного текста
   async setReminder(chatId: number, sentBotMsgTime: string) {
+    // Проверяем, что chatId положительный (личный чат пользователя)
+    // Отрицательные ID - это группы и каналы
+    if (chatId <= 0) {
+      schedulerLogger.debug({ chatId }, 'Пропускаем напоминание для группы/канала');
+      return;
+    }
+    
     const timeout = setTimeout(async () => {
       const stats = getUserResponseStats(chatId);
       if (!stats || !stats.last_response_time || new Date(stats.last_response_time) < new Date(sentBotMsgTime)) {
