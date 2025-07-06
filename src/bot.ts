@@ -1351,6 +1351,9 @@ bot.on('text', async ctx => {
       chatId, 
       CHAT_ID, 
       CHANNEL_ID,
+      chatType: ctx.chat.type,
+      messageId: ctx.message.message_id,
+      fromId: ctx.from?.id,
       message: message.substring(0, 50) 
     }, 
     '🔍 Проверка сообщения'
@@ -1360,13 +1363,20 @@ bot.on('text', async ctx => {
   const isFromChannel = chatId === CHANNEL_ID;
   const isFromChat = CHAT_ID && chatId === CHAT_ID;
   
-  if (!isFromChannel && !isFromChat) {
-    // Игнорируем сообщения не из канала и не из чата
-    botLogger.debug({ chatId, CHAT_ID, CHANNEL_ID }, 'Сообщение не из целевого канала/чата, игнорируем');
+  // ВАЖНО: В Telegram, когда группа привязана к каналу, сообщения из группы
+  // могут иметь другой chat_id. Нужно проверить тип чата.
+  const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
+  
+  if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
+    // Игнорируем сообщения не из канала и не из связанной группы
+    botLogger.debug({ chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type }, 'Сообщение не из целевого канала/чата, игнорируем');
     return;
   }
   
-  if (!CHAT_ID) {
+  // Если это связанная группа, используем её ID для ответов
+  const replyToChatId = isFromLinkedChat ? chatId : (CHAT_ID || chatId);
+  
+  if (!CHAT_ID && !isFromLinkedChat) {
     botLogger.warn('⚠️ CHAT_ID не установлен в .env! Бот не сможет отвечать в чат');
     return;
   }
@@ -1420,10 +1430,10 @@ bot.on('text', async ctx => {
     // Генерируем контекстуальный ответ через LLM
     const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
 
-    // Отправляем текстовый ответ ВСЕГДА в чат (группу), а не в канал
-    // Если сообщение пришло из канала, отвечаем в чат
-    // Если сообщение пришло из чата, отвечаем в тот же чат
-    await bot.telegram.sendMessage(CHAT_ID, textResponse, { 
+    // Отправляем текстовый ответ в правильный чат
+    // Если сообщение из связанной группы - отвечаем туда же
+    // Иначе - в CHAT_ID из конфига
+    await bot.telegram.sendMessage(replyToChatId, textResponse, { 
       reply_parameters: { 
         message_id: ctx.message.message_id,
         chat_id: chatId // указываем исходный чат для правильной ссылки на сообщение
@@ -1439,9 +1449,9 @@ bot.on('text', async ctx => {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack, userId, chatId }, 'Ошибка генерации ответа пользователю');
 
-    // Fallback ответ при ошибке - также отправляем в чат, а не в исходный канал
+    // Fallback ответ при ошибке - также отправляем в правильный чат
     const fallbackMessage = 'Спасибо, что поделился! 🤍';
-    await bot.telegram.sendMessage(CHAT_ID, fallbackMessage, {
+    await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
       reply_parameters: {
         message_id: ctx.message.message_id,
         chat_id: chatId
