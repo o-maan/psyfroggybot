@@ -98,9 +98,9 @@ db.query(`CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)`).run();
 db.query(`CREATE INDEX IF NOT EXISTS idx_logs_is_read ON logs(is_read)`).run();
 
 // Функции для работы с пользователями
-export const addUser = (chatId: number, username: string, name?: string) => {
-  const insertUser = db.query('INSERT OR IGNORE INTO users (chat_id, username, name) VALUES (?, ?, ?)');
-  insertUser.run(chatId, username, name || null);
+export const addUser = (chatId: number, username: string, name?: string, gender?: string) => {
+  const insertUser = db.query('INSERT OR IGNORE INTO users (chat_id, username, name, gender) VALUES (?, ?, ?, ?)');
+  insertUser.run(chatId, username, name || null, gender || null);
 };
 
 export const updateUserResponse = (chatId: number, responseTime: string) => {
@@ -121,6 +121,15 @@ export const updateUserName = (chatId: number, name: string) => {
   updateUser.run(name, chatId);
 };
 
+export const updateUserGender = (chatId: number, gender: string) => {
+  const updateUser = db.query(`
+    UPDATE users
+    SET gender = ?
+    WHERE chat_id = ?
+  `);
+  updateUser.run(gender, chatId);
+};
+
 export const getUserResponseStats = (chatId: number) => {
   const getStats = db.query(`
     SELECT response_count, last_response_time
@@ -132,7 +141,7 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, last_response_time, response_count
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count
     FROM users
     WHERE chat_id = ?
   `);
@@ -141,6 +150,7 @@ export const getUserByChatId = (chatId: number) => {
     chat_id: number; 
     username: string | null;
     name: string | null;
+    gender: string | null;
     last_response_time: string | null;
     response_count: number;
   } | undefined;
@@ -305,7 +315,7 @@ export const clearUserTokens = (chatId: number) => {
 // Получить всех пользователей
 export const getAllUsers = () => {
   const getUsers = db.query(`
-    SELECT chat_id, username, name, last_response_time, response_count
+    SELECT chat_id, username, name, gender, last_response_time, response_count
     FROM users
     ORDER BY chat_id
   `);
@@ -313,6 +323,7 @@ export const getAllUsers = () => {
     chat_id: number;
     username: string;
     name: string | null;
+    gender: string | null;
     last_response_time: string;
     response_count: number;
   }[];

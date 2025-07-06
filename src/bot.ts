@@ -21,6 +21,7 @@ import {
   markLogsAsRead,
   saveMessage,
   saveUserToken,
+  updateUserGender,
   updateUserName,
   updateUserResponse,
 } from './db.ts';
@@ -145,11 +146,12 @@ bot.command('start', async ctx => {
   // Добавляем пользователя в планировщик для рассылки
   scheduler.addUser(chatId);
   
-  // Проверяем, если это Алекс (ID: 5153477378), автоматически устанавливаем имя
+  // Проверяем, если это Алекс (ID: 5153477378), автоматически устанавливаем имя и пол
   if (userId === 5153477378) {
-    addUser(chatId, username, 'Алекс');
+    addUser(chatId, username, 'Алекс', 'male');
     updateUserName(chatId, 'Алекс');
-    botLogger.info({ userId, name: 'Алекс' }, '✅ Автоматически установлено имя для Алекса');
+    updateUserGender(chatId, 'male');
+    botLogger.info({ userId, name: 'Алекс', gender: 'male' }, '✅ Автоматически установлено имя и пол для Алекса');
   } else {
     addUser(chatId, username);
   }

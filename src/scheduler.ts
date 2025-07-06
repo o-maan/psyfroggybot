@@ -235,9 +235,10 @@ export class Scheduler {
 
   // Основная функция генерации сообщения для запланированной отправки
   public async generateScheduledMessage(chatId: number): Promise<string> {
-    // Получаем данные пользователя, включая имя
+    // Получаем данные пользователя, включая имя и пол
     const user = getUserByChatId(chatId);
     const userName = user?.name || null;
+    const userGender = user?.gender || null;
     
     const userExists = await this.checkUserExists(chatId);
     if (!userExists) {
@@ -320,6 +321,10 @@ export class Scheduler {
     // Если имя не установлено, используем дефолтное значение
     const userNameToUse = userName || 'друг';
     promptBase = promptBase.replace(/\{userName\}/g, userNameToUse);
+    
+    // Добавляем пол пользователя в промпт
+    const userGenderToUse = userGender || 'unknown';
+    promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
 
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
     if (busyStatus.probably_busy) {
@@ -655,14 +660,26 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           if (!summary) return false;
           return !neutralWords.some(word => summary.includes(word));
         });
-        // Получаем имя пользователя
+        // Получаем имя и пол пользователя
         const user = getUserByChatId(chatId);
         const userName = user?.name || null;
+        const userGender = user?.gender || null;
         
         // Простое напоминание без генерации через LLM
-        const reminderText = userName 
-          ? `🐸 Привет, ${userName}! Не забудь ответить на сегодняшнее задание, если еще не успел(а)`
-          : '🐸 Привет! Не забудь ответить на сегодняшнее задание, если еще не успел(а)';
+        let reminderText = '🐸 Привет';
+        if (userName) {
+          reminderText += `, ${userName}`;
+        }
+        reminderText += '! Не забудь ответить на сегодняшнее задание, если еще не ';
+        
+        // Учитываем пол пользователя
+        if (userGender === 'male') {
+          reminderText += 'успел';
+        } else if (userGender === 'female') {
+          reminderText += 'успела';
+        } else {
+          reminderText += 'успел(а)';
+        }
         
         // Отправляем напоминание в личку пользователю
         await this.bot.telegram.sendMessage(chatId, reminderText);
