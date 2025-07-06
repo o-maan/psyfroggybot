@@ -88,9 +88,19 @@ if (!messageType || !['start', 'success', 'failure'].includes(messageType)) {
   process.exit(1);
 }
 
+// Функция для экранирования HTML
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Отправляем уведомление
 (async () => {
-  const commitMsg = await getCommitMessage();
+  const commitMsg = escapeHtml(await getCommitMessage());
   
   // Обновляем сообщения с актуальным commit message
   const messages = {
