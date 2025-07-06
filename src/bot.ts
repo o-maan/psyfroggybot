@@ -15,11 +15,13 @@ import {
   getRecentUnreadInfoLogs,
   getRecentUnreadLogs,
   getUnreadLogsCount,
+  getUserByChatId,
   markAllLogsAsRead,
   markLogAsRead,
   markLogsAsRead,
   saveMessage,
   saveUserToken,
+  updateUserName,
   updateUserResponse,
 } from './db.ts';
 import { generateUserResponse, minimalTestLLM } from './llm.ts';
@@ -137,10 +139,20 @@ restServ.listen(Number(SERVER_PORT), '0.0.0.0', () => {
 bot.command('start', async ctx => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id || 0;
+  const username = ctx.from?.username || '';
   botLogger.info({ userId, chatId }, `📱 Команда /start от пользователя ${userId}`);
 
   // Добавляем пользователя в планировщик для рассылки
   scheduler.addUser(chatId);
+  
+  // Проверяем, если это Алекс (ID: 5153477378), автоматически устанавливаем имя
+  if (userId === 5153477378) {
+    addUser(chatId, username, 'Алекс');
+    updateUserName(chatId, 'Алекс');
+    botLogger.info({ userId, name: 'Алекс' }, '✅ Автоматически установлено имя для Алекса');
+  } else {
+    addUser(chatId, username);
+  }
 
   await ctx.reply(
     'Привет! Я бот-лягушка 🐸\n\n' +
@@ -148,7 +160,8 @@ bot.command('start', async ctx => {
       'Если ты не ответишь в течение 1.5 часов, я отправлю тебе напоминание в личку.\n\n' +
       'Доступные команды:\n' +
       '/fro - отправить сообщение сейчас\n' +
-      '/calendar - настроить доступ к календарю\n\n' +
+      '/calendar - настроить доступ к календарю\n' +
+      '/setname [имя] - установить своё имя\n\n' +
       'Админские команды:\n' +
       '/status - статус планировщика\n' +
       '/users - список пользователей\n' +
@@ -161,6 +174,23 @@ bot.command('start', async ctx => {
       '/chat_info - информация о чате\n' +
       '/minimalTestLLM - тест LLM подключения'
   );
+});
+
+// Команда для установки имени пользователя
+bot.command('setname', async ctx => {
+  const chatId = ctx.chat.id;
+  const userId = ctx.from?.id || 0;
+  const text = ctx.message.text;
+  const name = text.split(' ').slice(1).join(' ').trim();
+  
+  if (!name) {
+    await ctx.reply('Пожалуйста, укажите имя после команды. Например: /setname Иван');
+    return;
+  }
+  
+  updateUserName(chatId, name);
+  botLogger.info({ userId, chatId, name }, '✅ Установлено имя пользователя');
+  await ctx.reply(`✅ Твоё имя установлено: ${name}`);
 });
 
 // Обработка команды /test
@@ -403,6 +433,7 @@ bot.command('users', async ctx => {
   
   users.forEach((user, index) => {
     message += `${index + 1}. User ID: <code>${user.chat_id}</code>\n`;
+    if (user.name) message += `   Имя: ${user.name}\n`;
     if (user.username) message += `   Username: @${user.username}\n`;
     message += `   Ответов: ${user.response_count || 0}\n`;
     if (user.last_response_time) {

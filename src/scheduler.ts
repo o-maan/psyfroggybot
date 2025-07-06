@@ -10,6 +10,7 @@ import {
   getLastBotMessage,
   getLastNBotMessages,
   getLastUserMessage,
+  getUserByChatId,
   getUserImageIndex,
   getUserResponseStats,
   saveMessage,
@@ -234,6 +235,10 @@ export class Scheduler {
 
   // Основная функция генерации сообщения для запланированной отправки
   public async generateScheduledMessage(chatId: number): Promise<string> {
+    // Получаем данные пользователя, включая имя
+    const user = getUserByChatId(chatId);
+    const userName = user?.name || null;
+    
     const userExists = await this.checkUserExists(chatId);
     if (!userExists) {
       databaseLogger.info({ chatId }, 'Пользователь не найден в базе, добавляем');
@@ -310,6 +315,11 @@ export class Scheduler {
     );
 
     let promptBase = readFileSync(promptPath, 'utf-8');
+    
+    // Добавляем имя пользователя в промпт
+    // Если имя не установлено, используем дефолтное значение
+    const userNameToUse = userName || 'друг';
+    promptBase = promptBase.replace(/\{userName\}/g, userNameToUse);
 
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
     if (busyStatus.probably_busy) {
@@ -645,8 +655,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           if (!summary) return false;
           return !neutralWords.some(word => summary.includes(word));
         });
+        // Получаем имя пользователя
+        const user = getUserByChatId(chatId);
+        const userName = user?.name || null;
+        
         // Простое напоминание без генерации через LLM
-        const reminderText = '🐸 Привет! Не забудь ответить на сегодняшнее задание, если еще не успел(а)';
+        const reminderText = userName 
+          ? `🐸 Привет, ${userName}! Не забудь ответить на сегодняшнее задание, если еще не успел(а)`
+          : '🐸 Привет! Не забудь ответить на сегодняшнее задание, если еще не успел(а)';
         
         // Отправляем напоминание в личку пользователю
         await this.bot.telegram.sendMessage(chatId, reminderText);
