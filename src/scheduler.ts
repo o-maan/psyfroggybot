@@ -47,6 +47,7 @@ export class Scheduler {
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
+  private morningCheckCronJob: cron.ScheduledTask | null = null;
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
@@ -723,6 +724,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   private initializeDailySchedule() {
     logger.info('Инициализация автоматического ежедневного расписания');
     this.startDailyCronJob();
+    this.startMorningCheckCronJob();
   }
 
   // Запуск cron job для ежедневной отправки в 22:00
@@ -819,9 +821,57 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
+  // Запуск cron job для утренней проверки в 8:00
+  private startMorningCheckCronJob() {
+    // Останавливаем предыдущий job, если он есть
+    if (this.morningCheckCronJob) {
+      schedulerLogger.info('Перезапуск morning check cron job');
+      this.morningCheckCronJob.stop();
+      this.morningCheckCronJob.destroy();
+      this.morningCheckCronJob = null;
+    }
+
+    schedulerLogger.info('Создание morning check cron job (8:00 МСК)');
+
+    // Создаем новый cron job: каждый день в 8:00
+    this.morningCheckCronJob = cron.schedule(
+      '0 8 * * *',
+      async () => {
+        schedulerLogger.info('🌅 Запуск утренней проверки ответов пользователей');
+        try {
+          await this.checkUsersResponses();
+        } catch (error) {
+          schedulerLogger.error(error as Error, 'Ошибка утренней проверки');
+          // Уведомляем админа об ошибке
+          try {
+            const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+            if (adminChatId) {
+              await this.bot.telegram.sendMessage(
+                adminChatId,
+                `🚨 ОШИБКА в утренней проверке!\n\n❌ Ошибка: ${error}`
+              );
+            }
+          } catch (notifyError) {
+            logger.error('Уведомление админа об ошибке morning check', notifyError as Error);
+          }
+        }
+      },
+      {
+        timezone: 'Europe/Moscow',
+      }
+    );
+
+    if (this.morningCheckCronJob) {
+      schedulerLogger.info('Morning check cron job успешно создан');
+    } else {
+      logger.error('Morning check планировщик', new Error('Morning check cron job не был создан'));
+    }
+  }
+
   // Получить статус планировщика
   public getSchedulerStatus() {
-    const isRunning = this.dailyCronJob ? true : false;
+    const isDailyRunning = this.dailyCronJob ? true : false;
+    const isMorningRunning = this.morningCheckCronJob ? true : false;
     const usersCount = this.users.size;
     const usersList = Array.from(this.users);
 
@@ -837,14 +887,30 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       second: '2-digit',
     });
 
-    // Вычисляем время до следующего запуска
-    const nextRun = new Date();
-    nextRun.setHours(22, 0, 0, 0);
-    if (nextRun <= now) {
-      nextRun.setDate(nextRun.getDate() + 1);
+    // Вычисляем время до следующего запуска вечерней рассылки
+    const nextDailyRun = new Date();
+    nextDailyRun.setHours(22, 0, 0, 0);
+    if (nextDailyRun <= now) {
+      nextDailyRun.setDate(nextDailyRun.getDate() + 1);
     }
 
-    const nextRunMoscow = nextRun.toLocaleString('ru-RU', {
+    // Вычисляем время до следующей утренней проверки
+    const nextMorningRun = new Date();
+    nextMorningRun.setHours(8, 0, 0, 0);
+    if (nextMorningRun <= now) {
+      nextMorningRun.setDate(nextMorningRun.getDate() + 1);
+    }
+
+    const nextDailyRunMoscow = nextDailyRun.toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const nextMorningRunMoscow = nextMorningRun.toLocaleString('ru-RU', {
       timeZone: 'Europe/Moscow',
       year: 'numeric',
       month: '2-digit',
@@ -854,14 +920,16 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     });
 
     return {
-      isRunning,
+      isRunning: isDailyRunning && isMorningRunning,
+      isDailyRunning,
+      isMorningRunning,
       usersCount,
       usersList,
-      cronExpression: '0 22 * * *',
+      cronExpression: '0 22 * * * (вечер), 0 8 * * * (утро)',
       timezone: 'Europe/Moscow',
-      description: 'Ежедневно в 22:00 МСК',
+      description: 'Ежедневно в 22:00 МСК (рассылка) и 8:00 МСК (проверка)',
       currentTime: moscowTime,
-      nextRunTime: nextRunMoscow,
+      nextRunTime: `Вечер: ${nextDailyRunMoscow}, Утро: ${nextMorningRunMoscow}`,
       adminChatId: Number(process.env.ADMIN_CHAT_ID || 0),
     };
   }
@@ -897,15 +965,148 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
+  // Проверка ответа конкретного пользователя и отправка "злого" поста
+  // ВАЖНО: Проверяется только один пользователь с ID 5153477378
+  // Если он не ответил на вчерашнее задание - отправляется ОДИН злой пост в канал
+  private async checkUsersResponses() {
+    const TARGET_USER_ID = 5153477378; // ID пользователя для проверки
+    
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
+    
+    // Получаем время последней рассылки
+    const lastDailyRun = await this.getLastDailyRunTime();
+    if (!lastDailyRun || lastDailyRun < yesterday) {
+      schedulerLogger.warn('Вчерашняя рассылка не была выполнена, пропускаем проверку');
+      return;
+    }
+
+    let hasResponded = false;
+    let sentPost = false;
+    let error: string | null = null;
+
+    // Проверяем только целевого пользователя
+    try {
+      const stats = getUserResponseStats(TARGET_USER_ID);
+      
+      // Проверяем, ответил ли пользователь после вчерашней рассылки
+      hasResponded = !!(stats && 
+        stats.last_response_time && 
+        new Date(stats.last_response_time) > lastDailyRun);
+      
+      if (!hasResponded) {
+        schedulerLogger.info({ userId: TARGET_USER_ID }, `Пользователь ${TARGET_USER_ID} не ответил на вчерашнее задание`);
+        
+        // Отправляем "злой" пост
+        try {
+          await this.sendAngryPost(TARGET_USER_ID);
+          sentPost = true;
+        } catch (err) {
+          error = `Ошибка отправки злого поста: ${err}`;
+          schedulerLogger.error({ error: err, userId: TARGET_USER_ID }, 'Ошибка отправки злого поста');
+        }
+      } else {
+        schedulerLogger.info({ userId: TARGET_USER_ID }, `Пользователь ${TARGET_USER_ID} ответил на вчерашнее задание`);
+      }
+    } catch (err) {
+      error = `Ошибка проверки пользователя: ${err}`;
+      schedulerLogger.error({ error: err, userId: TARGET_USER_ID }, 'Ошибка проверки ответа пользователя');
+    }
+
+    // Отправляем отчет админу
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    if (adminChatId) {
+      const reportMessage = `📊 <b>Отчет утренней проверки:</b>\n\n` +
+        `👤 Проверен пользователь: <code>${TARGET_USER_ID}</code>\n` +
+        `${hasResponded ? '✅ Ответил на вчерашнее задание' : '😴 НЕ ответил на вчерашнее задание'}\n` +
+        `${sentPost ? '😠 Злой пост отправлен в канал' : ''}\n` +
+        `${error ? `\n❌ Ошибка: ${error}` : ''}`;
+
+      try {
+        await this.bot.telegram.sendMessage(adminChatId, reportMessage, { parse_mode: 'HTML' });
+      } catch (adminError) {
+        schedulerLogger.error(adminError as Error, 'Ошибка отправки отчета админу');
+      }
+    }
+  }
+
+  // Отправка "злого" поста для пользователя, который не ответил
+  private async sendAngryPost(userId: number) {
+    try {
+      // Генерируем злой текст
+      const angryPrompt = readFileSync('assets/prompts/no-answer', 'utf-8');
+      const angryText = await generateMessage(angryPrompt);
+      
+      // Удаляем теги <think>...</think>
+      const cleanedText = removeThinkTags(angryText);
+      
+      // Ограничиваем длину текста
+      const finalText = cleanedText.length > 500 ? cleanedText.slice(0, 497) + '...' : cleanedText;
+      
+      // Генерируем злое изображение лягушки
+      const angryImagePrompt = readFileSync('assets/prompts/frog-image-promt-angry', 'utf-8');
+      let imageBuffer: Buffer | null = null;
+      
+      try {
+        imageBuffer = await generateFrogImage(angryImagePrompt);
+        schedulerLogger.info({ userId }, '🎨 Злое изображение лягушки сгенерировано');
+      } catch (imageError) {
+        schedulerLogger.error(
+          { error: imageError, userId },
+          'Ошибка генерации злого изображения'
+        );
+      }
+
+      // Отправляем в канал
+      if (imageBuffer) {
+        await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imageBuffer },
+          {
+            caption: finalText,
+            parse_mode: 'HTML',
+          }
+        );
+      } else {
+        // Fallback: используем обычное изображение из ротации
+        const imagePath = this.getNextImage(userId);
+        await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imagePath },
+          {
+            caption: finalText,
+            parse_mode: 'HTML',
+          }
+        );
+      }
+      
+      schedulerLogger.info({ userId }, '😠 Злой пост отправлен в канал');
+      
+      // Сохраняем сообщение в историю
+      saveMessage(userId, finalText, new Date().toISOString());
+      
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Очистка всех таймеров при завершении работы
   destroy() {
     logger.info('Stop scheduler...');
 
-    // Останавливаем cron job
+    // Останавливаем cron jobs
     if (this.dailyCronJob) {
       this.dailyCronJob.stop();
       this.dailyCronJob = null;
-      logger.info('Cron jobs stopped');
+      logger.info('Daily cron job stopped');
+    }
+    
+    if (this.morningCheckCronJob) {
+      this.morningCheckCronJob.stop();
+      this.morningCheckCronJob = null;
+      logger.info('Morning check cron job stopped');
     }
 
     // Очищаем все напоминания

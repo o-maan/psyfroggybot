@@ -97,6 +97,17 @@ db.query(`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)`).run
 db.query(`CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)`).run();
 db.query(`CREATE INDEX IF NOT EXISTS idx_logs_is_read ON logs(is_read)`).run();
 
+// Создаем таблицу для системных настроек
+db.query(
+  `
+  CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`
+).run();
+
 // Функции для работы с пользователями
 export const addUser = (chatId: number, username: string, name?: string, gender?: string) => {
   const insertUser = db.query('INSERT OR IGNORE INTO users (chat_id, username, name, gender) VALUES (?, ?, ?, ?)');

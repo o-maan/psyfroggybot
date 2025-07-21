@@ -289,4 +289,229 @@ describe('Scheduler', () => {
       expect(result.busy_reason).toBe(null);
     });
   });
+
+  describe('checkUsersResponses', () => {
+    let checkUsersResponses: () => Promise<void>;
+    let sendAngryPost: (userId: number) => Promise<void>;
+    
+    beforeEach(() => {
+      // Получаем доступ к приватным методам
+      checkUsersResponses = (scheduler as any).checkUsersResponses.bind(scheduler);
+      sendAngryPost = (scheduler as any).sendAngryPost.bind(scheduler);
+      
+      // Мокаем методы бота
+      mockBot.telegram = {
+        sendMessage: spyOn({} as any, 'sendMessage').mockResolvedValue({}),
+        sendPhoto: spyOn({} as any, 'sendPhoto').mockResolvedValue({}),
+      } as any;
+      
+      // Мокаем getLastDailyRunTime
+      spyOn(scheduler as any, 'getLastDailyRunTime').mockResolvedValue(new Date());
+    });
+
+    it('должен проверить только целевого пользователя и отправить злой пост если он не ответил', async () => {
+      const db = require('./db');
+      const TARGET_USER_ID = 5153477378;
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
+      
+      // Мокаем время последней рассылки - вчера в 22:00
+      const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
+      getLastDailyRunTimeSpy.mockResolvedValue(yesterday);
+      
+      // Мокаем ответ целевого пользователя - он НЕ ответил
+      const getUserResponseStatsSpy = spyOn(db, 'getUserResponseStats');
+      getUserResponseStatsSpy.mockImplementation((userId: number) => {
+        if (userId === TARGET_USER_ID) {
+          // Пользователь не ответил (последний ответ до вчерашней рассылки)
+          const twoHoursBeforeYesterday = new Date(yesterday);
+          twoHoursBeforeYesterday.setHours(twoHoursBeforeYesterday.getHours() - 2);
+          return { 
+            response_count: 3, 
+            last_response_time: twoHoursBeforeYesterday.toISOString() 
+          };
+        }
+        return null;
+      });
+      
+      // Мокаем отправку злого поста
+      const sendAngryPostSpy = spyOn(scheduler as any, 'sendAngryPost').mockResolvedValue(undefined);
+      
+      // Мокаем админа
+      process.env.ADMIN_CHAT_ID = '999';
+      
+      await checkUsersResponses();
+      
+      // Проверяем что злой пост отправлен только один раз для целевого пользователя
+      expect(sendAngryPostSpy).toHaveBeenCalledTimes(1);
+      expect(sendAngryPostSpy).toHaveBeenCalledWith(TARGET_USER_ID);
+      
+      // Проверяем отчет админу
+      expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
+        999,
+        expect.stringContaining(`Проверен пользователь: <code>${TARGET_USER_ID}</code>`),
+        expect.any(Object)
+      );
+      expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
+        999,
+        expect.stringContaining('НЕ ответил на вчерашнее задание'),
+        expect.any(Object)
+      );
+      expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
+        999,
+        expect.stringContaining('Злой пост отправлен в канал'),
+        expect.any(Object)
+      );
+    });
+
+    it('не должен отправлять злой пост если целевой пользователь ответил', async () => {
+      const db = require('./db');
+      const TARGET_USER_ID = 5153477378;
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
+      
+      // Мокаем время последней рассылки - вчера в 22:00
+      const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
+      getLastDailyRunTimeSpy.mockResolvedValue(yesterday);
+      
+      // Мокаем ответ целевого пользователя - он ОТВЕТИЛ
+      const getUserResponseStatsSpy = spyOn(db, 'getUserResponseStats');
+      getUserResponseStatsSpy.mockImplementation((userId: number) => {
+        if (userId === TARGET_USER_ID) {
+          // Пользователь ответил после вчерашней рассылки
+          return { 
+            response_count: 5, 
+            last_response_time: new Date().toISOString() // Сегодня
+          };
+        }
+        return null;
+      });
+      
+      // Мокаем отправку злого поста
+      const sendAngryPostSpy = spyOn(scheduler as any, 'sendAngryPost').mockResolvedValue(undefined);
+      
+      // Мокаем админа
+      process.env.ADMIN_CHAT_ID = '999';
+      
+      await checkUsersResponses();
+      
+      // Проверяем что злой пост НЕ отправлен
+      expect(sendAngryPostSpy).not.toHaveBeenCalled();
+      
+      // Проверяем отчет админу
+      expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
+        999,
+        expect.stringContaining('Ответил на вчерашнее задание'),
+        expect.any(Object)
+      );
+    });
+
+    it('должен пропустить проверку если вчерашняя рассылка не была выполнена', async () => {
+      // Мокаем что рассылка не была выполнена
+      const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
+      getLastDailyRunTimeSpy.mockResolvedValue(null);
+      
+      const sendAngryPostSpy = spyOn(scheduler as any, 'sendAngryPost');
+      
+      await checkUsersResponses();
+      
+      expect(sendAngryPostSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sendAngryPost', () => {
+    let sendAngryPost: (userId: number) => Promise<void>;
+    
+    beforeEach(() => {
+      sendAngryPost = (scheduler as any).sendAngryPost.bind(scheduler);
+      
+      // Мокаем методы бота
+      mockBot.telegram = {
+        sendPhoto: spyOn({} as any, 'sendPhoto').mockResolvedValue({}),
+      } as any;
+      
+      // Мокаем файловую систему
+      mockReadFileSync.mockImplementation((path: any): any => {
+        const pathStr = String(path);
+        if (pathStr.includes('no-answer')) {
+          return 'Промпт для злого текста';
+        } else if (pathStr.includes('frog-image-promt-angry')) {
+          return 'Промпт для злого изображения';
+        }
+        return '';
+      });
+      
+      // Мокаем функции LLM
+      spyOn(llm, 'generateFrogImage').mockResolvedValue(Buffer.from('fake-image'));
+    });
+
+    it('должен отправить злой пост с сгенерированным изображением', async () => {
+      const db = require('./db');
+      const saveMessageSpy = spyOn(db, 'saveMessage').mockImplementation(() => {});
+      
+      // Мокаем генерацию текста
+      mockGenerateMessage.mockResolvedValue('Кто-то не сделал задание! Нехорошо!');
+      
+      await sendAngryPost(123);
+      
+      // Проверяем отправку фото с текстом
+      expect(mockBot.telegram.sendPhoto).toHaveBeenCalledWith(
+        scheduler.CHANNEL_ID,
+        { source: expect.any(Buffer) },
+        {
+          caption: 'Кто-то не сделал задание! Нехорошо!',
+          parse_mode: 'HTML',
+        }
+      );
+      
+      // Проверяем сохранение в БД
+      expect(saveMessageSpy).toHaveBeenCalledWith(
+        123,
+        'Кто-то не сделал задание! Нехорошо!',
+        expect.any(String)
+      );
+    });
+
+    it('должен использовать fallback изображение при ошибке генерации', async () => {
+      const db = require('./db');
+      spyOn(db, 'saveMessage').mockImplementation(() => {});
+      
+      // Мокаем ошибку генерации изображения
+      spyOn(llm, 'generateFrogImage').mockRejectedValue(new Error('API error'));
+      
+      // Мокаем getNextImage
+      spyOn(scheduler, 'getNextImage').mockReturnValue('/path/to/image.jpg');
+      
+      mockGenerateMessage.mockResolvedValue('Злой текст');
+      
+      await sendAngryPost(123);
+      
+      // Проверяем что использовано изображение из ротации
+      expect(mockBot.telegram.sendPhoto).toHaveBeenCalledWith(
+        scheduler.CHANNEL_ID,
+        { source: '/path/to/image.jpg' },
+        expect.any(Object)
+      );
+    });
+
+    it('должен обрезать длинный текст', async () => {
+      const db = require('./db');
+      spyOn(db, 'saveMessage').mockImplementation(() => {});
+      
+      // Генерируем очень длинный текст
+      const longText = 'А'.repeat(600);
+      mockGenerateMessage.mockResolvedValue(longText);
+      
+      await sendAngryPost(123);
+      
+      // Проверяем что текст обрезан
+      const sentText = (mockBot.telegram.sendPhoto as any).mock.calls[0][2].caption;
+      expect(sentText.length).toBeLessThanOrEqual(500);
+      expect(sentText).toEndWith('...');
+    });
+  });
 });

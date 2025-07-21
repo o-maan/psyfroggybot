@@ -527,6 +527,85 @@ bot.command('last_run', async ctx => {
   }
 });
 
+// Команда для тестирования утренней проверки
+bot.command('test_morning_check', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  await ctx.reply('🌅 Запускаю тестовую утреннюю проверку...');
+  
+  try {
+    // Вызываем приватный метод через any cast
+    await (scheduler as any).checkUsersResponses();
+    await ctx.reply('✅ Тестовая утренняя проверка выполнена успешно!');
+  } catch (error) {
+    await ctx.reply(`❌ Ошибка при выполнении утренней проверки:\n<code>${error}</code>`, { parse_mode: 'HTML' });
+  }
+});
+
+// Команда для тестирования генерации злого поста
+bot.command('angry', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  await ctx.reply('😠 Генерирую злой пост...');
+  
+  try {
+    // Вызываем приватный метод sendAngryPost напрямую
+    // Используем ID целевого пользователя
+    const TARGET_USER_ID = 5153477378;
+    await (scheduler as any).sendAngryPost(TARGET_USER_ID);
+    await ctx.reply('✅ Злой пост отправлен в канал!');
+  } catch (error) {
+    await ctx.reply(`❌ Ошибка при генерации злого поста:\n<code>${error}</code>`, { parse_mode: 'HTML' });
+  }
+});
+
+// Команда для проверки конфигурации утренней проверки
+bot.command('check_config', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  const TARGET_USER_ID = 5153477378;
+  const status = scheduler.getSchedulerStatus();
+  
+  // Проверяем существование файлов промптов
+  const fs = require('fs');
+  const textPromptExists = fs.existsSync('assets/prompts/no-answer');
+  const imagePromptExists = fs.existsSync('assets/prompts/frog-image-promt-angry');
+  
+  await ctx.reply(
+    `🔧 <b>КОНФИГУРАЦИЯ УТРЕННЕЙ ПРОВЕРКИ</b>\n\n` +
+    `👤 Целевой пользователь: <code>${TARGET_USER_ID}</code>\n` +
+    `📢 Канал для постов: <code>${scheduler.CHANNEL_ID}</code>\n` +
+    `⏰ Время проверки: <b>8:00 МСК</b>\n` +
+    `☀️ Статус утренней проверки: ${status.isMorningRunning ? '🟢 Активна' : '🔴 Остановлена'}\n\n` +
+    `📄 <b>Файлы промптов:</b>\n` +
+    `├─ Текст (no-answer): ${textPromptExists ? '✅ Найден' : '❌ Не найден'}\n` +
+    `└─ Изображение (frog-image-promt-angry): ${imagePromptExists ? '✅ Найден' : '❌ Не найден'}\n\n` +
+    `🕐 Текущее время МСК: <code>${status.currentTime}</code>`,
+    { parse_mode: 'HTML' }
+  );
+});
+
 // Команда для проверки статуса планировщика
 bot.command('status', async ctx => {
   const chatId = ctx.chat.id;
@@ -542,12 +621,14 @@ bot.command('status', async ctx => {
 
   await ctx.reply(
     `📊 <b>СТАТУС ПЛАНИРОВЩИКА</b>\n\n` +
-      `⚙️ Cron job: ${status.isRunning ? '🟢 <b>Активен</b>' : '🔴 <b>Остановлен</b>'}\n` +
+      `⚙️ Общий статус: ${status.isRunning ? '🟢 <b>Активен</b>' : '🔴 <b>Остановлен</b>'}\n` +
+      `🌙 Вечерняя рассылка: ${status.isDailyRunning ? '🟢 Активна' : '🔴 Остановлена'}\n` +
+      `☀️ Утренняя проверка: ${status.isMorningRunning ? '🟢 Активна' : '🔴 Остановлена'}\n\n` +
       `📅 Расписание: <code>${status.description}</code>\n` +
-      `🕐 Выражение: <code>${status.cronExpression}</code>\n` +
+      `🕐 Выражения: <code>${status.cronExpression}</code>\n` +
       `🌍 Часовой пояс: <code>${status.timezone}</code>\n\n` +
       `🕐 <b>Текущее время (МСК):</b> <code>${status.currentTime}</code>\n` +
-      `⏰ <b>Следующий запуск:</b> <code>${status.nextRunTime}</code>\n\n` +
+      `⏰ <b>Следующие запуски:</b>\n<code>${status.nextRunTime}</code>\n\n` +
       `👥 <b>Пользователей:</b> ${status.usersCount}\n` +
       `🔑 <b>Admin ID:</b> <code>${status.adminChatId}</code>\n` +
       `📋 <b>Список пользователей:</b>\n<code>${
