@@ -1497,9 +1497,15 @@ bot.on('text', async ctx => {
   
   botLogger.debug({ userId, chatId, messageLength: message.length }, `💬 Сообщение от пользователя в чате`);
   
-  // Обновляем время ответа пользователя
-  const responseTime = new Date().toISOString();
-  updateUserResponse(userId, responseTime);
+  // Константа для целевого пользователя
+  const TARGET_USER_ID = 5153477378;
+  
+  // Обновляем время ответа только для целевого пользователя
+  if (userId === TARGET_USER_ID) {
+    const responseTime = new Date().toISOString();
+    updateUserResponse(userId, responseTime);
+    botLogger.info({ userId }, `✅ Обновлено время ответа для целевого пользователя ${TARGET_USER_ID}`);
+  }
   
   // Очищаем напоминание для этого пользователя
   scheduler.clearReminder(userId);

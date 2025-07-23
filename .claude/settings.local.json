@@ -8,7 +8,9 @@
       "Bash(grep:*)",
       "Bash(pm2 logs:*)",
       "Bash(bun run logs:*)",
-      "Bash(bun test:*)"
+      "Bash(bun test:*)",
+      "Bash(sqlite3:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
