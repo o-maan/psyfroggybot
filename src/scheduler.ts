@@ -43,7 +43,7 @@ export class Scheduler {
   private reminderTimeouts: Map<number, NodeJS.Timeout> = new Map();
   private users: Set<number> = new Set();
   private imageFiles: string[] = [];
-  public readonly CHANNEL_ID = -1002405993986;
+  public readonly CHANNEL_ID = Number(process.env.CHANNEL_ID || -1002405993986);
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;

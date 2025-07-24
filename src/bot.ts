@@ -312,23 +312,14 @@ bot.command('sendnow', async ctx => {
 // Обработка команды /fro
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
-  // Генерируем сообщение по тем же правилам, что и для 22:00
+  // Используем метод sendDailyMessage, который включает таймер в тестовом режиме
+  await scheduler.sendDailyMessage(chatId);
+  
+  // Сохраняем сообщение и устанавливаем напоминание
+  const sentTime = new Date().toISOString();
   const message = await scheduler.generateScheduledMessage(chatId);
-  const imagePath = scheduler.getNextImage(chatId);
-  const caption = message.length > 1024 ? undefined : message;
-  await bot.telegram.sendPhoto(
-    scheduler.CHANNEL_ID,
-    { source: imagePath },
-    {
-      caption,
-      parse_mode: 'HTML',
-    }
-  );
-  if (message.length > 1024) {
-    await bot.telegram.sendMessage(scheduler.CHANNEL_ID, message, {
-      parse_mode: 'HTML',
-    });
-  }
+  saveMessage(chatId, message, sentTime);
+  scheduler.setReminder(chatId, sentTime);
 });
 
 // Обработка команды /remind
