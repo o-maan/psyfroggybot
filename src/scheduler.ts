@@ -540,26 +540,25 @@ export class Scheduler {
         });
       }
       
-      // В тестовом режиме запускаем проверку через 2 минуты
-      const isTestMode = process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726');
-      if (isTestMode) {
-        // Отменяем предыдущий таймаут если есть
-        if (this.testModeCheckTimeout) {
-          clearTimeout(this.testModeCheckTimeout);
-        }
-        
-        schedulerLogger.info('🧪 ТЕСТОВЫЙ РЕЖИМ: Проверка ответов будет через 2 минуты');
-        
-        // Сохраняем время отправки для корректной проверки
-        const sentTime = new Date().toISOString();
-        await this.saveLastDailyRunTime(new Date());
-        
-        // Запускаем проверку через 2 минуты
-        this.testModeCheckTimeout = setTimeout(async () => {
-          schedulerLogger.info('🧪 ТЕСТОВЫЙ РЕЖИМ: Запуск проверки ответов');
-          await this.checkUsersResponses();
-        }, 2 * 60 * 1000); // 2 минуты
+      // Запускаем проверку ответов через заданное время (по умолчанию 2 минуты)
+      const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 2);
+      
+      // Отменяем предыдущий таймаут если есть
+      if (this.testModeCheckTimeout) {
+        clearTimeout(this.testModeCheckTimeout);
       }
+      
+      schedulerLogger.info(`⏰ Проверка ответов будет через ${checkDelayMinutes} минут(ы)`);
+      
+      // Сохраняем время отправки для корректной проверки
+      const sentTime = new Date().toISOString();
+      await this.saveLastDailyRunTime(new Date());
+      
+      // Запускаем проверку через заданное время
+      this.testModeCheckTimeout = setTimeout(async () => {
+        schedulerLogger.info('🔍 Запуск проверки ответов пользователя');
+        await this.checkUsersResponses();
+      }, checkDelayMinutes * 60 * 1000);
       
       // Убираем сохранение и напоминание - это теперь делается в sendDailyMessagesToAll
       // const sentTime = new Date().toISOString();
@@ -633,6 +632,22 @@ export class Scheduler {
         this.setReminder(userId, sentTime);
         schedulerLogger.debug({ userId }, 'Напоминание установлено для пользователя');
       }
+      
+      // Запускаем проверку ответов через заданное время
+      const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 2);
+      
+      // Отменяем предыдущий таймаут если есть
+      if (this.testModeCheckTimeout) {
+        clearTimeout(this.testModeCheckTimeout);
+      }
+      
+      schedulerLogger.info(`⏰ Проверка ответов пользователя ${5153477378} будет через ${checkDelayMinutes} минут(ы)`);
+      
+      // Запускаем проверку через заданное время
+      this.testModeCheckTimeout = setTimeout(async () => {
+        schedulerLogger.info('🔍 Запуск проверки ответов после ежедневной рассылки');
+        await this.checkUsersResponses();
+      }, checkDelayMinutes * 60 * 1000);
     } catch (error) {
       errorCount = 1;
       const errorMsg = `Ошибка отправки поста: ${error}`;
@@ -747,7 +762,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   private initializeDailySchedule() {
     logger.info('Инициализация автоматического ежедневного расписания');
     this.startDailyCronJob();
-    this.startMorningCheckCronJob();
+    // Утренняя проверка отключена - теперь проверка запускается через ANGRY_POST_DELAY_MINUTES после каждого поста
+    // this.startMorningCheckCronJob();
   }
 
   // Запуск cron job для ежедневной отправки в 22:00
@@ -990,33 +1006,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Проверка ответа конкретного пользователя и отправка "злого" поста
   // ВАЖНО: Проверяется только один пользователь с ID 5153477378
-  // Если он не ответил на вчерашнее задание - отправляется ОДИН злой пост в канал
+  // Если он не ответил на задание после заданной задержки (по умолчанию 2 минуты) - отправляется ОДИН злой пост в канал
+  // Эта проверка запускается после каждой отправки поста через sendDailyMessage с задержкой ANGRY_POST_DELAY_MINUTES
   private async checkUsersResponses() {
-    // В тестовом режиме проверяем админа, в продакшн - целевого пользователя
-    const isTestMode = process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726');
-    const TARGET_USER_ID = isTestMode ? 476561547 : 5153477378;
+    // Всегда проверяем целевого пользователя
+    const TARGET_USER_ID = 5153477378;
     
     schedulerLogger.info({ 
-      isTestMode, 
       targetUserId: TARGET_USER_ID 
-    }, `🔍 Режим проверки: ${isTestMode ? 'ТЕСТОВЫЙ' : 'ПРОДАКШН'}`)
+    }, `🔍 Проверка ответов пользователя ${TARGET_USER_ID}`)
     
     const now = new Date();
     
-    // В тестовом режиме не проверяем давность рассылки
-    if (!isTestMode) {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
-      
-      // Получаем время последней рассылки
-      const lastDailyRun = await this.getLastDailyRunTime();
-      if (!lastDailyRun || lastDailyRun < yesterday) {
-        schedulerLogger.warn('Вчерашняя рассылка не была выполнена, пропускаем проверку');
-        return;
-      }
-    }
-    
+    // Получаем время последней рассылки для проверки
     const lastDailyRun = await this.getLastDailyRunTime();
 
     let hasResponded = false;

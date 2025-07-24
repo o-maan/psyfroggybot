@@ -1489,8 +1489,7 @@ bot.on('text', async ctx => {
   botLogger.debug({ userId, chatId, messageLength: message.length }, `💬 Сообщение от пользователя в чате`);
   
   // Константа для целевого пользователя
-  const isTestMode = process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726');
-  const TARGET_USER_ID = isTestMode ? 476561547 : 5153477378;
+  const TARGET_USER_ID = 5153477378;
   
   // Обновляем время ответа только для целевого пользователя
   if (userId === TARGET_USER_ID) {
@@ -1499,14 +1498,12 @@ bot.on('text', async ctx => {
     botLogger.info({ 
       userId, 
       responseTime,
-      isTestMode,
       targetUserId: TARGET_USER_ID 
     }, `✅ Обновлено время ответа для целевого пользователя ${TARGET_USER_ID}`);
   } else {
     botLogger.debug({ 
       userId, 
-      targetUserId: TARGET_USER_ID,
-      isTestMode 
+      targetUserId: TARGET_USER_ID
     }, `⏭️ Пропущено обновление времени ответа - не целевой пользователь`);
   }
   
