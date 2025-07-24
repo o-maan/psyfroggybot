@@ -410,16 +410,30 @@ describe('Scheduler', () => {
       );
     });
 
-    it('должен пропустить проверку если вчерашняя рассылка не была выполнена', async () => {
+    it('должен отправить злой пост если нет времени последней рассылки', async () => {
+      const db = require('./db');
+      
       // Мокаем что рассылка не была выполнена
       const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
       getLastDailyRunTimeSpy.mockResolvedValue(null);
       
+      // Мокаем что пользователь НЕ ответил
+      const getUserResponseStatsSpy = spyOn(db, 'getUserResponseStats');
+      getUserResponseStatsSpy.mockReturnValue({
+        last_response_time: null,
+        response_count: 0
+      });
+      
       const sendAngryPostSpy = spyOn(scheduler as any, 'sendAngryPost');
+      sendAngryPostSpy.mockResolvedValue(undefined);
+      
+      // Мокаем админа
+      process.env.ADMIN_CHAT_ID = '999';
       
       await checkUsersResponses();
       
-      expect(sendAngryPostSpy).not.toHaveBeenCalled();
+      // Теперь проверка времени убрана, поэтому злой пост должен быть отправлен
+      expect(sendAngryPostSpy).toHaveBeenCalledWith(5153477378);
     });
   });
 
