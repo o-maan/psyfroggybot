@@ -550,9 +550,7 @@ export class Scheduler {
       
       schedulerLogger.info(`⏰ Проверка ответов будет через ${checkDelayMinutes} минут(ы)`);
       
-      // Сохраняем время отправки для корректной проверки
-      const sentTime = new Date().toISOString();
-      await this.saveLastDailyRunTime(new Date());
+      // Не сохраняем время для тестовых отправок через /fro
       
       // Запускаем проверку через заданное время
       this.testModeCheckTimeout = setTimeout(async () => {
@@ -572,36 +570,8 @@ export class Scheduler {
 
   // Массовая рассылка по всем пользователям
   async sendDailyMessagesToAll(adminChatId: number) {
-    // Проверяем, не была ли уже отправлена рассылка сегодня
-    const lastDailyRun = await this.getLastDailyRunTime();
+    // Сохраняем время начала рассылки для корректной проверки ответов
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    
-    if (lastDailyRun && lastDailyRun >= todayStart) {
-      const lastRunStr = lastDailyRun.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
-      schedulerLogger.warn(
-        { lastRun: lastRunStr, todayStart: todayStart.toISOString() },
-        '⚠️ Рассылка уже была выполнена сегодня, пропускаем повторную отправку'
-      );
-      
-      // Уведомляем админа о попытке дублирования
-      try {
-        await this.bot.telegram.sendMessage(
-          adminChatId,
-          `⚠️ <b>ПРЕДУПРЕЖДЕНИЕ: Попытка повторной рассылки</b>\n\n` +
-          `📅 Последняя рассылка была: <code>${lastRunStr}</code>\n` +
-          `🚫 Повторная отправка заблокирована для предотвращения дублирования`,
-          { parse_mode: 'HTML' }
-        );
-      } catch (e) {
-        schedulerLogger.error(e as Error, 'Ошибка отправки предупреждения админу');
-      }
-      
-      return;
-    }
-    
-    // Сохраняем время начала рассылки
     await this.saveLastDailyRunTime(now);
     
     schedulerLogger.info(
