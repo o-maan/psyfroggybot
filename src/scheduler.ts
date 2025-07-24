@@ -48,6 +48,7 @@ export class Scheduler {
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
   private morningCheckCronJob: cron.ScheduledTask | null = null;
+  private testModeCheckTimeout: NodeJS.Timeout | null = null;
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
@@ -538,6 +539,28 @@ export class Scheduler {
           parse_mode: 'HTML',
         });
       }
+      
+      // В тестовом режиме запускаем проверку через 2 минуты
+      const isTestMode = process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726');
+      if (isTestMode) {
+        // Отменяем предыдущий таймаут если есть
+        if (this.testModeCheckTimeout) {
+          clearTimeout(this.testModeCheckTimeout);
+        }
+        
+        schedulerLogger.info('🧪 ТЕСТОВЫЙ РЕЖИМ: Проверка ответов будет через 2 минуты');
+        
+        // Сохраняем время отправки для корректной проверки
+        const sentTime = new Date().toISOString();
+        await this.saveLastDailyRunTime(new Date());
+        
+        // Запускаем проверку через 2 минуты
+        this.testModeCheckTimeout = setTimeout(async () => {
+          schedulerLogger.info('🧪 ТЕСТОВЫЙ РЕЖИМ: Запуск проверки ответов');
+          await this.checkUsersResponses();
+        }, 2 * 60 * 1000); // 2 минуты
+      }
+      
       // Убираем сохранение и напоминание - это теперь делается в sendDailyMessagesToAll
       // const sentTime = new Date().toISOString();
       // saveMessage(chatId, message, sentTime);
@@ -969,19 +992,32 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   // ВАЖНО: Проверяется только один пользователь с ID 5153477378
   // Если он не ответил на вчерашнее задание - отправляется ОДИН злой пост в канал
   private async checkUsersResponses() {
-    const TARGET_USER_ID = 5153477378; // ID пользователя для проверки
+    // В тестовом режиме проверяем админа, в продакшн - целевого пользователя
+    const isTestMode = process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726');
+    const TARGET_USER_ID = isTestMode ? 476561547 : 5153477378;
+    
+    schedulerLogger.info({ 
+      isTestMode, 
+      targetUserId: TARGET_USER_ID 
+    }, `🔍 Режим проверки: ${isTestMode ? 'ТЕСТОВЫЙ' : 'ПРОДАКШН'}`)
     
     const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
     
-    // Получаем время последней рассылки
-    const lastDailyRun = await this.getLastDailyRunTime();
-    if (!lastDailyRun || lastDailyRun < yesterday) {
-      schedulerLogger.warn('Вчерашняя рассылка не была выполнена, пропускаем проверку');
-      return;
+    // В тестовом режиме не проверяем давность рассылки
+    if (!isTestMode) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
+      
+      // Получаем время последней рассылки
+      const lastDailyRun = await this.getLastDailyRunTime();
+      if (!lastDailyRun || lastDailyRun < yesterday) {
+        schedulerLogger.warn('Вчерашняя рассылка не была выполнена, пропускаем проверку');
+        return;
+      }
     }
+    
+    const lastDailyRun = await this.getLastDailyRunTime();
 
     let hasResponded = false;
     let sentPost = false;
@@ -991,9 +1027,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     try {
       const stats = getUserResponseStats(TARGET_USER_ID);
       
+      schedulerLogger.info({ 
+        userId: TARGET_USER_ID,
+        stats,
+        lastDailyRun: lastDailyRun?.toISOString(),
+        lastResponseTime: stats?.last_response_time
+      }, '📊 Данные для проверки ответа');
+      
       // Проверяем, ответил ли пользователь после вчерашней рассылки
       hasResponded = !!(stats && 
         stats.last_response_time && 
+        lastDailyRun &&
         new Date(stats.last_response_time) > lastDailyRun);
       
       if (!hasResponded) {
