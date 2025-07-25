@@ -315,11 +315,16 @@ bot.command('fro', async ctx => {
   // Используем метод sendDailyMessage, который включает таймер в тестовом режиме
   await scheduler.sendDailyMessage(chatId);
   
-  // Сохраняем сообщение и устанавливаем напоминание
+  // Сохраняем сообщение
   const sentTime = new Date().toISOString();
   const message = await scheduler.generateScheduledMessage(chatId);
   saveMessage(chatId, message, sentTime);
-  scheduler.setReminder(chatId, sentTime);
+  
+  // Устанавливаем напоминание только для целевого пользователя
+  const TARGET_USER_ID = 5153477378;
+  if (chatId === TARGET_USER_ID) {
+    scheduler.setReminder(chatId, sentTime);
+  }
 });
 
 // Обработка команды /remind
