@@ -467,6 +467,9 @@ describe('Scheduler', () => {
       const db = require('./db');
       const saveMessageSpy = spyOn(db, 'saveMessage').mockImplementation(() => {});
       
+      // Мокаем isTestBot чтобы вернул false
+      spyOn(scheduler, 'isTestBot').mockReturnValue(false);
+      
       // Мокаем генерацию текста
       mockGenerateMessage.mockResolvedValue('Кто-то не сделал задание! Нехорошо!');
       
@@ -494,6 +497,9 @@ describe('Scheduler', () => {
       const db = require('./db');
       spyOn(db, 'saveMessage').mockImplementation(() => {});
       
+      // Мокаем isTestBot чтобы вернул false
+      spyOn(scheduler, 'isTestBot').mockReturnValue(false);
+      
       // Мокаем ошибку генерации изображения
       spyOn(llm, 'generateFrogImage').mockRejectedValue(new Error('API error'));
       
@@ -515,6 +521,9 @@ describe('Scheduler', () => {
     it('должен обрезать длинный текст', async () => {
       const db = require('./db');
       spyOn(db, 'saveMessage').mockImplementation(() => {});
+      
+      // Мокаем isTestBot чтобы вернул false
+      spyOn(scheduler, 'isTestBot').mockReturnValue(false);
       
       // Генерируем очень длинный текст
       const longText = 'А'.repeat(600);
