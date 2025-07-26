@@ -80,7 +80,8 @@ export class Scheduler {
 
   // Проверяем, является ли текущий бот тестовым
   public isTestBot(): boolean {
-    return process.env.TELEGRAM_BOT_TOKEN?.includes('7334318726:AAE4s0gNvA_MoXLNumAiIHBGzz22h61IhV4') || false;
+    // Проверяем по переменной окружения NODE_ENV или по специальному флагу
+    return process.env.NODE_ENV === 'test' || process.env.IS_TEST_BOT === 'true' || false;
   }
 
   // Загрузить список картинок при старте
