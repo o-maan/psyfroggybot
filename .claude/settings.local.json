@@ -10,7 +10,8 @@
       "Bash(bun run logs:*)",
       "Bash(bun test:*)",
       "Bash(sqlite3:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(echo $NODE_ENV)"
     ],
     "deny": []
   }

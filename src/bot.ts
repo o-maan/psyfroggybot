@@ -312,16 +312,12 @@ bot.command('sendnow', async ctx => {
 // Обработка команды /fro
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
-  // Используем метод sendDailyMessage, который включает таймер в тестовом режиме
-  await scheduler.sendDailyMessage(chatId);
-  
-  // Сохраняем сообщение
-  const sentTime = new Date().toISOString();
-  const message = await scheduler.generateScheduledMessage(chatId);
-  saveMessage(chatId, message, sentTime);
+  // Используем интерактивный метод с флагом ручной команды
+  await scheduler.sendInteractiveDailyMessage(chatId, true);
   
   // Устанавливаем напоминание только для целевого пользователя
   const TARGET_USER_ID = 5153477378;
+  const sentTime = new Date().toISOString();
   if (chatId === TARGET_USER_ID) {
     scheduler.setReminder(chatId, sentTime);
   }
@@ -332,6 +328,91 @@ bot.command('remind', async ctx => {
   const chatId = ctx.chat.id;
   const sentTime = new Date().toISOString();
   scheduler.setReminder(chatId, sentTime);
+});
+
+// Тестовая команда для проверки кнопок в комментариях
+bot.command('test_buttons', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+  
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+  
+  try {
+    // Отправляем тестовый пост в канал
+    const CHANNEL_ID = scheduler.CHANNEL_ID;
+    
+    const testMessage = await bot.telegram.sendMessage(
+      CHANNEL_ID,
+      '🧪 <b>ТЕСТОВЫЙ ПОСТ ДЛЯ ПРОВЕРКИ КНОПОК</b>\n\n' +
+      'Это тестовое сообщение для проверки работы кнопок в комментариях.\n\n' +
+      '⬇️ Кнопки должны появиться в комментариях ниже',
+      { parse_mode: 'HTML' }
+    );
+    
+    const messageId = testMessage.message_id;
+    
+    // Ждем немного
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Отправляем кнопки в группу обсуждений
+    const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+    
+    if (!CHAT_ID) {
+      await ctx.reply('❌ CHAT_ID не настроен в .env');
+      return;
+    }
+    
+    // Формируем URL для перехода в комментарии
+    const commentUrl = `https://t.me/c/${CHANNEL_ID.toString().slice(4)}/${messageId}?thread=${messageId}`;
+    
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '💬 Написать ответ', url: commentUrl }],
+        [{ text: '✅ Все ок - пропустить', callback_data: 'daily_skip_all' }]
+      ]
+    };
+    
+    const buttonMessage = await bot.telegram.sendMessage(
+      CHAT_ID,
+      '🧪 Тестовые кнопки:\n\n' +
+      `Channel ID: ${CHANNEL_ID}\n` +
+      `Message ID: ${messageId}\n` +
+      `Comment URL: ${commentUrl}`,
+      {
+        reply_markup: keyboard
+      }
+    );
+    
+    await ctx.reply(
+      '✅ Тестовый пост отправлен!\n\n' +
+      `📢 Channel ID: <code>${CHANNEL_ID}</code>\n` +
+      `💬 Chat ID: <code>${CHAT_ID}</code>\n` +
+      `📝 Message ID: <code>${messageId}</code>\n` +
+      `🔗 URL: <code>${commentUrl}</code>`,
+      { parse_mode: 'HTML' }
+    );
+    
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ error: err.message, stack: err.stack }, 'Ошибка команды /test_buttons');
+    await ctx.reply(`❌ Ошибка: ${err.message}`);
+  }
+});
+
+// Обработка команды /skip
+bot.command('skip', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+  
+  // Вызываем обработчик пропуска
+  await scheduler.handleSkipAll(adminChatId);
+  
+  // Отвечаем пользователю
+  await ctx.reply('👍 Отлично! Переходим к плюшкам');
 });
 
 // Обработка команды /calendar
@@ -1516,9 +1597,22 @@ bot.on('text', async ctx => {
   scheduler.clearReminder(userId);
 
   try {
-    // Сохраняем сообщение пользователя в БД
+    // Сначала сохраняем сообщение пользователя в БД
     const userMessageTime = new Date().toISOString();
     saveMessage(userId, message, userMessageTime, userId);
+    
+    // Проверяем, есть ли активная интерактивная сессия
+    const isInteractive = await scheduler.handleInteractiveUserResponse(
+      userId, 
+      message, 
+      replyToChatId,
+      ctx.message.message_id
+    );
+
+    if (isInteractive) {
+      // Сообщение обработано в интерактивном режиме
+      return;
+    }
 
     // Получаем последние 7 сообщений пользователя в хронологическом порядке
     const lastMessages = getLastNMessages(userId, 7);
@@ -1588,6 +1682,22 @@ bot.on('text', async ctx => {
     saveMessage(userId, fallbackMessage, fallbackTime, 0);
   }
 });
+
+// ========== ОБРАБОТЧИКИ ИНТЕРАКТИВНЫХ КНОПОК ==========
+
+
+// Обработчик кнопки "Все ок - пропустить"
+bot.action('daily_skip_all', async ctx => {
+  try {
+    await ctx.answerCbQuery('👍 Отлично! Переходим к плюшкам');
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    await scheduler.handleSkipAll(adminChatId);
+  } catch (error) {
+    botLogger.error({ error }, 'Ошибка обработки кнопки "Все ок - пропустить"');
+    await ctx.answerCbQuery('❌ Произошла ошибка');
+  }
+});
+
 
 // Запускаем бота
 

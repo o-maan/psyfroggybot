@@ -82,6 +82,14 @@ bun run lint                   # TypeScript type checking
    - Выбирает промпт: `scheduled-message-flight.md` (занят) или `scheduled-message.md`
    - Для занятых: упрощенное сообщение (encouragement + задание)
    - Для свободных: полное структурированное сообщение
+   
+   **Интерактивная логика в комментариях:**
+   - `handleInteractiveUserResponse()` - обрабатывает ответы пользователей
+   - Анализирует ответы через `analyzeUserResponse()`: 
+     - Вариант 1: Подробно описал эмоции → слова поддержки + плюшки
+     - Вариант 2: Не описал эмоции → уточняющие вопросы
+     - Вариант 3: Значимое событие → схема разбора ситуации
+   - После плюшек → финальная часть (расслабление/дыхание)
 
 4. **Структура обычного сообщения** (`buildScheduledMessageFromHF`):
 
@@ -230,6 +238,7 @@ The app is designed for production deployment with:
 - `/next_image`: Debug image rotation
 - `/minimalTestLLM`: Test LLM connection
 - `/test_busy`: Test user busy detection via calendar analysis
+- `/test_buttons`: Test comment buttons functionality
 
 ## LLM inferring post processing
 
