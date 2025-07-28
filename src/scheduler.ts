@@ -56,9 +56,13 @@ export class Scheduler {
     currentStep: 'waiting_negative' | 'waiting_positive' | 'finished';
     startTime: string;
     messageId?: number;
+    channelMessageId?: number; // ID поста в канале для использования как thread_id
     clarificationSent?: boolean;
     schemaRequested?: boolean;
   }> = new Map();
+  
+  // Для хранения ID пересланных сообщений
+  private forwardedMessages: Map<number, number> = new Map(); // channelMessageId -> discussionMessageId
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
@@ -77,6 +81,15 @@ export class Scheduler {
   // Геттер для получения сервиса календаря (для тестирования)
   getCalendarService(): CalendarService {
     return this.calendarService;
+  }
+  
+  // Сохранить ID пересланного сообщения
+  saveForwardedMessage(channelMessageId: number, discussionMessageId: number) {
+    this.forwardedMessages.set(channelMessageId, discussionMessageId);
+    schedulerLogger.debug({ 
+      channelMessageId, 
+      discussionMessageId 
+    }, 'Сохранен ID пересланного сообщения');
   }
 
   // Определяем ID канала в зависимости от окружения
@@ -282,14 +295,8 @@ export class Scheduler {
     // Определяем что показывать
     const relaxationType = Math.random() < 0.5 ? 'body' : 'breathing';
 
-    // Первая часть сообщения
-    let firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>\n\n`;
-    
-    // Всегда показываем выгрузку неприятных переживаний в первом посте
-    firstPart += `1. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)`;
-    if (json.negative_part?.additional_text) {
-      firstPart += `\n<blockquote>${escapeHTML(json.negative_part.additional_text)}</blockquote>`;
-    }
+    // Основной пост содержит только вдохновляющий текст
+    const firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
 
     return {
       firstPart,
@@ -799,6 +806,23 @@ export class Scheduler {
     }
   }
 
+  // Список случайных текстов для кнопки пропуска
+  private getRandomSkipButtonText(): string {
+    const skipButtons = [
+      '✅ Все ок - пропустить',
+      '👌 Все хорошо - пропустить',
+      '🌟 Все отлично - пропустить',
+      '💚 Все в порядке - пропустить',
+      '🌈 Все супер - пропустить',
+      '✨ Все замечательно - пропустить',
+      '🍀 Все чудесно - пропустить',
+      '🌺 Все прекрасно - пропустить',
+      '🎯 Все на месте - пропустить',
+      '🌸 Все классно - пропустить'
+    ];
+    return skipButtons[Math.floor(Math.random() * skipButtons.length)];
+  }
+
   // Новый метод для интерактивной отправки сообщений
   async sendInteractiveDailyMessage(chatId: number, isManualCommand: boolean = false) {
     // Блокируем автоматическую отправку для тестового бота, но разрешаем команды
@@ -845,34 +869,28 @@ export class Scheduler {
         );
       }
 
-      // Создаем клавиатуру с кнопками (URL будет обновлен после отправки)
-      const keyboard = {
-        inline_keyboard: [
-          [{ text: '💬 Написать ответ', url: 'https://t.me/' }], // временный URL
-          [{ text: '✅ Все ок - пропустить', callback_data: 'daily_skip_all' }]
-        ]
-      };
-      
-      // Отправляем с кнопками прямо в канал
+      // Добавляем текст "Переходи в комментарии и продолжим 😉"
+      const captionWithComment = firstPart + '\n\nПереходи в комментарии и продолжим 😉';
+
+      // Отправляем основной пост БЕЗ кнопок
       let sentMessage;
       if (imageBuffer) {
-        // Отправляем сгенерированное изображение с кнопками
+        // Отправляем сгенерированное изображение
         sentMessage = await this.bot.telegram.sendPhoto(
           this.CHANNEL_ID,
           { source: imageBuffer },
           {
-            caption: firstPart,
-            parse_mode: 'HTML',
-            reply_markup: keyboard
+            caption: captionWithComment,
+            parse_mode: 'HTML'
           }
         );
         schedulerLogger.info(
           {
             chatId,
-            messageLength: firstPart.length,
+            messageLength: captionWithComment.length,
             imageSize: imageBuffer.length,
           },
-          'Интерактивное сообщение с сгенерированным изображением и кнопками отправлено'
+          'Основной пост с изображением отправлен в канал'
         );
       } else {
         // Fallback: используем старую систему ротации
@@ -881,56 +899,158 @@ export class Scheduler {
           this.CHANNEL_ID,
           { source: imagePath },
           {
-            caption: firstPart,
-            parse_mode: 'HTML',
-            reply_markup: keyboard
+            caption: captionWithComment,
+            parse_mode: 'HTML'
           }
         );
         schedulerLogger.info(
           {
             chatId,
-            messageLength: firstPart.length,
+            messageLength: captionWithComment.length,
             imagePath,
           },
-          'Интерактивное сообщение с изображением из ротации и кнопками отправлено (fallback)'
+          'Основной пост с изображением из ротации отправлен в канал (fallback)'
         );
       }
-
 
       const messageId = sentMessage.message_id;
       
-      // Обновляем URL кнопки с реальным messageId
-      // Для приватных каналов нужно убрать только минус
-      const channelIdForUrl = Math.abs(this.CHANNEL_ID).toString();
-      const commentUrl = `https://t.me/c/${channelIdForUrl}/${messageId}`;
-      const updatedKeyboard = {
+      // Сразу отправляем первое задание как комментарий с кнопкой пропуска
+      const skipButtonText = this.getRandomSkipButtonText();
+      const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)';
+      let firstTaskFullText = firstTaskText;
+      if (json.negative_part?.additional_text) {
+        firstTaskFullText += `\n<blockquote>${escapeHTML(json.negative_part.additional_text)}</blockquote>`;
+      }
+      
+      const firstTaskKeyboard = {
         inline_keyboard: [
-          [{ text: '💬 Написать ответ', url: commentUrl }],
-          [{ text: '✅ Все ок - пропустить', callback_data: 'daily_skip_all' }]
+          [{ text: skipButtonText, callback_data: 'daily_skip_negative' }]
         ]
       };
+
+      // Получаем ID группы обсуждений
+      const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
       
-      // Обновляем клавиатуру с правильным URL
-      try {
-        await this.bot.telegram.editMessageReplyMarkup(
-          this.CHANNEL_ID,
-          messageId,
-          undefined,
-          updatedKeyboard
-        );
-        schedulerLogger.info({ 
-          messageId,
-          commentUrl,
-          CHANNEL_ID: this.CHANNEL_ID,
-          channelIdForUrl
-        }, '✅ Кнопки обновлены с правильным URL для комментариев');
-      } catch (error) {
-        const err = error as Error;
-        schedulerLogger.warn({ 
-          error: err.message,
-          messageId 
-        }, 'Не удалось обновить кнопки (возможно, они уже правильные)');
+      if (!CHAT_ID) {
+        schedulerLogger.error('❌ CHAT_ID не настроен в .env - не можем отправить первое задание в группу обсуждений');
+        return;
       }
+      
+      // Ждем меньше времени перед началом поиска
+      schedulerLogger.info('⏳ Ждем 2 секунды, чтобы пост появился в группе обсуждений...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // В Telegram, когда пост из канала пересылается в группу обсуждений,
+      // он создает новый thread (тему). Для отправки в этот thread нужно использовать
+      // message_thread_id, который равен message_id поста в канале
+      
+      // Сначала ждем, чтобы обработчик успел сохранить ID пересланного сообщения
+      let forwardedMessageId: number | null = null;
+      let attempts = 0;
+      const maxAttempts = 15;
+      
+      schedulerLogger.info({ 
+        messageId, 
+        CHAT_ID,
+        CHANNEL_ID: this.CHANNEL_ID 
+      }, '🔍 Ожидаем пересланное сообщение в группе обсуждений');
+      
+      while (!forwardedMessageId && attempts < maxAttempts) {
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        forwardedMessageId = this.forwardedMessages.get(messageId) || null;
+        
+        if (forwardedMessageId) {
+          schedulerLogger.info({ 
+            forwardedMessageId,
+            channelMessageId: messageId,
+            attempts
+          }, '✅ Найден ID пересланного сообщения в группе');
+          break;
+        }
+      }
+      
+      // Теперь отправляем первое задание
+      try {
+        const messageOptions: any = {
+          parse_mode: 'HTML',
+          reply_markup: firstTaskKeyboard,
+          disable_notification: true
+        };
+        
+        // ВАЖНО: для комментариев в группе обсуждений нужно использовать reply_to_message_id
+        if (forwardedMessageId) {
+          messageOptions.reply_to_message_id = forwardedMessageId;
+          schedulerLogger.info({ 
+            forwardedMessageId 
+          }, 'Используем reply_to_message_id для создания комментария');
+        } else {
+          // Если не нашли пересланное сообщение, пробуем message_thread_id с ID канала
+          messageOptions.message_thread_id = messageId;
+          schedulerLogger.warn('⚠️ Не нашли пересланное сообщение, пробуем message_thread_id с ID из канала');
+        }
+        
+        const firstTaskMessage = await this.bot.telegram.sendMessage(
+          CHAT_ID,
+          firstTaskFullText,
+          messageOptions
+        );
+        
+        schedulerLogger.info({ 
+          success: true,
+          firstTaskId: firstTaskMessage.message_id,
+          channelMessageId: messageId,
+          forwardedMessageId,
+          chat_id: CHAT_ID,
+          used_reply_to: !!messageOptions.reply_to_message_id,
+          used_thread_id: !!messageOptions.message_thread_id
+        }, '✅ Первое задание отправлено как комментарий к посту');
+        
+      } catch (error) {
+        // Последний fallback - просто отправляем в группу
+        schedulerLogger.error({ 
+          error: (error as Error).message,
+          stack: (error as Error).stack
+        }, '❌ Ошибка отправки в thread, используем fallback');
+        
+        try {
+          const firstTaskMessage = await this.bot.telegram.sendMessage(
+            CHAT_ID,
+            firstTaskFullText, // Убираем подпись "К посту в канале"
+            {
+              parse_mode: 'HTML',
+              reply_markup: firstTaskKeyboard,
+              disable_notification: true
+            }
+          );
+          
+          schedulerLogger.info({ 
+            success: true,
+            firstTaskId: firstTaskMessage.message_id,
+            chat_id: CHAT_ID
+          }, '✅ Первое задание отправлено в группу обсуждений (fallback)');
+          
+        } catch (fallbackError) {
+          const err = fallbackError as Error;
+          schedulerLogger.error({ 
+            error: err.message,
+            stack: err.stack,
+            CHAT_ID,
+            CHANNEL_ID: this.CHANNEL_ID
+          }, '❌ Полная ошибка отправки первого задания');
+        }
+      }
+
+      schedulerLogger.info(
+        { 
+          channelMessageId: messageId,
+          channelId: this.CHANNEL_ID,
+          chatId: CHAT_ID,
+          skipButton: skipButtonText
+        }, 
+        '✅ Процесс отправки первого задания завершен'
+      );
 
       // Сохраняем состояние сессии
       const startTime = new Date().toISOString();
@@ -939,11 +1059,17 @@ export class Scheduler {
         relaxationType,
         currentStep: 'waiting_negative',
         startTime,
-        messageId: sentMessage.message_id
+        messageId: sentMessage.message_id,
+        channelMessageId: forwardedMessageId || messageId // Сохраняем ID пересланного сообщения или ID канала
       });
 
+      // Очищаем сохраненный ID после использования
+      if (forwardedMessageId) {
+        this.forwardedMessages.delete(messageId);
+      }
+
       // Сохраняем сообщение в БД
-      saveMessage(chatId, firstPart, startTime);
+      saveMessage(chatId, captionWithComment, startTime);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
@@ -1550,64 +1676,68 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-  // Обработчик кнопки "Все ок - пропустить" 
-  public async handleSkipAll(chatId: number) {
-    const session = this.interactiveSessions.get(chatId);
-    if (!session || !session.messageId) {
-      schedulerLogger.warn({ chatId }, 'Сессия не найдена для обработки кнопки "Все ок - пропустить"');
+  // Обработчик кнопки пропуска для первого задания
+  public async handleSkipNegative(adminChatId: number, messageId: number, chatId: number, messageThreadId?: number) {
+    schedulerLogger.info({ 
+      adminChatId, 
+      messageId, 
+      chatId, 
+      messageThreadId,
+      sessionsCount: this.interactiveSessions.size,
+      hasSession: this.interactiveSessions.has(adminChatId)
+    }, 'handleSkipNegative вызван');
+    
+    const session = this.interactiveSessions.get(adminChatId);
+    if (!session) {
+      schedulerLogger.warn({ 
+        adminChatId,
+        availableKeys: Array.from(this.interactiveSessions.keys())
+      }, 'Сессия не найдена для обработки кнопки пропуска');
       return;
     }
 
     try {
-      // Удаляем первый пост
-      await this.bot.telegram.deleteMessage(this.CHANNEL_ID, session.messageId);
+      // НЕ удаляем сообщение с кнопкой
+      // await this.bot.telegram.deleteMessage(chatId, messageId);
       
-      // Формируем новый пост с плюшками (с цифрой 1 вместо 2)
-      let message = '1. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-      if (session.messageData.positive_part?.additional_text) {
-        message += `\n<blockquote>${escapeHTML(session.messageData.positive_part.additional_text)}</blockquote>`;
-      }
-
-      // Генерируем новое изображение
-      let imageBuffer: Buffer | null = null;
-      try {
-        const imagePrompt = await generateFrogPrompt('Пользователь в хорошем настроении', undefined, message);
-        imageBuffer = await generateFrogImage(imagePrompt);
-      } catch (error) {
-        schedulerLogger.error({ error }, 'Ошибка генерации изображения для плюшек');
-      }
-
-      // Отправляем новый пост
-      if (imageBuffer) {
-        await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imageBuffer },
-          {
-            caption: message,
-            parse_mode: 'HTML'
-          }
-        );
+      // Отправляем вторую часть - плюшки
+      const secondPart = this.buildSecondPart(session.messageData);
+      
+      const sendOptions: any = {
+        parse_mode: 'HTML'
+      };
+      
+      // ВАЖНО: Если у нас есть ID пересланного сообщения, используем reply_to_message_id
+      const forwardedId = session.channelMessageId;
+      if (forwardedId && typeof forwardedId === 'number' && forwardedId > 1000) {
+        // Если channelMessageId больше 1000, это скорее всего ID пересланного сообщения в группе
+        sendOptions.reply_to_message_id = forwardedId;
+        schedulerLogger.info({ forwardedId }, 'Используем reply_to_message_id для отправки плюшек');
       } else {
-        const imagePath = this.getNextImage(chatId);
-        await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imagePath },
-          {
-            caption: message,
-            parse_mode: 'HTML'
-          }
-        );
+        // Иначе используем message_thread_id
+        const threadId = forwardedId || messageThreadId;
+        if (threadId) {
+          sendOptions.message_thread_id = threadId;
+          schedulerLogger.info({ threadId }, 'Используем message_thread_id для отправки плюшек');
+        }
       }
+      
+      await this.bot.telegram.sendMessage(chatId, secondPart, sendOptions);
 
       // Сохраняем сообщение
-      saveMessage(chatId, message, new Date().toISOString());
+      saveMessage(adminChatId, secondPart, new Date().toISOString());
       
-      // Завершаем сессию
-      this.interactiveSessions.delete(chatId);
+      // Обновляем состояние сессии
+      session.currentStep = 'waiting_positive';
       
-      schedulerLogger.info({ chatId }, 'Пользователь пропустил первое задание, отправлены плюшки');
+      schedulerLogger.info({ 
+        adminChatId, 
+        chatId, 
+        threadId,
+        secondPartPreview: secondPart.substring(0, 50) 
+      }, 'Пользователь пропустил первое задание, отправлены плюшки в thread комментариев');
     } catch (error) {
-      schedulerLogger.error({ error }, 'Ошибка обработки кнопки "Все ок - пропустить"');
+      schedulerLogger.error({ error }, 'Ошибка обработки кнопки пропуска');
     }
   }
 
@@ -1685,7 +1815,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
 
   // Обработка ответа пользователя в интерактивной сессии
-  public async handleInteractiveUserResponse(userId: number, messageText: string, replyToChatId: number, messageId: number) {
+  public async handleInteractiveUserResponse(userId: number, messageText: string, replyToChatId: number, messageId: number, messageThreadId?: number) {
     // Проверяем сессию по adminChatId (используется для генерации)
     const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
     
@@ -1753,12 +1883,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         // Отправляем ответ в чат
-        await this.bot.telegram.sendMessage(replyToChatId, responseText, {
+        const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
             message_id: messageId
           }
-        });
+        };
+        
+        // ВАЖНО: Используем channelMessageId из сессии как message_thread_id
+        const threadId = session.channelMessageId || messageThreadId;
+        if (threadId) {
+          sendOptions.message_thread_id = threadId;
+        }
+        
+        await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
 
         // Сохраняем сообщение
         saveMessage(userId, responseText, new Date().toISOString(), 0);
@@ -1772,12 +1910,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           finalMessage = '3. <b>Дыхательная практика</b>';
         }
 
-        await this.bot.telegram.sendMessage(replyToChatId, finalMessage, {
+        const finalOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
             message_id: messageId
           }
-        });
+        };
+        
+        // ВАЖНО: Используем channelMessageId из сессии как message_thread_id
+        const threadId = session.channelMessageId || messageThreadId;
+        if (threadId) {
+          finalOptions.message_thread_id = threadId;
+        }
+        
+        await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
         // Сохраняем и завершаем сессию
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);

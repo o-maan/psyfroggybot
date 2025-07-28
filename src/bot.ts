@@ -401,17 +401,7 @@ bot.command('test_buttons', async ctx => {
   }
 });
 
-// Обработка команды /skip
-bot.command('skip', async ctx => {
-  const chatId = ctx.chat.id;
-  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
-  // Вызываем обработчик пропуска
-  await scheduler.handleSkipAll(adminChatId);
-  
-  // Отвечаем пользователю
-  await ctx.reply('👍 Отлично! Переходим к плюшкам');
-});
+// Команда /skip удалена, теперь используются кнопки в комментариях
 
 // Обработка команды /calendar
 bot.command('calendar', async ctx => {
@@ -1524,6 +1514,48 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
 
 // ========== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ==========
 
+// Обработчик для отслеживания пересланных сообщений из канала
+bot.on('message', async (ctx, next) => {
+  // Проверяем, является ли это пересланным сообщением из канала
+  if (ctx.message && 
+      'forward_from_chat' in ctx.message && 
+      ctx.message.forward_from_chat &&
+      typeof ctx.message.forward_from_chat === 'object' &&
+      'type' in ctx.message.forward_from_chat &&
+      ctx.message.forward_from_chat.type === 'channel' &&
+      'id' in ctx.message.forward_from_chat &&
+      ctx.message.forward_from_chat.id === scheduler.CHANNEL_ID &&
+      'forward_from_message_id' in ctx.message) {
+    
+    const channelMessageId = ctx.message.forward_from_message_id as number;
+    const discussionMessageId = ctx.message.message_id;
+    
+    // Сохраняем соответствие ID
+    scheduler.saveForwardedMessage(channelMessageId, discussionMessageId);
+    
+    botLogger.info({
+      channelMessageId,
+      discussionMessageId,
+      chatId: ctx.chat.id,
+      isTopicMessage: ctx.message.is_topic_message,
+      messageThreadId: (ctx.message as any).message_thread_id,
+      fromChat: ctx.message.forward_from_chat
+    }, '📎 Обнаружено пересланное сообщение из канала');
+  }
+  
+  // Также проверяем, если это сообщение в теме (комментарий к посту)
+  if (ctx.message && 'message_thread_id' in ctx.message) {
+    botLogger.debug({
+      messageThreadId: (ctx.message as any).message_thread_id,
+      chatId: ctx.chat.id,
+      messageId: ctx.message.message_id
+    }, '💬 Сообщение в теме/треде');
+  }
+  
+  // Продолжаем обработку
+  return next();
+});
+
 // Обработка текстовых сообщений
 bot.on('text', async ctx => {
   const message = ctx.message.text;
@@ -1543,10 +1575,18 @@ bot.on('text', async ctx => {
       chatType: ctx.chat.type,
       messageId: ctx.message.message_id,
       fromId: ctx.from?.id,
+      fromIsBot: ctx.from?.is_bot,
+      fromUsername: ctx.from?.username,
       message: message.substring(0, 50) 
     }, 
     '🔍 Проверка сообщения'
   );
+  
+  // Проверяем, что сообщение не от самого бота
+  if (ctx.from?.is_bot) {
+    botLogger.debug({ userId: ctx.from?.id, chatId, isBot: ctx.from?.is_bot }, 'Игнорируем сообщение от бота');
+    return;
+  }
   
   // Проверяем, что сообщение пришло либо из канала, либо из чата
   const isFromChannel = chatId === CHANNEL_ID;
@@ -1600,11 +1640,13 @@ bot.on('text', async ctx => {
     saveMessage(userId, message, userMessageTime, userId);
     
     // Проверяем, есть ли активная интерактивная сессия
+    const messageThreadId = (ctx.message as any).message_thread_id;
     const isInteractive = await scheduler.handleInteractiveUserResponse(
       userId, 
       message, 
       replyToChatId,
-      ctx.message.message_id
+      ctx.message.message_id,
+      messageThreadId
     );
 
     if (isInteractive) {
@@ -1684,14 +1726,41 @@ bot.on('text', async ctx => {
 // ========== ОБРАБОТЧИКИ ИНТЕРАКТИВНЫХ КНОПОК ==========
 
 
-// Обработчик кнопки "Все ок - пропустить"
+// Обработчик кнопки "Все ок - пропустить" (больше не используется в новой логике)
 bot.action('daily_skip_all', async ctx => {
   try {
-    await ctx.answerCbQuery('👍 Отлично! Переходим к плюшкам');
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-    await scheduler.handleSkipAll(adminChatId);
+    await ctx.answerCbQuery('Эта функция больше не используется');
   } catch (error) {
     botLogger.error({ error }, 'Ошибка обработки кнопки "Все ок - пропустить"');
+    await ctx.answerCbQuery('❌ Произошла ошибка');
+  }
+});
+
+// Обработчик для кнопки пропуска первого задания
+bot.action('daily_skip_negative', async ctx => {
+  try {
+    await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id;
+    const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
+    
+    botLogger.info({
+      action: 'daily_skip_negative',
+      adminChatId,
+      messageId,
+      chatId,
+      messageThreadId,
+      userId: ctx.from?.id
+    }, '🔘 Нажата кнопка пропуска первого задания');
+    
+    if (messageId && chatId) {
+      await scheduler.handleSkipNegative(adminChatId, messageId, chatId, messageThreadId);
+    } else {
+      botLogger.error({ messageId, chatId }, 'Отсутствуют необходимые данные для обработки кнопки');
+    }
+  } catch (error) {
+    botLogger.error({ error }, 'Ошибка обработки кнопки пропуска');
     await ctx.answerCbQuery('❌ Произошла ошибка');
   }
 });
