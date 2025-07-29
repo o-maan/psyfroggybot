@@ -94,6 +94,10 @@ export class Scheduler {
 
   // Определяем ID канала в зависимости от окружения
   private getChannelId(): number {
+    if (this.isTestBot()) {
+      // Для тестового бота используем тестовый канал
+      return -1002846400650;
+    }
     return Number(process.env.CHANNEL_ID || -1002405993986);
   }
 
@@ -101,6 +105,24 @@ export class Scheduler {
   public isTestBot(): boolean {
     // Проверяем по переменной окружения NODE_ENV или по специальному флагу
     return process.env.NODE_ENV === 'test' || process.env.IS_TEST_BOT === 'true' || false;
+  }
+  
+  // Получить ID группы обсуждений для текущего бота
+  public getChatId(): number | null {
+    if (this.isTestBot()) {
+      // Для тестового бота используем тестовую группу
+      return -1002798126153;
+    }
+    return process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+  }
+  
+  // Получить ID целевого пользователя для проверки ответов
+  public getTargetUserId(): number {
+    if (this.isTestBot()) {
+      // Для тестового бота используем тестового пользователя
+      return 476561547; // Это должен быть ID пользователя, а не группы
+    }
+    return 5153477378; // Основной пользователь
   }
 
   // Загрузить список картинок при старте
@@ -832,7 +854,13 @@ export class Scheduler {
     }
 
     try {
-      schedulerLogger.debug({ chatId }, 'Начало отправки интерактивного сообщения');
+      schedulerLogger.debug({ 
+        chatId,
+        isTestBot: this.isTestBot(),
+        channelId: this.CHANNEL_ID,
+        chatGroupId: this.getChatId(),
+        isManualCommand
+      }, 'Начало отправки интерактивного сообщения');
 
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
@@ -930,7 +958,7 @@ export class Scheduler {
       };
 
       // Получаем ID группы обсуждений
-      const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+      const CHAT_ID = this.getChatId();
       
       if (!CHAT_ID) {
         schedulerLogger.error('❌ CHAT_ID не настроен в .env - не можем отправить первое задание в группу обсуждений');
@@ -1134,7 +1162,7 @@ export class Scheduler {
       schedulerLogger.info('messageGenerated', adminChatId, 0, 0); // Логируем успешную отправку
 
       // Устанавливаем напоминание только для целевого пользователя
-      const TARGET_USER_ID = 5153477378;
+      const TARGET_USER_ID = this.getTargetUserId();
       const sentTime = new Date().toISOString();
 
       // Проверяем, есть ли целевой пользователь в списке
@@ -1733,7 +1761,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       schedulerLogger.info({ 
         adminChatId, 
         chatId, 
-        threadId,
+        threadId: forwardedId,
         secondPartPreview: secondPart.substring(0, 50) 
       }, 'Пользователь пропустил первое задание, отправлены плюшки в thread комментариев');
     } catch (error) {

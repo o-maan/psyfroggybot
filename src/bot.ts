@@ -312,12 +312,34 @@ bot.command('sendnow', async ctx => {
 // Обработка команды /fro
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
-  // Используем интерактивный метод с флагом ручной команды
-  await scheduler.sendInteractiveDailyMessage(chatId, true);
-  
-  // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
-  if (scheduler.isTestBot()) {
-    await ctx.reply('🤖 Тестовый режим: проверка ответов запланирована через заданное время');
+  try {
+    // Отладочная информация
+    botLogger.info({ 
+      chatId, 
+      isTestBot: scheduler.isTestBot(),
+      channelId: scheduler.CHANNEL_ID,
+      targetUserId: scheduler.getTargetUserId()
+    }, 'Получена команда /fro');
+    
+    // Сначала отвечаем пользователю
+    await ctx.reply('🐸 Отправляю сообщение...');
+    
+    // Используем интерактивный метод с флагом ручной команды
+    await scheduler.sendInteractiveDailyMessage(chatId, true);
+    
+    // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
+    if (scheduler.isTestBot()) {
+      await ctx.reply('🤖 Тестовый режим: проверка ответов запланирована через заданное время');
+    }
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ 
+      error: err.message, 
+      stack: err.stack,
+      chatId,
+      isTestBot: scheduler.isTestBot() 
+    }, 'Ошибка при выполнении команды /fro');
+    await ctx.reply(`❌ Ошибка: ${err.message}`);
   }
 });
 
@@ -357,7 +379,7 @@ bot.command('test_buttons', async ctx => {
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Отправляем кнопки в группу обсуждений
-    const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+    const CHAT_ID = scheduler.getChatId();
     
     if (!CHAT_ID) {
       await ctx.reply('❌ CHAT_ID не настроен в .env');
@@ -630,7 +652,7 @@ bot.command('angry', async ctx => {
   try {
     // Вызываем приватный метод sendAngryPost напрямую
     // Используем ID целевого пользователя
-    const TARGET_USER_ID = 5153477378;
+    const TARGET_USER_ID = scheduler.getTargetUserId();
     await (scheduler as any).sendAngryPost(TARGET_USER_ID);
     await ctx.reply('✅ Злой пост отправлен в канал!');
   } catch (error) {
@@ -649,7 +671,7 @@ bot.command('check_config', async ctx => {
     return;
   }
 
-  const TARGET_USER_ID = 5153477378;
+  const TARGET_USER_ID = scheduler.getTargetUserId();
   const status = scheduler.getSchedulerStatus();
   
   // Проверяем существование файлов промптов
@@ -669,6 +691,69 @@ bot.command('check_config', async ctx => {
     `🕐 Текущее время МСК: <code>${status.currentTime}</code>`,
     { parse_mode: 'HTML' }
   );
+});
+
+// Команда для проверки доступа к каналам
+bot.command('check_access', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+  
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  const channelId = scheduler.CHANNEL_ID;
+  const groupId = scheduler.getChatId();
+  
+  let message = `🔍 <b>Проверка доступа бота</b>\n\n`;
+  message += `🤖 Тестовый режим: ${scheduler.isTestBot() ? 'ДА' : 'НЕТ'}\n`;
+  message += `📢 ID канала: <code>${channelId}</code>\n`;
+  message += `💬 ID группы: <code>${groupId}</code>\n\n`;
+  
+  // Проверяем доступ к каналу
+  try {
+    const channelInfo = await bot.telegram.getChat(channelId);
+    message += `✅ Доступ к каналу: ЕСТЬ\n`;
+    message += `   Название: ${channelInfo.title || 'Без названия'}\n`;
+    message += `   Тип: ${channelInfo.type}\n`;
+  } catch (error) {
+    const err = error as Error;
+    message += `❌ Доступ к каналу: НЕТ\n`;
+    message += `   Ошибка: ${err.message}\n`;
+  }
+  
+  // Проверяем доступ к группе
+  if (groupId) {
+    try {
+      const groupInfo = await bot.telegram.getChat(groupId);
+      message += `\n✅ Доступ к группе: ЕСТЬ\n`;
+      message += `   Название: ${groupInfo.title || 'Без названия'}\n`;
+      message += `   Тип: ${groupInfo.type}\n`;
+    } catch (error) {
+      const err = error as Error;
+      message += `\n❌ Доступ к группе: НЕТ\n`;
+      message += `   Ошибка: ${err.message}\n`;
+    }
+  } else {
+    message += `\n⚠️ ID группы не настроен\n`;
+  }
+  
+  // Проверяем права администратора в канале
+  try {
+    const botInfo = await bot.telegram.getMe();
+    const member = await bot.telegram.getChatMember(channelId, botInfo.id);
+    message += `\n📋 Статус бота в канале: ${member.status}\n`;
+    if (member.status === 'administrator') {
+      message += `   ✅ Права администратора\n`;
+    }
+  } catch (error) {
+    const err = error as Error;
+    message += `\n❌ Не удалось проверить права: ${err.message}\n`;
+  }
+  
+  await ctx.reply(message, { parse_mode: 'HTML' });
 });
 
 // Команда для проверки статуса планировщика
@@ -812,7 +897,7 @@ bot.command('test_reminder', async ctx => {
 bot.command('test_reply', async ctx => {
   const chatId = ctx.chat.id;
   const chatType = ctx.chat.type;
-  const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+  const CHAT_ID = scheduler.getChatId();
   
   await ctx.reply(
     `🧪 <b>ТЕСТ ОБРАБОТКИ СООБЩЕНИЙ</b>\n\n` +
@@ -1563,7 +1648,7 @@ bot.on('text', async ctx => {
   const userId = ctx.from?.id || 0;
   
   // Получаем ID чата и канала
-  const CHAT_ID = process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
+  const CHAT_ID = scheduler.getChatId();
   const CHANNEL_ID = scheduler.CHANNEL_ID;
   
   // Логируем для отладки
@@ -1613,7 +1698,7 @@ bot.on('text', async ctx => {
   botLogger.debug({ userId, chatId, messageLength: message.length }, `💬 Сообщение от пользователя в чате`);
   
   // Константа для целевого пользователя
-  const TARGET_USER_ID = 5153477378;
+  const TARGET_USER_ID = scheduler.getTargetUserId();
   
   // Обновляем время ответа только для целевого пользователя
   if (userId === TARGET_USER_ID) {
