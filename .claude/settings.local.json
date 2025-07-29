@@ -11,7 +11,9 @@
       "Bash(bun test:*)",
       "Bash(sqlite3:*)",
       "Bash(find:*)",
-      "Bash(echo $NODE_ENV)"
+      "Bash(echo $NODE_ENV)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)"
     ],
     "deny": []
   }

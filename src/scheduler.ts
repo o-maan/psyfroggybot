@@ -1838,8 +1838,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         significant: false,
         supportText: this.getRandomSupportText()
       };
-    } else if (words < 10 || !emotionsDescribed) {
-      // Вариант 2: Пользователь не описал эмоции или мало написал
+    } else if (words < 10 && !emotionsDescribed) {
+      // Вариант 2: Пользователь не описал эмоции И мало написал
       return {
         detailed: false,
         needsClarification: true,
@@ -1880,6 +1880,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Обработка ответа пользователя в интерактивной сессии
   public async handleInteractiveUserResponse(userId: number, messageText: string, replyToChatId: number, messageId: number, messageThreadId?: number) {
+    // Интерактивные ответы ВКЛЮЧЕНЫ - это нужно для работы логики заданий
+    const INTERACTIVE_RESPONSES_ENABLED = true; // Это НУЖНО для работы заданий!
+    
     // Проверяем сессию по adminChatId (используется для генерации)
     const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
     
@@ -1954,10 +1957,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        // ВАЖНО: Используем channelMessageId из сессии как message_thread_id
-        const threadId = session.channelMessageId || messageThreadId;
-        if (threadId) {
-          sendOptions.message_thread_id = threadId;
+        // ВАЖНО: Используем reply_to_message_id для ответа в треде
+        const forwardedId = session.channelMessageId;
+        if (forwardedId && messageThreadId) {
+          sendOptions.reply_to_message_id = messageThreadId;
+          schedulerLogger.info({ 
+            replyToMessageId: messageThreadId,
+            forwardedId,
+            replyToChatId 
+          }, 'Используем reply_to_message_id для ответа в интерактивной сессии');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
@@ -1981,10 +1989,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        // ВАЖНО: Используем channelMessageId из сессии как message_thread_id
-        const threadId = session.channelMessageId || messageThreadId;
-        if (threadId) {
-          finalOptions.message_thread_id = threadId;
+        // ВАЖНО: Используем reply_to_message_id для ответа в треде
+        const forwardedId = session.channelMessageId;
+        if (forwardedId && messageThreadId) {
+          finalOptions.reply_to_message_id = messageThreadId;
+          schedulerLogger.info({ 
+            replyToMessageId: messageThreadId,
+            forwardedId,
+            replyToChatId 
+          }, 'Используем reply_to_message_id для финального сообщения');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);

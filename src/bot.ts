@@ -1700,6 +1700,10 @@ bot.on('message', async (ctx, next) => {
   return next();
 });
 
+// ВРЕМЕННО ОТКЛЮЧЕНО: автоматические ответы бота в комментариях
+// Код сохранен для возможного восстановления функциональности в будущем
+const AUTO_RESPONSES_ENABLED = false; // Переключатель для быстрого включения/отключения
+
 // Обработка текстовых сообщений
 bot.on('text', async ctx => {
   const message = ctx.message.text;
@@ -1834,41 +1838,47 @@ bot.on('text', async ctx => {
       },
       '🤖 Генерируем ответ пользователю'
     );
+    
+    if (AUTO_RESPONSES_ENABLED) {
+      // Генерируем контекстуальный ответ через LLM
+      const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
 
-    // Генерируем контекстуальный ответ через LLM
-    const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
+      // Отправляем текстовый ответ в правильный чат
+      // Если сообщение из связанной группы - отвечаем туда же
+      // Иначе - в CHAT_ID из конфига
+      await bot.telegram.sendMessage(replyToChatId, textResponse, { 
+        reply_parameters: { 
+          message_id: ctx.message.message_id,
+          chat_id: chatId // указываем исходный чат для правильной ссылки на сообщение
+        } 
+      });
 
-    // Отправляем текстовый ответ в правильный чат
-    // Если сообщение из связанной группы - отвечаем туда же
-    // Иначе - в CHAT_ID из конфига
-    await bot.telegram.sendMessage(replyToChatId, textResponse, { 
-      reply_parameters: { 
-        message_id: ctx.message.message_id,
-        chat_id: chatId // указываем исходный чат для правильной ссылки на сообщение
-      } 
-    });
+      // Сохраняем ответ бота в БД (author_id = 0 для бота)
+      const botResponseTime = new Date().toISOString();
+      saveMessage(userId, textResponse, botResponseTime, 0);
 
-    // Сохраняем ответ бота в БД (author_id = 0 для бота)
-    const botResponseTime = new Date().toISOString();
-    saveMessage(userId, textResponse, botResponseTime, 0);
-
-    botLogger.info({ userId, chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
+      botLogger.info({ userId, chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
+    } else {
+      botLogger.debug({ userId, chatId }, '⏸️ Автоматические ответы временно отключены');
+    }
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack, userId, chatId }, 'Ошибка генерации ответа пользователю');
 
-    // Fallback ответ при ошибке - также отправляем в правильный чат
-    const fallbackMessage = 'Спасибо, что поделился! 🤍';
-    await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
-      reply_parameters: {
-        message_id: ctx.message.message_id,
-        chat_id: chatId
-      }
-    });
+    // Fallback ответ при ошибке - также проверяем флаг автоответов
+    if (AUTO_RESPONSES_ENABLED) {
+      const fallbackMessage = 'Спасибо, что поделился! 🤍';
+      await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
+        reply_parameters: {
+          message_id: ctx.message.message_id,
+          chat_id: chatId
+        }
+      });
 
-    // Сохраняем fallback ответ в БД
-    const fallbackTime = new Date().toISOString();
-    saveMessage(userId, fallbackMessage, fallbackTime, 0);
+      // Сохраняем fallback ответ в БД
+      const fallbackTime = new Date().toISOString();
+      saveMessage(userId, fallbackMessage, fallbackTime, 0);
+    }
   }
 });
 
