@@ -32,6 +32,13 @@ import { Scheduler } from './scheduler.ts';
 // Загружаем переменные окружения
 config();
 
+// Логируем информацию о запуске
+logger.info({
+  IS_TEST_BOT: process.env.IS_TEST_BOT,
+  TOKEN_PREFIX: process.env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
+  NODE_ENV: process.env.NODE_ENV
+}, '🤖 Запуск бота');
+
 // Создаем экземпляр бота
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
@@ -134,6 +141,11 @@ restServ.all('/', (req: Request, res: Response) => {
 // Запуск сервера на всех интерфейсах (для Fly.io)
 restServ.listen(Number(SERVER_PORT), '0.0.0.0', () => {
   logger.info({ port: SERVER_PORT }, `🚀 Express сервер запущен на порту ${SERVER_PORT}`);
+});
+
+// Простая тестовая команда
+bot.command('ping', async ctx => {
+  await ctx.reply('🏓 Pong! Бот работает.');
 });
 
 // Обработка команды /start
@@ -716,7 +728,7 @@ bot.command('check_access', async ctx => {
   try {
     const channelInfo = await bot.telegram.getChat(channelId);
     message += `✅ Доступ к каналу: ЕСТЬ\n`;
-    message += `   Название: ${channelInfo.title || 'Без названия'}\n`;
+    message += `   Название: ${('title' in channelInfo ? channelInfo.title : undefined) || 'Без названия'}\n`;
     message += `   Тип: ${channelInfo.type}\n`;
   } catch (error) {
     const err = error as Error;
@@ -729,7 +741,7 @@ bot.command('check_access', async ctx => {
     try {
       const groupInfo = await bot.telegram.getChat(groupId);
       message += `\n✅ Доступ к группе: ЕСТЬ\n`;
-      message += `   Название: ${groupInfo.title || 'Без названия'}\n`;
+      message += `   Название: ${('title' in groupInfo ? groupInfo.title : undefined) || 'Без названия'}\n`;
       message += `   Тип: ${groupInfo.type}\n`;
     } catch (error) {
       const err = error as Error;

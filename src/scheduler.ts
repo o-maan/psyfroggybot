@@ -575,10 +575,15 @@ export class Scheduler {
       }
     } catch (e) {
       const error = e as Error;
-      calendarLogger.error({ error: error.message, stack: error.stack }, 'Ошибка получения событий календаря');
+      // В тестовом режиме просто игнорируем ошибки календаря
+      if (this.isTestBot()) {
+        schedulerLogger.debug({ chatId }, 'Календарь недоступен в тестовом режиме, продолжаем без него');
+      } else {
+        calendarLogger.error({ error: error.message, stack: error.stack }, 'Ошибка получения событий календаря');
+        clearUserTokens(chatId); // Очищаем токены пользователя
+      }
       events = [];
       eventsStr = '';
-      clearUserTokens(chatId); // Очищаем токены пользователя
     }
     const dateTimeStr = now.toLocaleDateString('ru-RU', {
       year: 'numeric',
@@ -711,7 +716,13 @@ export class Scheduler {
       const message = await this.generateScheduledMessage(chatId);
 
       // Получаем события календаря для генерации изображения
-      const calendarEvents = await getUserTodayEvents(chatId);
+      let calendarEvents = null;
+      try {
+        calendarEvents = await getUserTodayEvents(chatId);
+      } catch (calendarError) {
+        schedulerLogger.debug({ chatId, error: (calendarError as Error).message }, 'Календарь недоступен, продолжаем без него');
+        calendarEvents = null;
+      }
 
       // Генерируем промпт и изображение лягушки
       let imageBuffer: Buffer | null = null;
@@ -869,7 +880,13 @@ export class Scheduler {
       const { json, firstPart, relaxationType } = await this.generateInteractiveScheduledMessage(chatId);
 
       // Получаем события календаря для генерации изображения
-      const calendarEvents = await getUserTodayEvents(chatId);
+      let calendarEvents = null;
+      try {
+        calendarEvents = await getUserTodayEvents(chatId);
+      } catch (calendarError) {
+        schedulerLogger.debug({ chatId, error: (calendarError as Error).message }, 'Календарь недоступен, продолжаем без него');
+        calendarEvents = null;
+      }
 
       // Генерируем промпт и изображение лягушки
       let imageBuffer: Buffer | null = null;
@@ -1082,14 +1099,29 @@ export class Scheduler {
 
       // Сохраняем состояние сессии
       const startTime = new Date().toISOString();
-      this.interactiveSessions.set(chatId, {
+      const targetUserId = this.getTargetUserId();
+      
+      // Сохраняем сессию как для chatId, так и для targetUserId
+      const sessionData = {
         messageData: json,
         relaxationType,
-        currentStep: 'waiting_negative',
+        currentStep: 'waiting_negative' as const,
         startTime,
         messageId: sentMessage.message_id,
         channelMessageId: forwardedMessageId || messageId // Сохраняем ID пересланного сообщения или ID канала
-      });
+      };
+      
+      this.interactiveSessions.set(chatId, sessionData);
+      if (targetUserId !== chatId) {
+        this.interactiveSessions.set(targetUserId, sessionData);
+      }
+      
+      schedulerLogger.info({ 
+        chatId,
+        targetUserId,
+        sessionSaved: true,
+        sessionsCount: this.interactiveSessions.size 
+      }, 'Интерактивная сессия сохранена');
 
       // Очищаем сохраненный ID после использования
       if (forwardedMessageId) {
@@ -1706,19 +1738,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Обработчик кнопки пропуска для первого задания
   public async handleSkipNegative(adminChatId: number, messageId: number, chatId: number, messageThreadId?: number) {
+    const targetUserId = this.getTargetUserId();
+    
     schedulerLogger.info({ 
       adminChatId, 
+      targetUserId,
       messageId, 
       chatId, 
       messageThreadId,
       sessionsCount: this.interactiveSessions.size,
-      hasSession: this.interactiveSessions.has(adminChatId)
+      hasAdminSession: this.interactiveSessions.has(adminChatId),
+      hasTargetSession: this.interactiveSessions.has(targetUserId)
     }, 'handleSkipNegative вызван');
     
-    const session = this.interactiveSessions.get(adminChatId);
+    // Ищем сессию по adminChatId или targetUserId
+    const session = this.interactiveSessions.get(adminChatId) || this.interactiveSessions.get(targetUserId);
     if (!session) {
       schedulerLogger.warn({ 
         adminChatId,
+        targetUserId,
         availableKeys: Array.from(this.interactiveSessions.keys())
       }, 'Сессия не найдена для обработки кнопки пропуска');
       return;
