@@ -42,6 +42,27 @@ logger.info({
 // Создаем экземпляр бота
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
+// Отладка всех обновлений
+bot.use(async (ctx, next) => {
+  const logData: any = {
+    updateType: ctx.updateType,
+    chatId: ctx.chat?.id,
+    from: ctx.from?.id,
+    callbackQuery: ctx.callbackQuery ? true : false,
+    message: ctx.message ? true : false
+  };
+  
+  // Добавляем детали для callback_query
+  if (ctx.callbackQuery) {
+    logData.callbackData = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
+    logData.callbackFrom = ctx.callbackQuery.from?.id;
+    logData.callbackChatId = ctx.callbackQuery.message?.chat?.id;
+  }
+  
+  botLogger.info(logData, '📥 Получено обновление от Telegram');
+  return next();
+});
+
 // Обработчик ошибок
 bot.catch((err: any, ctx) => {
   botLogger.error(
@@ -324,10 +345,13 @@ bot.command('sendnow', async ctx => {
 // Обработка команды /fro
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+  
   try {
     // Отладочная информация
     botLogger.info({ 
       chatId, 
+      adminChatId,
       isTestBot: scheduler.isTestBot(),
       channelId: scheduler.CHANNEL_ID,
       targetUserId: scheduler.getTargetUserId()
@@ -495,6 +519,29 @@ bot.command('minimalTestLLM', async ctx => {
   } else {
     await ctx.reply('Ошибка при выполнении минимального запроса к LLM.');
   }
+});
+
+// Команда для проверки кнопок
+bot.command('test_button', async ctx => {
+  try {
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '✅ Тестовая кнопка', callback_data: 'test_button_click' }]
+      ]
+    };
+    
+    await ctx.reply('🧪 Тест кнопки:', {
+      reply_markup: keyboard
+    });
+  } catch (error) {
+    await ctx.reply(`❌ Ошибка: ${(error as Error).message}`);
+  }
+});
+
+// Обработчик тестовой кнопки
+bot.action('test_button_click', async ctx => {
+  await ctx.answerCbQuery('✅ Кнопка работает!');
+  await ctx.reply('🎉 Callback получен и обработан!');
 });
 
 // Команда для проверки ID чата
@@ -1659,6 +1706,11 @@ bot.on('text', async ctx => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id || 0;
   
+  // Пропускаем команды - они обрабатываются отдельными обработчиками
+  if (message.startsWith('/')) {
+    return;
+  }
+  
   // Получаем ID чата и канала
   const CHAT_ID = scheduler.getChatId();
   const CHANNEL_ID = scheduler.CHANNEL_ID;
@@ -1822,6 +1874,17 @@ bot.on('text', async ctx => {
 
 // ========== ОБРАБОТЧИКИ ИНТЕРАКТИВНЫХ КНОПОК ==========
 
+// Общий обработчик для всех callback_query (для отладки)
+bot.on('callback_query', async (ctx, next) => {
+  const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
+  botLogger.info({
+    callbackData: data,
+    fromId: ctx.from?.id,
+    chatId: ctx.callbackQuery.message?.chat?.id,
+    messageId: ctx.callbackQuery.message?.message_id
+  }, '🔔 Получен callback_query');
+  return next();
+});
 
 // Обработчик кнопки "Все ок - пропустить" (больше не используется в новой логике)
 bot.action('daily_skip_all', async ctx => {
@@ -1836,11 +1899,20 @@ bot.action('daily_skip_all', async ctx => {
 // Обработчик для кнопки пропуска первого задания
 bot.action('daily_skip_negative', async ctx => {
   try {
+    // Сразу отвечаем пользователю, чтобы он не ждал
     await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
+    
+    botLogger.info({ 
+      callbackData: 'daily_skip_negative',
+      fromId: ctx.from?.id,
+      chatId: ctx.callbackQuery.message?.chat?.id 
+    }, '🎆 Получен callback для кнопки пропуска');
+    
     const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
+    const userId = ctx.from?.id;
     
     botLogger.info({
       action: 'daily_skip_negative',
@@ -1848,17 +1920,19 @@ bot.action('daily_skip_negative', async ctx => {
       messageId,
       chatId,
       messageThreadId,
-      userId: ctx.from?.id
+      userId,
+      targetUserId: scheduler.getTargetUserId()
     }, '🔘 Нажата кнопка пропуска первого задания');
     
     if (messageId && chatId) {
+      // Используем adminChatId для поиска сессии (как она была создана)
       await scheduler.handleSkipNegative(adminChatId, messageId, chatId, messageThreadId);
     } else {
       botLogger.error({ messageId, chatId }, 'Отсутствуют необходимые данные для обработки кнопки');
     }
   } catch (error) {
-    botLogger.error({ error }, 'Ошибка обработки кнопки пропуска');
-    await ctx.answerCbQuery('❌ Произошла ошибка');
+    botLogger.error({ error: (error as Error).message, stack: (error as Error).stack }, 'Ошибка обработки кнопки пропуска');
+    // Не отправляем повторно answerCbQuery, так как уже ответили
   }
 });
 

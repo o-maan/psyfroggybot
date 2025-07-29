@@ -1773,19 +1773,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         parse_mode: 'HTML'
       };
       
-      // ВАЖНО: Если у нас есть ID пересланного сообщения, используем reply_to_message_id
+      // ВАЖНО: Всегда используем reply_to_message_id для ответа в комментариях
       const forwardedId = session.channelMessageId;
-      if (forwardedId && typeof forwardedId === 'number' && forwardedId > 1000) {
-        // Если channelMessageId больше 1000, это скорее всего ID пересланного сообщения в группе
-        sendOptions.reply_to_message_id = forwardedId;
-        schedulerLogger.info({ forwardedId }, 'Используем reply_to_message_id для отправки плюшек');
-      } else {
-        // Иначе используем message_thread_id
-        const threadId = forwardedId || messageThreadId;
-        if (threadId) {
-          sendOptions.message_thread_id = threadId;
-          schedulerLogger.info({ threadId }, 'Используем message_thread_id для отправки плюшек');
-        }
+      
+      // Для групповых чатов с обсуждениями используем reply_to_message_id
+      if (forwardedId) {
+        sendOptions.reply_to_message_id = messageId; // Отвечаем на сообщение с кнопкой
+        schedulerLogger.info({ 
+          replyToMessageId: messageId,
+          forwardedId,
+          chatId 
+        }, 'Используем reply_to_message_id для отправки плюшек в комментарии');
       }
       
       await this.bot.telegram.sendMessage(chatId, secondPart, sendOptions);
