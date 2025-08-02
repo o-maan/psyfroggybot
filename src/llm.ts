@@ -32,8 +32,12 @@ export async function generateMessage(prompt?: string): Promise<string> {
 
       messages: [
         {
+          role: 'system',
+          content: 'Ты психологический помощник, который поддерживает людей теплыми и мотивирующими сообщениями на русском языке.'
+        },
+        {
           role: 'user',
-          content: `${prompt || ''}\n\n Примеры поддержки: ${examples.join('\n')}`,
+          content: prompt || `Напиши короткое поздравление для человека. Примеры: ${examples.join('\n')}`,
         },
       ],
       parameters: {
@@ -67,10 +71,16 @@ export async function generateMessage(prompt?: string): Promise<string> {
     );
 
     // Очищаем и форматируем результат
-    let message = fullMessage
+    // Сначала удаляем теги <think>...</think>
+    const lastThinkClose = fullMessage.lastIndexOf('</think>');
+    let cleanedMessage = fullMessage;
+    if (lastThinkClose !== -1 && fullMessage.trim().startsWith('<think>')) {
+      // Удаляем всё от начала до конца последнего </think>
+      cleanedMessage = fullMessage.substring(lastThinkClose + 8).trim();
+    }
+    
+    let message = cleanedMessage
       .replace(/\n/g, ' ')
-      // <think>...</think> - убираем размышления модели
-      .replace(/<think>(.*?)<\/think>/gm, '')
       .trim();
 
     // Если сообщение слишком короткое, используем fallback

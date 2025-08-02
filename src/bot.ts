@@ -1,6 +1,6 @@
 import { config } from 'dotenv';
 import express, { Request, Response } from 'express';
-import fs from 'fs';
+import fs, { readFileSync } from 'fs';
 import path from 'path';
 import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar.ts';
@@ -358,15 +358,23 @@ bot.command('fro', async ctx => {
     }, 'Получена команда /fro');
     
     // Сначала отвечаем пользователю
+    botLogger.info('📤 Отправляем первый ответ пользователю...');
     await ctx.reply('🐸 Отправляю сообщение...');
+    botLogger.info('✅ Первый ответ отправлен');
     
     // Используем интерактивный метод с флагом ручной команды
+    botLogger.info('🚀 Запускаем sendInteractiveDailyMessage...');
     await scheduler.sendInteractiveDailyMessage(chatId, true);
+    botLogger.info('✅ sendInteractiveDailyMessage завершен');
     
     // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
     if (scheduler.isTestBot()) {
+      botLogger.info('📤 Отправляем уведомление о тестовом режиме...');
       await ctx.reply('🤖 Тестовый режим: проверка ответов запланирована через заданное время');
+      botLogger.info('✅ Уведомление о тестовом режиме отправлено');
     }
+    
+    botLogger.info('🎉 Команда /fro полностью выполнена');
   } catch (error) {
     const err = error as Error;
     botLogger.error({ 
@@ -1656,6 +1664,72 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
   }
 });
 
+// ========== ОБРАБОТЧИКИ КНОПОК ПРАКТИК ==========
+
+// Старый обработчик удален - используется новый ниже
+
+/*
+bot.action(/practice_postpone_(\d+)/, async ctx => {
+  const userId = parseInt(ctx.match![1]);
+  
+  try {
+    // Проверяем, что кнопку нажал тот же пользователь
+    if (ctx.from?.id !== userId) {
+      await ctx.answerCbQuery('❌ Эта кнопка не для вас');
+      return;
+    }
+    
+    // Удаляем кнопки из исходного сообщения
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    
+    // Устанавливаем напоминание через час
+    const chatId = ctx.chat?.id || 0;
+    const reminderTime = Date.now() + 60 * 60 * 1000; // 1 час
+    
+    // Сохраняем информацию о практике для напоминания
+    const session = scheduler.getInteractiveSession(userId);
+    if (session) {
+      session.practicePostponed = true;
+      session.postponedUntil = reminderTime;
+    }
+    
+    // Устанавливаем таймер для напоминания
+    setTimeout(async () => {
+      try {
+        const reminderMessage = '⏰ Напоминание: давай сделаем практику! Это займет всего несколько минут 💚';
+        
+        // Определяем куда отправлять напоминание
+        const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
+        const replyOptions: any = {
+          parse_mode: 'HTML'
+        };
+        
+        if (messageThreadId) {
+          replyOptions.reply_to_message_id = messageThreadId;
+        }
+        
+        await scheduler.getBot().telegram.sendMessage(chatId, reminderMessage, replyOptions);
+        
+        // Сохраняем в историю
+        saveMessage(userId, reminderMessage, new Date().toISOString(), 0);
+        
+      } catch (error) {
+        botLogger.error({ error, userId }, 'Ошибка отправки напоминания о практике');
+      }
+    }, 60 * 60 * 1000); // 1 час
+    
+    await ctx.answerCbQuery('⏰ Напомню через час');
+    
+    // Сохраняем в историю
+    saveMessage(userId, `[Отложил практику на час]`, new Date().toISOString(), userId);
+    
+  } catch (error) {
+    botLogger.error({ error, userId }, 'Ошибка обработки practice_postpone');
+    await ctx.answerCbQuery('❌ Произошла ошибка');
+  }
+});
+*/
+
 // ========== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ==========
 
 // Обработчик для отслеживания пересланных сообщений из канала
@@ -1677,13 +1751,16 @@ bot.on('message', async (ctx, next) => {
     // Сохраняем соответствие ID
     scheduler.saveForwardedMessage(channelMessageId, discussionMessageId);
     
+    const currentTime = new Date();
     botLogger.info({
       channelMessageId,
       discussionMessageId,
       chatId: ctx.chat.id,
       isTopicMessage: ctx.message.is_topic_message,
       messageThreadId: (ctx.message as any).message_thread_id,
-      fromChat: ctx.message.forward_from_chat
+      fromChat: ctx.message.forward_from_chat,
+      receivedAt: currentTime.toISOString(),
+      timestamp: currentTime.getTime()
     }, '📎 Обнаружено пересланное сообщение из канала');
   }
   
@@ -1891,8 +1968,19 @@ bot.on('callback_query', async (ctx, next) => {
     callbackData: data,
     fromId: ctx.from?.id,
     chatId: ctx.callbackQuery.message?.chat?.id,
-    messageId: ctx.callbackQuery.message?.message_id
+    messageId: ctx.callbackQuery.message?.message_id,
+    isPracticeDone: data?.startsWith('practice_done_'),
+    isPracticePostpone: data?.startsWith('practice_postpone_')
   }, '🔔 Получен callback_query');
+  
+  // Проверяем, что callback обрабатывается
+  if (data?.startsWith('practice_')) {
+    botLogger.info({ 
+      callbackData: data,
+      willBeHandled: true 
+    }, '✅ Callback будет обработан');
+  }
+  
   return next();
 });
 
@@ -1946,13 +2034,237 @@ bot.action('daily_skip_negative', async ctx => {
   }
 });
 
+// Обработчик кнопки "Сделал" для практики
+bot.action(/practice_done_(\d+)/, async ctx => {
+  botLogger.info({ 
+    action: 'practice_done',
+    match: ctx.match,
+    callbackData: 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined,
+    fromId: ctx.from?.id,
+    chatId: ctx.chat?.id 
+  }, '🎯 Вызван обработчик practice_done');
+  
+  try {
+    const userId = parseInt(ctx.match![1]);
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    
+    botLogger.info({ 
+      userId, 
+      adminChatId,
+      fromId: ctx.from?.id,
+      chatId: ctx.chat?.id 
+    }, '🎯 Обработка кнопки practice_done');
+    
+    await ctx.answerCbQuery('🎉 Отлично! Ты молодец!');
+    
+    // Ищем сессию по adminChatId (как она создавалась) или по userId
+    const session = scheduler.getInteractiveSession(adminChatId) || scheduler.getInteractiveSession(userId);
+    if (!session) {
+      botLogger.warn({ userId, adminChatId }, 'Сессия не найдена для practice_done');
+      return;
+    }
+    
+    // Пробуем сгенерировать через LLM
+    let congratsMessage: string;
+    try {
+      congratsMessage = await scheduler.generateSimpleMessage('practice-completed', {
+        userName: ctx.from?.first_name || 'друг',
+        gender: 'unknown'
+      });
+      
+      botLogger.info({ 
+        generatedMessage: congratsMessage,
+        length: congratsMessage.length 
+      }, '🤖 LLM сгенерировал поздравление');
+      
+    } catch (error) {
+      botLogger.warn({ error: (error as Error).message }, '⚠️ Ошибка генерации, используем fallback');
+      
+      // Fallback сообщения
+      const fallbacks = [
+        'Ты молодец! 🌟 Сегодня мы отлично поработали вместе.',
+        'Отличная работа! 💚 Ты заботишься о себе, и это прекрасно.',
+        'Супер! ✨ Каждая практика делает тебя сильнее.',
+        'Великолепно! 🌈 Ты сделал важный шаг для своего благополучия.',
+        'Ты справился! 🎯 На сегодня все задания выполнены.',
+        'Ты молодец! 🌙 Пора отдыхать.',
+        'Я горжусь тобой! 💫 Ты сделал отличную работу.',
+        'Отлично! 🌿 Все задания на сегодня завершены.',
+        'Прекрасная работа! 🎉 Теперь можно расслабиться.'
+      ];
+      congratsMessage = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    }
+    
+    botLogger.info({ 
+      congratsMessage,
+      chatId: ctx.chat?.id,
+      messageId: ctx.callbackQuery.message?.message_id 
+    }, '📤 Отправка поздравления');
+    
+    // В группах с комментариями используем только reply_to_message_id
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      reply_to_message_id: ctx.callbackQuery.message?.message_id
+    };
+    
+    await ctx.telegram.sendMessage(
+      ctx.chat!.id, 
+      congratsMessage,
+      sendOptions
+    );
+    
+    botLogger.info({ userId }, '✅ Поздравление отправлено');
+    
+    // Завершаем сессию
+    session.practiceCompleted = true;
+    session.currentStep = 'finished';
+    
+    // Удаляем сессию через небольшую задержку
+    setTimeout(() => {
+      scheduler.getInteractiveSession(adminChatId) && scheduler.deleteInteractiveSession(adminChatId);
+      scheduler.getInteractiveSession(userId) && scheduler.deleteInteractiveSession(userId);
+    }, 1000);
+    
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка обработки practice_done');
+  }
+});
+
+// Обработчик кнопки "Отложить на 1 час"
+bot.action(/practice_postpone_(\d+)/, async ctx => {
+  botLogger.info({ 
+    action: 'practice_postpone',
+    match: ctx.match,
+    callbackData: 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined,
+    fromId: ctx.from?.id,
+    chatId: ctx.chat?.id 
+  }, '⏰ Вызван обработчик practice_postpone');
+  
+  try {
+    const userId = parseInt(ctx.match![1]);
+    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    
+    await ctx.answerCbQuery('⏰ Хорошо, напомню через час');
+    
+    // Ищем сессию по adminChatId или userId
+    const session = scheduler.getInteractiveSession(adminChatId) || scheduler.getInteractiveSession(userId);
+    if (!session) {
+      botLogger.warn({ userId, adminChatId }, 'Сессия не найдена для practice_postpone');
+      return;
+    }
+    
+    // Константа для задержки напоминания (легко изменить)
+    const PRACTICE_REMINDER_DELAY_MINUTES = 60; // 60 минут для продакшена
+    const reminderDelayMs = PRACTICE_REMINDER_DELAY_MINUTES * 60 * 1000;
+    
+    botLogger.info({ 
+      delayMinutes: PRACTICE_REMINDER_DELAY_MINUTES,
+      delayMs: reminderDelayMs 
+    }, '⏰ Устанавливаем напоминание о практике');
+    
+    // Сохраняем время откладывания
+    session.practicePostponed = true;
+    session.postponedUntil = Date.now() + reminderDelayMs;
+    
+    // Отправляем сообщение о том, что ждем через час
+    try {
+      const waitMessage = PRACTICE_REMINDER_DELAY_MINUTES === 1 
+        ? '⏳ Жду тебя через минуту' 
+        : '⏳ Жду тебя через час';
+        
+      const waitOptions: any = {
+        parse_mode: 'HTML',
+        reply_to_message_id: ctx.callbackQuery.message?.message_id
+      };
+      
+      await ctx.telegram.sendMessage(
+        ctx.chat!.id,
+        waitMessage,
+        waitOptions
+      );
+      
+      botLogger.info({ userId }, '⏳ Отправлено сообщение ожидания');
+    } catch (error) {
+      botLogger.error({ error: (error as Error).message }, 'Ошибка отправки сообщения ожидания');
+    }
+    
+    // Устанавливаем таймер на напоминание
+    setTimeout(async () => {
+      try {
+        botLogger.info({ 
+          userId,
+          chatId: ctx.chat?.id 
+        }, '🔔 Отправляем напоминание о практике');
+        
+        const reminderMessage = '⏰ Напоминание: давай сделаем практику! Это займет всего несколько минут 💚';
+        
+        // В группах с комментариями используем только reply_to_message_id
+        const sendOptions: any = {
+          parse_mode: 'HTML',
+          reply_to_message_id: ctx.callbackQuery.message?.message_id
+        };
+        
+        await ctx.telegram.sendMessage(
+          ctx.chat!.id,
+          reminderMessage,
+          sendOptions
+        );
+        
+        botLogger.info({ userId }, '✅ Напоминание о практике отправлено');
+      } catch (error) {
+        botLogger.error({ error: (error as Error).message }, 'Ошибка отправки напоминания');
+      }
+    }, reminderDelayMs);
+    
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка обработки practice_postpone');
+  }
+});
+
 
 // Запускаем бота
 
+// НЕ очищаем pending updates - пусть Telegraf их обработает
+async function clearPendingUpdates() {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return;
+    
+    // Получаем информацию o webhook
+    const webhookResponse = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+    const webhookData = await webhookResponse.json();
+    
+    if (webhookData.ok && webhookData.result.pending_update_count > 0) {
+      logger.info({ 
+        pendingCount: webhookData.result.pending_update_count 
+      }, '🔄 Найдены pending updates, Telegraf их обработает');
+    } else {
+      logger.info('✅ Очередь updates пуста');
+    }
+  } catch (error) {
+    logger.warn({ error: (error as Error).message }, '⚠️ Не удалось проверить очередь updates');
+  }
+}
+
 // --- Telegraf polling ---
-bot.launch()
+clearPendingUpdates()
+  .then(() => bot.launch())
   .then(() => {
     logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
+    
+    // Логируем успешный запуск
+    logger.info('✅ Polling активен и готов к получению команд');
+    
+    // Логируем зарегистрированные обработчики
+    logger.info({
+      handlers: [
+        'callback_query (общий)',
+        'daily_skip_all',
+        'daily_skip_negative', 
+        'practice_done_*',
+        'practice_postpone_*'
+      ]
+    }, '📋 Зарегистрированные обработчики кнопок');
   })
   .catch(error => {
     logger.error({ error: error.message, stack: error.stack }, '❌ Ошибка запуска бота');

@@ -53,12 +53,15 @@ export class Scheduler {
   private interactiveSessions: Map<number, {
     messageData: any;
     relaxationType: 'body' | 'breathing';
-    currentStep: 'waiting_negative' | 'waiting_positive' | 'finished';
+    currentStep: 'waiting_negative' | 'waiting_schema' | 'waiting_positive' | 'waiting_practice' | 'finished';
     startTime: string;
     messageId?: number;
     channelMessageId?: number; // ID поста в канале для использования как thread_id
     clarificationSent?: boolean;
     schemaRequested?: boolean;
+    practiceCompleted?: boolean;
+    practicePostponed?: boolean;
+    postponedUntil?: number;
   }> = new Map();
   
   // Для хранения ID пересланных сообщений
@@ -81,6 +84,80 @@ export class Scheduler {
   // Геттер для получения сервиса календаря (для тестирования)
   getCalendarService(): CalendarService {
     return this.calendarService;
+  }
+  
+  // Получить интерактивную сессию пользователя
+  public getInteractiveSession(userId: number) {
+    return this.interactiveSessions.get(userId);
+  }
+  
+  // Удалить интерактивную сессию
+  public deleteInteractiveSession(userId: number) {
+    this.interactiveSessions.delete(userId);
+  }
+  
+  // Получить экземпляр бота
+  public getBot() {
+    return this.bot;
+  }
+  
+  // Генерация простого сообщения через LLM
+  public async generateSimpleMessage(promptName: string, context: any): Promise<string> {
+    try {
+      const promptPath = path.join(__dirname, '..', 'assets', 'prompts', `${promptName}.md`);
+      let prompt = readFileSync(promptPath, 'utf-8');
+      
+      // Заменяем плейсхолдеры в промпте
+      if (context.userName) {
+        prompt = prompt.replace(/\{\{userName\}\}/g, context.userName);
+      }
+      if (context.gender) {
+        prompt = prompt.replace(/\{\{gender\}\}/g, context.gender);
+      }
+      
+      // Добавляем явную инструкцию для модели
+      prompt = `ВАЖНО: Ответь ТОЛЬКО текстом поздравления на русском языке, без дополнительных комментариев. Текст должен быть КОРОТКИМ - максимум 2 предложения, как в примерах!\n\n${prompt}\n\nНапиши КОРОТКОЕ поздравление (не более 15 слов):`;
+      
+      schedulerLogger.info({ promptName, promptLength: prompt.length }, 'Генерация простого сообщения');
+      
+      const response = await generateMessage(prompt);
+      
+      // Удаляем теги <think>...</think> из ответа
+      const cleanedResponse = removeThinkTags(response);
+      
+      schedulerLogger.info({ 
+        promptName, 
+        responseLength: response.length,
+        cleanedLength: cleanedResponse.length,
+        response: cleanedResponse.substring(0, 100) 
+      }, 'Ответ от LLM получен');
+      
+      // Если ответ слишком короткий, слишком длинный или это просто "Отлично", используем fallback
+      if (cleanedResponse.length < 20 || cleanedResponse.length > 150 || cleanedResponse.toLowerCase() === 'отлично' || cleanedResponse === 'HF_JSON_ERROR') {
+        throw new Error(`Неподходящий ответ от LLM: ${cleanedResponse.length} символов`);
+      }
+      
+      return cleanedResponse;
+    } catch (error) {
+      schedulerLogger.error({ error, promptName }, 'Ошибка генерации простого сообщения');
+      // Fallback сообщения
+      if (promptName === 'practice-completed') {
+        const fallbacks = [
+          'Ты молодец! 🌟 Сегодня мы отлично поработали вместе.',
+          'Отличная работа! 💚 Ты заботишься о себе, и это прекрасно.',
+          'Супер! ✨ Каждая практика делает тебя сильнее.',
+          'Великолепно! 🌈 Ты сделал важный шаг для своего благополучия.',
+          'Ты справился! 🎯 На сегодня все задания выполнены.',
+          'Ты молодец! 🌙 Пора отдыхать.',
+          'Я горжусь тобой! 💫 Ты сделал отличную работу.',
+          'Прекрасная работа! 🎉 Теперь можно расслабиться.',
+          'Браво! 🌿 Все задания на сегодня завершены.',
+          'Замечательно! ⭐ Ты проявил заботу о себе.'
+        ];
+        return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+      }
+      return 'Отлично! 👍';
+    }
   }
   
   // Сохранить ID пересланного сообщения
@@ -929,11 +1006,15 @@ export class Scheduler {
             parse_mode: 'HTML'
           }
         );
+        const postSentTime = new Date();
         schedulerLogger.info(
           {
             chatId,
             messageLength: captionWithComment.length,
             imageSize: imageBuffer.length,
+            messageId: sentMessage.message_id,
+            sentAt: postSentTime.toISOString(),
+            timestamp: postSentTime.getTime()
           },
           'Основной пост с изображением отправлен в канал'
         );
@@ -982,111 +1063,9 @@ export class Scheduler {
         return;
       }
       
-      // Ждем меньше времени перед началом поиска
-      schedulerLogger.info('⏳ Ждем 2 секунды, чтобы пост появился в группе обсуждений...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Отправляем первое задание асинхронно после появления пересланного сообщения
+      this.sendFirstTaskAsync(messageId, firstTaskFullText, firstTaskKeyboard, skipButtonText, chatId, CHAT_ID);
       
-      // В Telegram, когда пост из канала пересылается в группу обсуждений,
-      // он создает новый thread (тему). Для отправки в этот thread нужно использовать
-      // message_thread_id, который равен message_id поста в канале
-      
-      // Сначала ждем, чтобы обработчик успел сохранить ID пересланного сообщения
-      let forwardedMessageId: number | null = null;
-      let attempts = 0;
-      const maxAttempts = 15;
-      
-      schedulerLogger.info({ 
-        messageId, 
-        CHAT_ID,
-        CHANNEL_ID: this.CHANNEL_ID 
-      }, '🔍 Ожидаем пересланное сообщение в группе обсуждений');
-      
-      while (!forwardedMessageId && attempts < maxAttempts) {
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        forwardedMessageId = this.forwardedMessages.get(messageId) || null;
-        
-        if (forwardedMessageId) {
-          schedulerLogger.info({ 
-            forwardedMessageId,
-            channelMessageId: messageId,
-            attempts
-          }, '✅ Найден ID пересланного сообщения в группе');
-          break;
-        }
-      }
-      
-      // Теперь отправляем первое задание
-      try {
-        const messageOptions: any = {
-          parse_mode: 'HTML',
-          reply_markup: firstTaskKeyboard,
-          disable_notification: true
-        };
-        
-        // ВАЖНО: для комментариев в группе обсуждений нужно использовать reply_to_message_id
-        if (forwardedMessageId) {
-          messageOptions.reply_to_message_id = forwardedMessageId;
-          schedulerLogger.info({ 
-            forwardedMessageId 
-          }, 'Используем reply_to_message_id для создания комментария');
-        } else {
-          // Если не нашли пересланное сообщение, пробуем message_thread_id с ID канала
-          messageOptions.message_thread_id = messageId;
-          schedulerLogger.warn('⚠️ Не нашли пересланное сообщение, пробуем message_thread_id с ID из канала');
-        }
-        
-        const firstTaskMessage = await this.bot.telegram.sendMessage(
-          CHAT_ID,
-          firstTaskFullText,
-          messageOptions
-        );
-        
-        schedulerLogger.info({ 
-          success: true,
-          firstTaskId: firstTaskMessage.message_id,
-          channelMessageId: messageId,
-          forwardedMessageId,
-          chat_id: CHAT_ID,
-          used_reply_to: !!messageOptions.reply_to_message_id,
-          used_thread_id: !!messageOptions.message_thread_id
-        }, '✅ Первое задание отправлено как комментарий к посту');
-        
-      } catch (error) {
-        // Последний fallback - просто отправляем в группу
-        schedulerLogger.error({ 
-          error: (error as Error).message,
-          stack: (error as Error).stack
-        }, '❌ Ошибка отправки в thread, используем fallback');
-        
-        try {
-          const firstTaskMessage = await this.bot.telegram.sendMessage(
-            CHAT_ID,
-            firstTaskFullText, // Убираем подпись "К посту в канале"
-            {
-              parse_mode: 'HTML',
-              reply_markup: firstTaskKeyboard,
-              disable_notification: true
-            }
-          );
-          
-          schedulerLogger.info({ 
-            success: true,
-            firstTaskId: firstTaskMessage.message_id,
-            chat_id: CHAT_ID
-          }, '✅ Первое задание отправлено в группу обсуждений (fallback)');
-          
-        } catch (fallbackError) {
-          const err = fallbackError as Error;
-          schedulerLogger.error({ 
-            error: err.message,
-            stack: err.stack,
-            CHAT_ID,
-            CHANNEL_ID: this.CHANNEL_ID
-          }, '❌ Полная ошибка отправки первого задания');
-        }
-      }
-
       schedulerLogger.info(
         { 
           channelMessageId: messageId,
@@ -1094,8 +1073,9 @@ export class Scheduler {
           chatId: CHAT_ID,
           skipButton: skipButtonText
         }, 
-        '✅ Процесс отправки первого задания завершен'
+        '✅ Процесс отправки первого задания запущен асинхронно'
       );
+      
 
       // Сохраняем состояние сессии
       const startTime = new Date().toISOString();
@@ -1108,7 +1088,7 @@ export class Scheduler {
         currentStep: 'waiting_negative' as const,
         startTime,
         messageId: sentMessage.message_id,
-        channelMessageId: forwardedMessageId || messageId // Сохраняем ID пересланного сообщения или ID канала
+        channelMessageId: messageId // Сохраняем ID поста в канале
       };
       
       this.interactiveSessions.set(chatId, sessionData);
@@ -1123,10 +1103,7 @@ export class Scheduler {
         sessionsCount: this.interactiveSessions.size 
       }, 'Интерактивная сессия сохранена');
 
-      // Очищаем сохраненный ID после использования
-      if (forwardedMessageId) {
-        this.forwardedMessages.delete(messageId);
-      }
+      // Больше не нужно очищать, так как асинхронный метод использует его позже
 
       // Сохраняем сообщение в БД
       saveMessage(chatId, captionWithComment, startTime);
@@ -1155,6 +1132,118 @@ export class Scheduler {
     } catch (e) {
       const error = e as Error;
       schedulerLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка отправки интерактивного сообщения');
+    }
+  }
+
+  // Асинхронная отправка первого задания как комментария к посту
+  private async sendFirstTaskAsync(
+    channelMessageId: number, 
+    firstTaskFullText: string, 
+    firstTaskKeyboard: any, 
+    skipButtonText: string,
+    originalChatId: number,
+    CHAT_ID: number
+  ) {
+    try {
+      // Периодически проверяем наличие пересланного сообщения
+      let forwardedMessageId: number | null = null;
+      let attempts = 0;
+      const maxAttempts = 60; // Максимум 60 попыток (5 минут)
+      const checkInterval = 5000; // Проверяем каждые 5 секунд
+      
+      schedulerLogger.info({ 
+        channelMessageId,
+        CHAT_ID,
+        checkInterval: `${checkInterval/1000}s`
+      }, '🔍 Начинаем периодическую проверку пересланного сообщения');
+      
+      while (!forwardedMessageId && attempts < maxAttempts) {
+        attempts++;
+        
+        // Проверяем сразу, потом ждем
+        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+        
+        if (forwardedMessageId) {
+          schedulerLogger.info({ 
+            forwardedMessageId,
+            channelMessageId,
+            attempts,
+            waitedSeconds: attempts * checkInterval / 1000
+          }, '✅ Найден ID пересланного сообщения в группе');
+          break;
+        }
+        
+        // Логируем прогресс
+        if (attempts % 3 === 0) { // Каждые 15 секунд
+          schedulerLogger.debug({ 
+            attempts,
+            channelMessageId,
+            waitedMinutes: (attempts * checkInterval / 1000 / 60).toFixed(1),
+            forwardedMessagesCount: this.forwardedMessages.size
+          }, '⏳ Продолжаем ждать пересланное сообщение...');
+        }
+        
+        // Ждем до следующей проверки
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+      
+      // Отправляем первое задание
+      const messageOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: firstTaskKeyboard,
+        disable_notification: true
+      };
+      
+      if (forwardedMessageId) {
+        // Отправляем как комментарий к посту
+        messageOptions.reply_to_message_id = forwardedMessageId;
+        
+        const firstTaskMessage = await this.bot.telegram.sendMessage(
+          CHAT_ID,
+          firstTaskFullText,
+          messageOptions
+        );
+        
+        schedulerLogger.info({ 
+          success: true,
+          firstTaskId: firstTaskMessage.message_id,
+          channelMessageId,
+          forwardedMessageId,
+          chat_id: CHAT_ID,
+          waitedSeconds: attempts * checkInterval / 1000
+        }, '✅ Первое задание отправлено как комментарий к посту');
+        
+      } else {
+        // Таймаут - отправляем в группу с пометкой
+        schedulerLogger.warn({ 
+          channelMessageId,
+          attempts,
+          maxAttempts,
+          waitedMinutes: (maxAttempts * checkInterval / 1000 / 60).toFixed(1)
+        }, '⚠️ Таймаут ожидания пересланного сообщения, отправляем в группу с пометкой');
+        
+        const firstTaskMessage = await this.bot.telegram.sendMessage(
+          CHAT_ID,
+          firstTaskFullText,
+          messageOptions
+        );
+        
+        schedulerLogger.info({ 
+          success: true,
+          firstTaskId: firstTaskMessage.message_id,
+          channelMessageId,
+          chat_id: CHAT_ID,
+          used_note: true
+        }, '✅ Первое задание отправлено в группу с пометкой');
+      }
+      
+    } catch (error) {
+      schedulerLogger.error({ 
+        error: (error as Error).message,
+        stack: (error as Error).stack,
+        channelMessageId,
+        CHAT_ID
+      }, '❌ Ошибка асинхронной отправки первого задания');
     }
   }
 
@@ -1764,10 +1853,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     try {
       // НЕ удаляем сообщение с кнопкой
-      // await this.bot.telegram.deleteMessage(chatId, messageId);
       
-      // Отправляем вторую часть - плюшки
-      const secondPart = this.buildSecondPart(session.messageData);
+      // Сразу отправляем плюшки (второе задание)
+      const plushkiMessage = this.buildSecondPart(session.messageData);
       
       const sendOptions: any = {
         parse_mode: 'HTML'
@@ -1786,20 +1874,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }, 'Используем reply_to_message_id для отправки плюшек в комментарии');
       }
       
-      await this.bot.telegram.sendMessage(chatId, secondPart, sendOptions);
+      await this.bot.telegram.sendMessage(chatId, plushkiMessage, sendOptions);
 
       // Сохраняем сообщение
-      saveMessage(adminChatId, secondPart, new Date().toISOString());
+      saveMessage(adminChatId, plushkiMessage, new Date().toISOString());
       
-      // Обновляем состояние сессии
+      // Обновляем состояние сессии - переходим сразу к ожиданию ответа на плюшки
       session.currentStep = 'waiting_positive';
       
       schedulerLogger.info({ 
         adminChatId, 
         chatId, 
-        threadId: forwardedId,
-        secondPartPreview: secondPart.substring(0, 50) 
-      }, 'Пользователь пропустил первое задание, отправлены плюшки в thread комментариев');
+        threadId: forwardedId
+      }, 'Пользователь пропустил первое задание, отправлены плюшки');
     } catch (error) {
       schedulerLogger.error({ error }, 'Ошибка обработки кнопки пропуска');
     }
@@ -1910,44 +1997,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     try {
       if (session.currentStep === 'waiting_negative') {
-        // Анализируем первый ответ пользователя
-        const analysis = await this.analyzeUserResponse(messageText);
+        // ВСЕГДА отправляем схему после первого ответа
+        const responseText = 'Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:\n🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию';
         
-        let responseText = '';
-        
-        if (analysis.detailed) {
-          // Вариант 1: Подробный ответ - отправляем слова поддержки + плюшки
-          responseText = `<i>${analysis.supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
-          session.currentStep = 'waiting_positive';
-        } else if (analysis.needsClarification) {
-          // Вариант 2: Нужно уточнение про эмоции
-          const clarificationTexts = [
-            'Что ощутил в связи с этим? Какие эмоции испытывал?',
-            'Какие чувства это вызвало у тебя?',
-            'Что почувствовал, когда это произошло?',
-            'Какие эмоции были в этот момент?'
-          ];
-          responseText = clarificationTexts[Math.floor(Math.random() * clarificationTexts.length)];
-          // Остаемся в том же состоянии, но отмечаем, что было уточнение
-          session.clarificationSent = true;
-        } else if (analysis.significant) {
-          // Вариант 3: Значимое событие - предлагаем разложить по схеме
-          responseText = 'Давай разложим самую беспокоящую ситуацию по схеме:\n\n• Триггер (что случилось)\n• Мысли (о чем подумал)\n• Чувства (что почувствовал)\n• Тело (что ощутил в теле)\n• Действия (что сделал)';
-          // Остаемся в том же состоянии, но отмечаем схему
-          session.schemaRequested = true;
-        } else {
-          // По умолчанию - переходим к плюшкам
-          responseText = `<i>${analysis.supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
-          session.currentStep = 'waiting_positive';
-        }
-        
-        // Если было уточнение или схема, и пользователь ответил - переходим к плюшкам
-        if ((session.clarificationSent || session.schemaRequested) && messageText.split(' ').length > 5) {
-          responseText = `<i>${this.getRandomSupportText()}</i>\n\n${this.buildSecondPart(session.messageData)}`;
-          session.currentStep = 'waiting_positive';
-          session.clarificationSent = false;
-          session.schemaRequested = false;
-        }
+        // Переходим в новое состояние ожидания схемы
+        session.currentStep = 'waiting_schema';
+        session.schemaRequested = true;
 
         // Отправляем ответ в чат
         const sendOptions: any = {
@@ -1957,15 +2012,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        // ВАЖНО: Используем reply_to_message_id для ответа в треде
-        const forwardedId = session.channelMessageId;
-        if (forwardedId && messageThreadId) {
-          sendOptions.reply_to_message_id = messageThreadId;
+        // ВАЖНО: Используем ту же логику, что и для первого задания
+        const forwardedMessageId = this.forwardedMessages.get(session.channelMessageId || 0);
+        if (forwardedMessageId) {
+          sendOptions.reply_to_message_id = forwardedMessageId;
           schedulerLogger.info({ 
-            replyToMessageId: messageThreadId,
-            forwardedId,
+            forwardedMessageId,
+            channelMessageId: session.channelMessageId,
             replyToChatId 
-          }, 'Используем reply_to_message_id для ответа в интерактивной сессии');
+          }, 'Используем reply_to_message_id для ответа в комментариях');
+        } else {
+          schedulerLogger.warn('⚠️ Не нашли пересланное сообщение, отправляем как обычное');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
@@ -1973,43 +2030,93 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Сохраняем сообщение
         saveMessage(userId, responseText, new Date().toISOString(), 0);
 
-      } else if (session.currentStep === 'waiting_positive') {
-        // Ответ на плюшки - отправляем финальную часть
-        let finalMessage = '';
-        if (session.relaxationType === 'body') {
-          finalMessage = '3. <b>Расслабление тела</b>\nОт Ирины 👉🏻 clck.ru/3LmcNv 👈🏻 или свое';
-        } else {
-          finalMessage = '3. <b>Дыхательная практика</b>';
-        }
-
-        const finalOptions: any = {
+      } else if (session.currentStep === 'waiting_schema') {
+        // Получен ответ на схему - отправляем слова поддержки + плюшки
+        const supportText = this.getRandomSupportText();
+        const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
+        
+        session.currentStep = 'waiting_positive';
+        
+        // Отправляем ответ в чат
+        const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
             message_id: messageId
           }
         };
         
-        // ВАЖНО: Используем reply_to_message_id для ответа в треде
-        const forwardedId = session.channelMessageId;
-        if (forwardedId && messageThreadId) {
-          finalOptions.reply_to_message_id = messageThreadId;
+        const forwardedMessageId = this.forwardedMessages.get(session.channelMessageId || 0);
+        if (forwardedMessageId) {
+          sendOptions.reply_to_message_id = forwardedMessageId;
+        }
+        
+        await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
+        saveMessage(userId, responseText, new Date().toISOString(), 0);
+        
+      } else if (session.currentStep === 'waiting_positive') {
+        // Ответ на плюшки - отправляем финальную часть
+        schedulerLogger.info({ 
+          userId,
+          currentStep: session.currentStep,
+          messageText: messageText.substring(0, 50)
+        }, '📝 Получен ответ на плюшки, отправляем задание 3');
+        
+        let finalMessage = 'У нас остался последний шаг\n\n';
+        if (session.relaxationType === 'body') {
+          finalMessage += '3. <b>Расслабление тела</b>\nОт Ирины 👉🏻 clck.ru/3LmcNv 👈🏻 или свое';
+        } else {
+          finalMessage += '3. <b>Дыхательная практика</b>';
+        }
+
+        // Добавляем кнопки к заданию 3
+        // Используем adminChatId для callback_data, так как сессия создается с ним
+        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+        const callbackUserId = adminChatId || userId;
+        
+        const practiceKeyboard = {
+          inline_keyboard: [
+            [{ text: '✅ Сделал', callback_data: `practice_done_${callbackUserId}` }],
+            [{ text: '⏰ Отложить на 1 час', callback_data: `practice_postpone_${callbackUserId}` }]
+          ]
+        };
+
+        const finalOptions: any = {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId
+          },
+          reply_markup: practiceKeyboard
+        };
+        
+        // ВАЖНО: Используем ту же логику, что и для первого задания
+        const forwardedMessageId = this.forwardedMessages.get(session.channelMessageId || 0);
+        if (forwardedMessageId) {
+          finalOptions.reply_to_message_id = forwardedMessageId;
           schedulerLogger.info({ 
-            replyToMessageId: messageThreadId,
-            forwardedId,
+            forwardedMessageId,
+            channelMessageId: session.channelMessageId,
             replyToChatId 
-          }, 'Используем reply_to_message_id для финального сообщения');
+          }, 'Используем reply_to_message_id для финального сообщения в комментариях');
+        } else {
+          schedulerLogger.warn('⚠️ Не нашли пересланное сообщение для финального сообщения');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
-        // Сохраняем и завершаем сессию
+        // Сохраняем сообщение и обновляем состояние
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
-        session.currentStep = 'finished';
+        session.currentStep = 'waiting_practice'; // Ждем выполнения практики
         
         // Удаляем сессию через некоторое время
         setTimeout(() => {
           this.interactiveSessions.delete(userId);
         }, 300000); // 5 минут
+        
+      } else if (session.currentStep === 'waiting_practice') {
+        // Пользователь написал что-то после получения задания с кнопками
+        // Просто игнорируем это сообщение, пусть нажимает кнопки
+        schedulerLogger.debug({ userId }, 'Игнорируем сообщение - ждем нажатия кнопки');
+        return true; // Но все равно возвращаем true, чтобы не обрабатывать как обычное сообщение
       }
 
       return true; // Обработано в интерактивном режиме
