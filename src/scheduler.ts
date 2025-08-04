@@ -1827,72 +1827,6 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-  // Обработчик кнопки пропуска для первого задания
-  public async handleSkipNegative(adminChatId: number, messageId: number, chatId: number, messageThreadId?: number) {
-    const targetUserId = this.getTargetUserId();
-    
-    schedulerLogger.info({ 
-      adminChatId, 
-      targetUserId,
-      messageId, 
-      chatId, 
-      messageThreadId,
-      sessionsCount: this.interactiveSessions.size,
-      hasAdminSession: this.interactiveSessions.has(adminChatId),
-      hasTargetSession: this.interactiveSessions.has(targetUserId)
-    }, 'handleSkipNegative вызван');
-    
-    // Ищем сессию по adminChatId или targetUserId
-    const session = this.interactiveSessions.get(adminChatId) || this.interactiveSessions.get(targetUserId);
-    if (!session) {
-      schedulerLogger.warn({ 
-        adminChatId,
-        targetUserId,
-        availableKeys: Array.from(this.interactiveSessions.keys())
-      }, 'Сессия не найдена для обработки кнопки пропуска');
-      return;
-    }
-
-    try {
-      // НЕ удаляем сообщение с кнопкой
-      
-      // Сразу отправляем плюшки (второе задание)
-      const plushkiMessage = this.buildSecondPart(session.messageData);
-      
-      const sendOptions: any = {
-        parse_mode: 'HTML'
-      };
-      
-      // ВАЖНО: Всегда используем reply_to_message_id для ответа в комментариях
-      const forwardedId = session.channelMessageId;
-      
-      // Для групповых чатов с обсуждениями используем reply_to_message_id
-      if (forwardedId) {
-        sendOptions.reply_to_message_id = messageId; // Отвечаем на сообщение с кнопкой
-        schedulerLogger.info({ 
-          replyToMessageId: messageId,
-          forwardedId,
-          chatId 
-        }, 'Используем reply_to_message_id для отправки плюшек в комментарии');
-      }
-      
-      await this.bot.telegram.sendMessage(chatId, plushkiMessage, sendOptions);
-
-      // Сохраняем сообщение
-      saveMessage(adminChatId, plushkiMessage, new Date().toISOString());
-      
-      // Обновляем состояние сессии - переходим сразу к ожиданию ответа на плюшки
-      session.currentStep = 'waiting_positive';
-      
-      schedulerLogger.info({ 
-        adminChatId, 
-        chatId, 
-        threadId: forwardedId
-      }, 'Пользователь пропустил первое задание, отправлены плюшки');
-    } catch (error) {
-      schedulerLogger.error({ error }, 'Ошибка обработки кнопки пропуска');
-    }
-  }
 
 
   // Построение второй части сообщения
@@ -2127,6 +2061,57 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       return false;
     }
   }
+
+  // Обработчик кнопки пропуска первого задания
+  public async handleSkipNegative(userId: number, messageId: number, chatId: number, messageThreadId?: number) {
+    try {
+      schedulerLogger.info({ 
+        userId, 
+        messageId, 
+        chatId,
+        messageThreadId,
+        hasSession: this.interactiveSessions.has(userId) 
+      }, 'Обработка кнопки пропуска первого задания');
+      
+      const session = this.interactiveSessions.get(userId);
+      
+      if (!session) {
+        schedulerLogger.warn({ userId }, 'Сессия не найдена для handleSkipNegative');
+        return;
+      }
+      
+      // Переходим сразу к плюшкам
+      const plushkiText = this.buildSecondPart(session.messageData);
+      
+      session.currentStep = 'waiting_positive';
+      
+      // Отправляем плюшки
+      const sendOptions: any = {
+        parse_mode: 'HTML'
+      };
+      
+      // Используем reply_to_message_id для ответа в правильный thread
+      const forwardedMessageId = this.forwardedMessages.get(session.channelMessageId || 0);
+      if (forwardedMessageId) {
+        sendOptions.reply_to_message_id = forwardedMessageId;
+        schedulerLogger.info({ 
+          forwardedMessageId,
+          channelMessageId: session.channelMessageId 
+        }, 'Используем reply_to_message_id для плюшек после пропуска');
+      }
+      
+      await this.bot.telegram.sendMessage(chatId, plushkiText, sendOptions);
+      
+      // Сохраняем сообщение
+      saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+      
+      schedulerLogger.info({ userId }, '✅ Плюшки отправлены после пропуска первого задания');
+      
+    } catch (error) {
+      schedulerLogger.error({ error, userId }, 'Ошибка обработки кнопки пропуска');
+    }
+  }
+
 
   // Очистка всех таймеров при завершении работы
   destroy() {

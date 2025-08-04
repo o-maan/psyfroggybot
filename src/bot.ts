@@ -2115,6 +2115,27 @@ bot.action(/practice_done_(\d+)/, async ctx => {
     
     botLogger.info({ userId }, '✅ Поздравление отправлено');
     
+    // Добавляем реакцию трофея к посту в канале
+    if (session.channelMessageId) {
+      try {
+        await ctx.telegram.setMessageReaction(
+          scheduler.CHANNEL_ID,
+          session.channelMessageId,
+          [{ type: 'emoji', emoji: '🏆' }]
+        );
+        botLogger.info({ 
+          channelMessageId: session.channelMessageId,
+          channelId: scheduler.CHANNEL_ID 
+        }, '🏆 Добавлена реакция трофея к посту в канале');
+      } catch (error) {
+        botLogger.error({ 
+          error: (error as Error).message,
+          channelMessageId: session.channelMessageId,
+          channelId: scheduler.CHANNEL_ID
+        }, '❌ Ошибка добавления реакции к посту');
+      }
+    }
+    
     // Завершаем сессию
     session.practiceCompleted = true;
     session.currentStep = 'finished';
@@ -2168,9 +2189,9 @@ bot.action(/practice_postpone_(\d+)/, async ctx => {
     
     // Отправляем сообщение о том, что ждем через час
     try {
-      const waitMessage = PRACTICE_REMINDER_DELAY_MINUTES === 1 
-        ? '⏳ Жду тебя через минуту' 
-        : '⏳ Жду тебя через час';
+      const waitMessage = PRACTICE_REMINDER_DELAY_MINUTES === 60 
+        ? '⏳ Жду тебя через час'
+        : `⏳ Жду тебя через ${PRACTICE_REMINDER_DELAY_MINUTES} ${PRACTICE_REMINDER_DELAY_MINUTES === 1 ? 'минуту' : 'минут'}`;
         
       const waitOptions: any = {
         parse_mode: 'HTML',
