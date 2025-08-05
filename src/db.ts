@@ -323,6 +323,76 @@ export const clearUserTokens = (chatId: number) => {
   del.run(chatId);
 };
 
+// Сохранить интерактивный пост
+export const saveInteractivePost = (
+  channelMessageId: number,
+  userId: number,
+  messageData: any,
+  relaxationType: string
+) => {
+  const insert = db.query(`
+    INSERT INTO interactive_posts (channel_message_id, user_id, message_data, relaxation_type)
+    VALUES (?, ?, ?, ?)
+  `);
+  insert.run(channelMessageId, userId, JSON.stringify(messageData), relaxationType);
+};
+
+// Получить интерактивный пост по ID сообщения в канале
+export const getInteractivePost = (channelMessageId: number) => {
+  const get = db.query(`
+    SELECT * FROM interactive_posts
+    WHERE channel_message_id = ?
+  `);
+  const row = get.get(channelMessageId) as any;
+  if (row && row.message_data) {
+    row.message_data = JSON.parse(row.message_data);
+  }
+  return row;
+};
+
+// Обновить статус выполнения задания
+export const updateTaskStatus = (channelMessageId: number, taskNumber: 1 | 2 | 3, completed: boolean = true) => {
+  const columnName = `task${taskNumber}_completed`;
+  const update = db.query(`
+    UPDATE interactive_posts
+    SET ${columnName} = ?
+    WHERE channel_message_id = ?
+  `);
+  update.run(completed ? 1 : 0, channelMessageId);
+};
+
+// Установить трофей
+export const setTrophyStatus = (channelMessageId: number, set: boolean = true) => {
+  const update = db.query(`
+    UPDATE interactive_posts
+    SET trophy_set = ?
+    WHERE channel_message_id = ?
+  `);
+  update.run(set ? 1 : 0, channelMessageId);
+};
+
+// Получить все незавершенные посты пользователя
+export const getUserIncompletePosts = (userId: number) => {
+  const get = db.query(`
+    SELECT * FROM interactive_posts
+    WHERE user_id = ?
+    AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
+    ORDER BY created_at DESC
+  `);
+  const rows = get.all(userId) as any[];
+  return rows.map(row => {
+    if (row.message_data) {
+      row.message_data = JSON.parse(row.message_data);
+    }
+    return row;
+  });
+};
+
+// Функция для экранирования HTML
+export function escapeHTML(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Получить всех пользователей
 export const getAllUsers = () => {
   const getUsers = db.query(`

@@ -73,12 +73,8 @@ export class Scheduler {
     this.loadImages();
     this.loadUsers();
     
-    // Инициализируем расписание только для основного бота
-    if (!this.isTestBot()) {
-      this.initializeDailySchedule();
-    } else {
-      logger.info('🤖 Тестовый бот - автоматическое расписание отключено');
-    }
+    // Инициализируем расписание для всех ботов
+    this.initializeDailySchedule();
   }
 
   // Геттер для получения сервиса календаря (для тестирования)
@@ -1053,7 +1049,7 @@ export class Scheduler {
       
       const firstTaskKeyboard = {
         inline_keyboard: [
-          [{ text: skipButtonText, callback_data: 'daily_skip_negative' }]
+          [{ text: skipButtonText, callback_data: `skip_neg_${messageId}` }]
         ]
       };
 
@@ -1109,6 +1105,10 @@ export class Scheduler {
 
       // Сохраняем сообщение в БД
       saveMessage(chatId, captionWithComment, startTime);
+      
+      // Сохраняем интерактивный пост в БД для надежности
+      const { saveInteractivePost } = await import('./db');
+      saveInteractivePost(messageId, targetUserId, json, relaxationType);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
@@ -2005,14 +2005,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         // Добавляем кнопки к заданию 3
-        // Используем adminChatId для callback_data, так как сессия создается с ним
-        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-        const callbackUserId = adminChatId || userId;
+        // Передаем channelMessageId в callback_data для надежности
+        const channelMsgId = session.channelMessageId || 0;
         
         const practiceKeyboard = {
           inline_keyboard: [
-            [{ text: '✅ Сделал', callback_data: `practice_done_${callbackUserId}` }],
-            [{ text: '⏰ Отложить на 1 час', callback_data: `practice_postpone_${callbackUserId}` }]
+            [{ text: '✅ Сделал', callback_data: `pract_done_${channelMsgId}` }],
+            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMsgId}` }]
           ]
         };
 
@@ -2043,10 +2042,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
         session.currentStep = 'waiting_practice'; // Ждем выполнения практики
         
-        // Удаляем сессию через некоторое время
-        setTimeout(() => {
-          this.interactiveSessions.delete(userId);
-        }, 300000); // 5 минут
+        // НЕ удаляем сессию - пользователь может выполнить задание в любое время!
         
       } else if (session.currentStep === 'waiting_practice') {
         // Пользователь написал что-то после получения задания с кнопками
@@ -2062,55 +2058,6 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-  // Обработчик кнопки пропуска первого задания
-  public async handleSkipNegative(userId: number, messageId: number, chatId: number, messageThreadId?: number) {
-    try {
-      schedulerLogger.info({ 
-        userId, 
-        messageId, 
-        chatId,
-        messageThreadId,
-        hasSession: this.interactiveSessions.has(userId) 
-      }, 'Обработка кнопки пропуска первого задания');
-      
-      const session = this.interactiveSessions.get(userId);
-      
-      if (!session) {
-        schedulerLogger.warn({ userId }, 'Сессия не найдена для handleSkipNegative');
-        return;
-      }
-      
-      // Переходим сразу к плюшкам
-      const plushkiText = this.buildSecondPart(session.messageData);
-      
-      session.currentStep = 'waiting_positive';
-      
-      // Отправляем плюшки
-      const sendOptions: any = {
-        parse_mode: 'HTML'
-      };
-      
-      // Используем reply_to_message_id для ответа в правильный thread
-      const forwardedMessageId = this.forwardedMessages.get(session.channelMessageId || 0);
-      if (forwardedMessageId) {
-        sendOptions.reply_to_message_id = forwardedMessageId;
-        schedulerLogger.info({ 
-          forwardedMessageId,
-          channelMessageId: session.channelMessageId 
-        }, 'Используем reply_to_message_id для плюшек после пропуска');
-      }
-      
-      await this.bot.telegram.sendMessage(chatId, plushkiText, sendOptions);
-      
-      // Сохраняем сообщение
-      saveMessage(userId, plushkiText, new Date().toISOString(), 0);
-      
-      schedulerLogger.info({ userId }, '✅ Плюшки отправлены после пропуска первого задания');
-      
-    } catch (error) {
-      schedulerLogger.error({ error, userId }, 'Ошибка обработки кнопки пропуска');
-    }
-  }
 
 
   // Очистка всех таймеров при завершении работы

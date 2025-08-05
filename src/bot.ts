@@ -81,6 +81,38 @@ bot.catch((err: any, ctx) => {
 const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
 
+// Middleware для разделения тестового и основного бота
+bot.use(async (ctx, next) => {
+  // Пропускаем проверку для обновлений без chat (например, inline_query)
+  if (!ctx.chat) {
+    return next();
+  }
+  
+  const chatId = ctx.chat.id;
+  const TEST_CHANNEL_ID = -1002846400650;
+  const TEST_CHAT_ID = -1002798126153;
+  const isTestChannel = chatId === TEST_CHANNEL_ID || chatId === TEST_CHAT_ID;
+  
+  // Для команд в личных сообщениях разрешаем обоим ботам
+  if (ctx.chat.type === 'private') {
+    return next();
+  }
+  
+  if (scheduler.isTestBot() && !isTestChannel) {
+    // Тестовый бот работает только в тестовых каналах (кроме личных сообщений)
+    botLogger.debug({ chatId, isTestBot: true, chatType: ctx.chat.type }, 'Тестовый бот игнорирует обновление не из тестового канала');
+    return;
+  }
+  
+  if (!scheduler.isTestBot() && isTestChannel) {
+    // Основной бот не работает в тестовых каналах
+    botLogger.debug({ chatId, isTestBot: false, chatType: ctx.chat.type }, 'Основной бот игнорирует обновление из тестового канала');
+    return;
+  }
+  
+  return next();
+});
+
 // --- Express сервер для Google OAuth2 callback и REST ---
 const restServ = express();
 const SERVER_PORT = process.env.SERVER_PORT || process.env.PORT || 3456;
@@ -1964,14 +1996,17 @@ bot.on('text', async ctx => {
 // Общий обработчик для всех callback_query (для отладки)
 bot.on('callback_query', async (ctx, next) => {
   const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
+  const chatId = ctx.callbackQuery.message?.chat?.id;
+  
   botLogger.info({
     callbackData: data,
     fromId: ctx.from?.id,
-    chatId: ctx.callbackQuery.message?.chat?.id,
+    chatId: chatId,
     messageId: ctx.callbackQuery.message?.message_id,
     isPracticeDone: data?.startsWith('practice_done_'),
     isPracticePostpone: data?.startsWith('practice_postpone_')
   }, '🔔 Получен callback_query');
+  
   
   // Проверяем, что callback обрабатывается
   if (data?.startsWith('practice_')) {
@@ -1994,161 +2029,146 @@ bot.action('daily_skip_all', async ctx => {
   }
 });
 
-// Обработчик для кнопки пропуска первого задания
-bot.action('daily_skip_negative', async ctx => {
+// Обработчик для кнопки пропуска первого задания - новый формат
+bot.action(/skip_neg_(\d+)/, async ctx => {
   try {
-    // Сразу отвечаем пользователю, чтобы он не ждал
-    await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
-    
-    botLogger.info({ 
-      callbackData: 'daily_skip_negative',
-      fromId: ctx.from?.id,
-      chatId: ctx.callbackQuery.message?.chat?.id 
-    }, '🎆 Получен callback для кнопки пропуска');
-    
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    const channelMessageId = parseInt(ctx.match![1]);
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
-    const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
     const userId = ctx.from?.id;
     
+    await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
+    
     botLogger.info({
-      action: 'daily_skip_negative',
-      adminChatId,
+      action: 'skip_neg',
+      channelMessageId,
       messageId,
       chatId,
-      messageThreadId,
-      userId,
-      targetUserId: scheduler.getTargetUserId()
+      userId
     }, '🔘 Нажата кнопка пропуска первого задания');
     
-    if (messageId && chatId) {
-      // Используем adminChatId для поиска сессии (как она была создана)
-      await scheduler.handleSkipNegative(adminChatId, messageId, chatId, messageThreadId);
-    } else {
-      botLogger.error({ messageId, chatId }, 'Отсутствуют необходимые данные для обработки кнопки');
-    }
-  } catch (error) {
-    botLogger.error({ error: (error as Error).message, stack: (error as Error).stack }, 'Ошибка обработки кнопки пропуска');
-    // Не отправляем повторно answerCbQuery, так как уже ответили
-  }
-});
-
-// Обработчик кнопки "Сделал" для практики
-bot.action(/practice_done_(\d+)/, async ctx => {
-  botLogger.info({ 
-    action: 'practice_done',
-    match: ctx.match,
-    callbackData: 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined,
-    fromId: ctx.from?.id,
-    chatId: ctx.chat?.id 
-  }, '🎯 Вызван обработчик practice_done');
-  
-  try {
-    const userId = parseInt(ctx.match![1]);
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    // Получаем данные поста из БД
+    const { getInteractivePost, updateTaskStatus, escapeHTML } = await import('./db');
+    const post = getInteractivePost(channelMessageId);
     
-    botLogger.info({ 
-      userId, 
-      adminChatId,
-      fromId: ctx.from?.id,
-      chatId: ctx.chat?.id 
-    }, '🎯 Обработка кнопки practice_done');
-    
-    await ctx.answerCbQuery('🎉 Отлично! Ты молодец!');
-    
-    // Ищем сессию по adminChatId (как она создавалась) или по userId
-    const session = scheduler.getInteractiveSession(adminChatId) || scheduler.getInteractiveSession(userId);
-    if (!session) {
-      botLogger.warn({ userId, adminChatId }, 'Сессия не найдена для practice_done');
+    if (!post) {
+      botLogger.error({ channelMessageId }, 'Пост не найден в БД');
       return;
     }
     
-    // Пробуем сгенерировать через LLM
-    let congratsMessage: string;
-    try {
-      congratsMessage = await scheduler.generateSimpleMessage('practice-completed', {
-        userName: ctx.from?.first_name || 'друг',
-        gender: 'unknown'
-      });
-      
-      botLogger.info({ 
-        generatedMessage: congratsMessage,
-        length: congratsMessage.length 
-      }, '🤖 LLM сгенерировал поздравление');
-      
-    } catch (error) {
-      botLogger.warn({ error: (error as Error).message }, '⚠️ Ошибка генерации, используем fallback');
-      
-      // Fallback сообщения
-      const fallbacks = [
-        'Ты молодец! 🌟 Сегодня мы отлично поработали вместе.',
-        'Отличная работа! 💚 Ты заботишься о себе, и это прекрасно.',
-        'Супер! ✨ Каждая практика делает тебя сильнее.',
-        'Великолепно! 🌈 Ты сделал важный шаг для своего благополучия.',
-        'Ты справился! 🎯 На сегодня все задания выполнены.',
-        'Ты молодец! 🌙 Пора отдыхать.',
-        'Я горжусь тобой! 💫 Ты сделал отличную работу.',
-        'Отлично! 🌿 Все задания на сегодня завершены.',
-        'Прекрасная работа! 🎉 Теперь можно расслабиться.'
-      ];
-      congratsMessage = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    // Отмечаем первое задание как пропущенное
+    updateTaskStatus(channelMessageId, 1, true);
+    
+    // Отправляем плюшки (второе задание)
+    let plushkiText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+    if (post.message_data?.positive_part?.additional_text) {
+      plushkiText += `\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
     
-    botLogger.info({ 
-      congratsMessage,
-      chatId: ctx.chat?.id,
-      messageId: ctx.callbackQuery.message?.message_id 
-    }, '📤 Отправка поздравления');
-    
-    // В группах с комментариями используем только reply_to_message_id
-    const sendOptions: any = {
+    await bot.telegram.sendMessage(chatId!, plushkiText, {
       parse_mode: 'HTML',
-      reply_to_message_id: ctx.callbackQuery.message?.message_id
-    };
+      reply_parameters: {
+        message_id: messageId!
+      }
+    });
+    
+    botLogger.info({ channelMessageId }, '✅ Плюшки отправлены после пропуска');
+    
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка обработки кнопки пропуска');
+  }
+});
+
+// Старый обработчик для обратной совместимости
+bot.action('daily_skip_negative', async ctx => {
+  await ctx.answerCbQuery('Эта кнопка устарела. Используйте новый пост.');
+});
+
+// Обработчик кнопки "Сделал" для практики - новый формат
+bot.action(/pract_done_(\d+)/, async ctx => {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+    
+    await ctx.answerCbQuery('🎉 Отлично! Ты молодец!');
+    
+    botLogger.info({ 
+      action: 'pract_done',
+      channelMessageId,
+      userId,
+      chatId: ctx.chat?.id 
+    }, '🎯 Обработка кнопки practice_done');
+    
+    // Получаем данные из БД
+    const { getInteractivePost, updateTaskStatus, setTrophyStatus } = await import('./db');
+    const post = getInteractivePost(channelMessageId);
+    
+    if (!post) {
+      botLogger.error({ channelMessageId }, 'Пост не найден в БД для practice_done');
+      return;
+    }
+    
+    // Отмечаем третье задание выполненным
+    updateTaskStatus(channelMessageId, 3, true);
+    
+    // Fallback сообщения поздравления
+    const fallbacks = [
+      'Ты молодец! 🌟 Сегодня мы отлично поработали вместе.',
+      'Отличная работа! 💚 Ты заботишься о себе, и это прекрасно.',
+      'Супер! ✨ Каждая практика делает тебя сильнее.',
+      'Великолепно! 🌈 Ты сделал важный шаг для своего благополучия.',
+      'Ты справился! 🎯 На сегодня все задания выполнены.',
+      'Ты молодец! 🌙 Пора отдыхать.',
+      'Я горжусь тобой! 💫 Ты сделал отличную работу.',
+      'Отлично! 🌿 Все задания на сегодня завершены.',
+      'Прекрасная работа! 🎉 Теперь можно расслабиться.'
+    ];
+    const congratsMessage = fallbacks[Math.floor(Math.random() * fallbacks.length)];
     
     await ctx.telegram.sendMessage(
       ctx.chat!.id, 
       congratsMessage,
-      sendOptions
+      {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.callbackQuery.message!.message_id
+        }
+      }
     );
     
-    botLogger.info({ userId }, '✅ Поздравление отправлено');
-    
     // Добавляем реакцию трофея к посту в канале
-    if (session.channelMessageId) {
+    if (!post.trophy_set) {
       try {
         await ctx.telegram.setMessageReaction(
           scheduler.CHANNEL_ID,
-          session.channelMessageId,
+          channelMessageId,
           [{ type: 'emoji', emoji: '🏆' }]
         );
+        
+        // Отмечаем в БД что трофей установлен
+        setTrophyStatus(channelMessageId, true);
+        
         botLogger.info({ 
-          channelMessageId: session.channelMessageId,
+          channelMessageId,
           channelId: scheduler.CHANNEL_ID 
         }, '🏆 Добавлена реакция трофея к посту в канале');
       } catch (error) {
         botLogger.error({ 
           error: (error as Error).message,
-          channelMessageId: session.channelMessageId,
+          channelMessageId,
           channelId: scheduler.CHANNEL_ID
         }, '❌ Ошибка добавления реакции к посту');
       }
     }
     
-    // Завершаем сессию
-    session.practiceCompleted = true;
-    session.currentStep = 'finished';
-    
-    // Удаляем сессию через небольшую задержку
-    setTimeout(() => {
-      scheduler.getInteractiveSession(adminChatId) && scheduler.deleteInteractiveSession(adminChatId);
-      scheduler.getInteractiveSession(userId) && scheduler.deleteInteractiveSession(userId);
-    }, 1000);
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки practice_done');
   }
+});
+
+// Старый обработчик для обратной совместимости
+bot.action(/practice_done_(\d+)/, async ctx => {
+  await ctx.answerCbQuery('Эта кнопка устарела. Используйте новый пост.');
 });
 
 // Обработчик кнопки "Отложить на 1 час"
