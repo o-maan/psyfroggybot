@@ -388,6 +388,7 @@ export const getUserIncompletePosts = (userId: number) => {
   });
 };
 
+
 // Функция для экранирования HTML
 export function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
