@@ -2125,11 +2125,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           const msgQuery = db.db.query(`
             SELECT m.* FROM messages m
             JOIN users u ON m.user_id = u.id
-            WHERE u.chat_id = ? AND m.author_id = u.id
+            WHERE u.chat_id = ? AND m.author_id = ?
             ORDER BY m.sent_time DESC
             LIMIT 1
           `);
-          const lastUserMsg = msgQuery.get(userId) as any;
+          const lastUserMsg = msgQuery.get(userId, userId) as any;
           
           schedulerLogger.debug({
             userId,
@@ -2192,6 +2192,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     chatId: number,
     channelMessageId: number
   ) {
+    // Определяем правильный chat_id для отправки
+    // Для основного пользователя всегда используем основную группу
+    if (userId === 5153477378) {
+      chatId = -1002496122257; // Основная группа
+    }
     try {
       const { updateTaskStatus } = await import('./db');
       
