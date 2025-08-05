@@ -221,6 +221,8 @@ Required variables in `.env`:
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: OAuth credentials
 - `NODE_ENV`: Environment mode (affects database path)
 - `ANGRY_POST_DELAY_MINUTES`: Delay before checking user responses (default: 600)
+- `PORT`: Express server port (default: 3000)
+- `DEPLOY_WEBHOOK_SECRET`: Secret key for deploy webhook authentication
 
 ### Deployment
 
