@@ -1997,14 +1997,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        // Для ответов в треде используем messageThreadId
-        if (messageThreadId) {
-          sendOptions.message_thread_id = messageThreadId;
+        // Для ответов в треде используем channelMessageId как thread_id
+        if (channelMessageId) {
+          sendOptions.message_thread_id = channelMessageId;
           schedulerLogger.info({ 
             messageThreadId,
-            channelMessageId: session.channelMessageId,
+            channelMessageId,
             replyToChatId 
-          }, 'Используем message_thread_id для ответа в треде');
+          }, 'Используем channel_message_id как message_thread_id для ответа в треде');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
@@ -2048,14 +2048,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           reply_markup: practiceKeyboard
         };
         
-        // Для ответов в треде используем messageThreadId
-        if (messageThreadId) {
-          finalOptions.message_thread_id = messageThreadId;
+        // Для ответов в треде используем channelMessageId как thread_id
+        if (channelMessageId) {
+          finalOptions.message_thread_id = channelMessageId;
           schedulerLogger.info({ 
             messageThreadId,
-            channelMessageId: session.channelMessageId,
+            channelMessageId,
             replyToChatId 
-          }, 'Используем message_thread_id для финального сообщения в треде');
+          }, 'Используем channel_message_id как message_thread_id для финального сообщения в треде');
         }
         
         await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
