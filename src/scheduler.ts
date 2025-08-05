@@ -76,10 +76,12 @@ export class Scheduler {
     // Инициализируем расписание для всех ботов
     this.initializeDailySchedule();
     
-    // Проверяем незавершенные задания после запуска
-    setTimeout(() => {
-      this.checkUncompletedTasks();
-    }, 5000); // Через 5 секунд после запуска
+    // Проверяем незавершенные задания после запуска только для тестового бота
+    if (this.isTestBot()) {
+      setTimeout(() => {
+        this.checkUncompletedTasks();
+      }, 5000); // Через 5 секунд после запуска
+    }
   }
 
   // Геттер для получения сервиса календаря (для тестирования)
@@ -1943,6 +1945,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       channelMessageId = activePost.channel_message_id;
     }
     
+    
     // Создаем объект session из данных БД для обратной совместимости
     const session = {
       messageData: activePost.message_data,
@@ -2066,6 +2069,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
 
 
+
   // Проверка незавершенных заданий после запуска бота
   private async checkUncompletedTasks() {
     try {
@@ -2131,6 +2135,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             const CHAT_ID = this.getChatId();
             if (CHAT_ID) {
               await this.sendPendingResponse(userId, post, currentStep, CHAT_ID, channelMessageId);
+              
+              // Добавляем задержку между отправками, чтобы не перегрузить API
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
         } catch (error) {
