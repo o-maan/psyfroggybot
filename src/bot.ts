@@ -1841,6 +1841,17 @@ bot.on('text', async ctx => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id || 0;
   
+  // Логируем ВСЕ текстовые сообщения для отладки
+  botLogger.info({
+    message: message.substring(0, 100),
+    chatId,
+    userId,
+    chatType: ctx.chat.type,
+    messageThreadId: (ctx.message as any).message_thread_id,
+    isBot: ctx.from?.is_bot,
+    timestamp: new Date().toISOString()
+  }, '📨 Получено текстовое сообщение');
+  
   // Пропускаем команды - они обрабатываются отдельными обработчиками
   if (message.startsWith('/')) {
     return;

@@ -24,6 +24,8 @@ DEPLOY_WEBHOOK_SECRET=your-very-secret-key-here
 3. Name: `DEPLOY_WEBHOOK_SECRET`
 4. Value: тот же секрет, что в .env
 
+Важно: Убедитесь, что на сервере в .env установлен такой же DEPLOY_WEBHOOK_SECRET!
+
 ## 4. Убедитесь, что webhook доступен:
 
 Express сервер запускается на порту из переменной PORT (по умолчанию 3000).

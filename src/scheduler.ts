@@ -1077,12 +1077,13 @@ export class Scheduler {
 
       // Сохраняем сообщение в БД
       const startTime = new Date().toISOString();
-      const targetUserId = this.getTargetUserId();
       saveMessage(chatId, captionWithComment, startTime);
       
       // Сохраняем интерактивный пост в БД для надежности
       const { saveInteractivePost } = await import('./db');
-      saveInteractivePost(messageId, targetUserId, json, relaxationType);
+      // ВСЕГДА используем 5153477378 для основного канала, независимо от бота!
+      const postUserId = this.isTestBot() && this.CHANNEL_ID === -1002846400650 ? 476561547 : 5153477378;
+      saveInteractivePost(messageId, postUserId, json, relaxationType);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
@@ -1906,14 +1907,30 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     
     if (messageThreadId) {
       // Пробуем найти пост по messageThreadId
+      schedulerLogger.debug({
+        messageThreadId,
+        userId,
+        messageText: messageText.substring(0, 50)
+      }, 'Ищем пост по messageThreadId');
+      
       activePost = getInteractivePost(messageThreadId);
       if (activePost) {
         channelMessageId = messageThreadId;
         schedulerLogger.info({ 
           userId, 
           channelMessageId,
-          foundByThreadId: true
+          foundByThreadId: true,
+          postData: {
+            task1: activePost.task1_completed,
+            task2: activePost.task2_completed,
+            task3: activePost.task3_completed
+          }
         }, 'Найден пост по messageThreadId');
+      } else {
+        schedulerLogger.warn({
+          messageThreadId,
+          userId
+        }, 'Пост НЕ найден по messageThreadId');
       }
     }
     
@@ -2083,7 +2100,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       const incompletePosts = query.all() as any[];
       
       schedulerLogger.info({ 
-        count: incompletePosts.length 
+        count: incompletePosts.length,
+        posts: incompletePosts.map(p => ({
+          channelMessageId: p.channel_message_id,
+          userId: p.user_id,
+          task1: p.task1_completed,
+          task2: p.task2_completed,
+          task3: p.task3_completed,
+          created: p.created_at
+        }))
       }, `Найдено ${incompletePosts.length} незавершенных постов за последние 7 дней`);
       
       for (const post of incompletePosts) {
@@ -2098,14 +2123,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           
           // Получаем последнее сообщение пользователя из БД напрямую
           const msgQuery = db.db.query(`
-            SELECT * FROM messages
-            WHERE chat_id = ? AND author_id = ?
-            ORDER BY sent_time DESC
+            SELECT m.* FROM messages m
+            JOIN users u ON m.user_id = u.id
+            WHERE u.chat_id = ? AND m.author_id = u.id
+            ORDER BY m.sent_time DESC
             LIMIT 1
           `);
-          const lastUserMsg = msgQuery.get(userId, userId) as any;
+          const lastUserMsg = msgQuery.get(userId) as any;
+          
+          schedulerLogger.debug({
+            userId,
+            channelMessageId,
+            lastUserMsg: lastUserMsg ? {
+              text: lastUserMsg.message_text?.substring(0, 50),
+              time: lastUserMsg.sent_time
+            } : null
+          }, 'Результат поиска последнего сообщения');
           
           if (!lastUserMsg) {
+            schedulerLogger.debug({ userId }, 'Пользователь еще не писал - пропускаем');
             continue; // Пользователь еще не писал
           }
           
