@@ -128,8 +128,6 @@ jobs:
         run: |
           sleep 10  # Ждем 10 секунд пока бот полностью запустится
           curl -X POST https://invntrm.ru/webhook/deploy \
-            -H "Content-Type: application/json" \
-            -d '{"secret": "${{ secrets.DEPLOY_WEBHOOK_SECRET }}"}' \
             --max-time 30 \
             || echo "⚠️ Webhook не ответил, но деплой успешен"
 

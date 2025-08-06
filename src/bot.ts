@@ -2398,15 +2398,6 @@ app.use(express.json());
 // Webhook endpoint для вызова после деплоя
 app.post('/webhook/deploy', async (req: Request, res: Response) => {
   try {
-    const { secret } = req.body;
-    
-    // Проверка секретного ключа
-    const expectedSecret = process.env.DEPLOY_WEBHOOK_SECRET || 'default-secret-change-me';
-    if (secret !== expectedSecret) {
-      logger.warn('❌ Неверный секретный ключ для webhook деплоя');
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    
     logger.info('🚀 Получен webhook о деплое, запускаем проверку незавершенных заданий...');
     
     // Вызываем проверку незавершенных заданий
