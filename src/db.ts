@@ -626,3 +626,104 @@ export const getLogsStatistics = () => {
     unread_count: number;
   }[];
 };
+
+// ============= НОВЫЕ ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ID СООБЩЕНИЙ =============
+
+// Обновить состояние интерактивного поста
+export const updateInteractivePostState = (
+  channelMessageId: number, 
+  state: string,
+  messageIds?: {
+    bot_task1_message_id?: number;
+    bot_schema_message_id?: number;
+    bot_task2_message_id?: number;
+    bot_task3_message_id?: number;
+    user_task1_message_id?: number;
+    user_schema_message_id?: number;
+    user_task2_message_id?: number;
+  }
+) => {
+  let setClause = 'current_state = ?, last_interaction_at = datetime("now")';
+  const params: any[] = [state];
+  
+  // Добавляем ID сообщений если они переданы
+  if (messageIds) {
+    const fields: string[] = [];
+    Object.entries(messageIds).forEach(([key, value]) => {
+      if (value !== undefined) {
+        fields.push(`${key} = ?`);
+        params.push(value);
+      }
+    });
+    if (fields.length > 0) {
+      setClause += ', ' + fields.join(', ');
+    }
+  }
+  
+  params.push(channelMessageId);
+  
+  const update = db.query(`
+    UPDATE interactive_posts
+    SET ${setClause}
+    WHERE channel_message_id = ?
+  `);
+  
+  update.run(...params);
+};
+
+// Получить пост по ID сообщения пользователя
+export const getInteractivePostByUserMessage = (userMessageId: number) => {
+  const get = db.query(`
+    SELECT * FROM interactive_posts
+    WHERE user_task1_message_id = ?
+       OR user_schema_message_id = ?
+       OR user_task2_message_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  
+  const row = get.get(userMessageId, userMessageId, userMessageId) as any;
+  if (row && row.message_data) {
+    row.message_data = JSON.parse(row.message_data);
+  }
+  return row;
+};
+
+// Получить пост по ID сообщения бота
+export const getInteractivePostByBotMessage = (botMessageId: number) => {
+  const get = db.query(`
+    SELECT * FROM interactive_posts
+    WHERE bot_task1_message_id = ?
+       OR bot_schema_message_id = ?
+       OR bot_task2_message_id = ?
+       OR bot_task3_message_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  
+  const row = get.get(botMessageId, botMessageId, botMessageId, botMessageId) as any;
+  if (row && row.message_data) {
+    row.message_data = JSON.parse(row.message_data);
+  }
+  return row;
+};
+
+// Получить незавершенные посты с учетом текущего состояния
+export const getUncompletedPostsWithState = () => {
+  const get = db.query(`
+    SELECT ip.*, u.chat_id as user_chat_id
+    FROM interactive_posts ip
+    JOIN users u ON ip.user_id = u.chat_id
+    WHERE current_state != 'completed'
+    AND ip.created_at > datetime('now', '-7 days')
+    ORDER BY ip.created_at DESC
+  `);
+  
+  const rows = get.all() as any[];
+  return rows.map(row => {
+    if (row.message_data) {
+      row.message_data = JSON.parse(row.message_data);
+    }
+    return row;
+  });
+};

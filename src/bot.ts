@@ -42,6 +42,15 @@ logger.info({
 // Создаем экземпляр бота
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
 
+// Импортируем функции отслеживания
+import { trackIncomingMessage, wrapTelegramApi } from './message-handler.ts';
+
+// Оборачиваем API для отслеживания всех сообщений
+wrapTelegramApi(bot);
+
+// Добавляем middleware для отслеживания входящих сообщений
+bot.use(trackIncomingMessage);
+
 // Отладка всех обновлений
 bot.use(async (ctx, next) => {
   const logData: any = {
@@ -279,6 +288,69 @@ bot.command('test', async ctx => {
   // Отправляем в канал только если не превышен лимит
   if (message.length <= 1024) {
     await scheduler.sendDailyMessage(fromId);
+  }
+});
+
+// Команда для тестирования универсального отслеживания сообщений
+bot.command('test_tracking', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+
+  try {
+    const { db } = await import('./db');
+    
+    // Получаем последние записи из таблицы message_links
+    const query = db.query(`
+      SELECT * FROM message_links
+      ORDER BY created_at DESC
+      LIMIT 10
+    `);
+    
+    const links = query.all() as any[];
+    
+    let message = `🔍 <b>ТЕСТ УНИВЕРСАЛЬНОГО ОТСЛЕЖИВАНИЯ</b>\n\n`;
+    message += `📊 Последние 10 записей в message_links:\n\n`;
+    
+    if (links.length === 0) {
+      message += `<i>Таблица пуста. Отправьте несколько сообщений для тестирования.</i>\n`;
+    } else {
+      links.forEach((link, i) => {
+        const createdAt = new Date(link.created_at).toLocaleString('ru-RU', {
+          timeZone: 'Europe/Moscow',
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        
+        message += `${i + 1}. <b>${link.message_type}</b>\n`;
+        message += `   📝 ID сообщения: ${link.message_id}\n`;
+        message += `   📍 ID поста: ${link.channel_message_id}\n`;
+        message += `   👤 User ID: ${link.user_id || 'бот'}\n`;
+        if (link.reply_to_message_id) {
+          message += `   ↩️ Ответ на: ${link.reply_to_message_id}\n`;
+        }
+        if (link.message_thread_id) {
+          message += `   🧵 Thread ID: ${link.message_thread_id}\n`;
+        }
+        message += `   🕐 Время: ${createdAt}\n\n`;
+      });
+    }
+    
+    message += `\n💡 <i>Система автоматически отслеживает все входящие и исходящие сообщения</i>`;
+    
+    await ctx.reply(message, { parse_mode: 'HTML' });
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ error: err.message, stack: err.stack }, 'Ошибка команды /test_tracking');
+    await ctx.reply(`❌ Ошибка: ${err.message}`);
   }
 });
 
@@ -2520,6 +2592,18 @@ clearPendingUpdates()
         'practice_postpone_*'
       ]
     }, '📋 Зарегистрированные обработчики кнопок');
+    
+    // Запускаем проверку незавершенных заданий через 5 секунд после старта
+    // Даем время боту полностью инициализироваться
+    setTimeout(async () => {
+      logger.info('🔍 Запуск проверки незавершенных заданий после старта бота...');
+      try {
+        await scheduler.checkUncompletedTasks();
+        logger.info('✅ Проверка незавершенных заданий выполнена');
+      } catch (error) {
+        logger.error({ error: (error as Error).message }, '❌ Ошибка проверки незавершенных заданий после старта');
+      }
+    }, 5000);
   })
   .catch(error => {
     logger.error({ error: error.message, stack: error.stack }, '❌ Ошибка запуска бота');
