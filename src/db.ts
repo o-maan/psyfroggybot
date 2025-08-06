@@ -394,6 +394,26 @@ export function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Сохранить маппинг треда
+export const saveThreadMapping = (channelMessageId: number, threadId: number) => {
+  const save = db.query(`
+    INSERT OR REPLACE INTO thread_mappings (channel_message_id, thread_id)
+    VALUES (?, ?)
+  `);
+  save.run(channelMessageId, threadId);
+  databaseLogger.info({ channelMessageId, threadId }, 'Сохранен маппинг треда');
+};
+
+// Получить channel_message_id по thread_id
+export const getChannelMessageIdByThreadId = (threadId: number) => {
+  const get = db.query(`
+    SELECT channel_message_id FROM thread_mappings
+    WHERE thread_id = ?
+  `);
+  const row = get.get(threadId) as any;
+  return row?.channel_message_id || null;
+};
+
 // Получить всех пользователей
 export const getAllUsers = () => {
   const getUsers = db.query(`

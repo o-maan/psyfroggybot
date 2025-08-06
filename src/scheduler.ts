@@ -159,6 +159,11 @@ export class Scheduler {
   // Сохранить ID пересланного сообщения
   saveForwardedMessage(channelMessageId: number, discussionMessageId: number) {
     this.forwardedMessages.set(channelMessageId, discussionMessageId);
+    
+    // Сохраняем маппинг в БД
+    const { saveThreadMapping } = require('./db');
+    saveThreadMapping(channelMessageId, discussionMessageId);
+    
     schedulerLogger.debug({ 
       channelMessageId, 
       discussionMessageId 
@@ -1173,6 +1178,7 @@ export class Scheduler {
       
       if (forwardedMessageId) {
         // Отправляем как комментарий к посту
+        // В Telegram для комментариев используется reply_to_message_id
         messageOptions.reply_to_message_id = forwardedMessageId;
         
         const firstTaskMessage = await this.bot.telegram.sendMessage(
@@ -1906,31 +1912,71 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     let channelMessageId = null;
     
     if (messageThreadId) {
-      // Пробуем найти пост по messageThreadId
+      // В тестовом канале messageThreadId - это ID пересланного сообщения
+      // Нужно найти соответствующий пост через маппинг
       schedulerLogger.debug({
         messageThreadId,
         userId,
         messageText: messageText.substring(0, 50)
       }, 'Ищем пост по messageThreadId');
       
-      activePost = getInteractivePost(messageThreadId);
-      if (activePost) {
-        channelMessageId = messageThreadId;
-        schedulerLogger.info({ 
-          userId, 
-          channelMessageId,
-          foundByThreadId: true,
-          postData: {
-            task1: activePost.task1_completed,
-            task2: activePost.task2_completed,
-            task3: activePost.task3_completed
-          }
-        }, 'Найден пост по messageThreadId');
-      } else {
-        schedulerLogger.warn({
-          messageThreadId,
-          userId
-        }, 'Пост НЕ найден по messageThreadId');
+      // Сначала пробуем найти channelMessageId через маппинг пересланных сообщений
+      let mappedChannelId = null;
+      
+      // Сначала проверяем в памяти
+      for (const [channelId, forwardedId] of this.forwardedMessages.entries()) {
+        if (forwardedId === messageThreadId) {
+          mappedChannelId = channelId;
+          break;
+        }
+      }
+      
+      // Если не нашли в памяти, проверяем в БД
+      if (!mappedChannelId) {
+        const { getChannelMessageIdByThreadId } = require('./db');
+        mappedChannelId = getChannelMessageIdByThreadId(messageThreadId);
+      }
+      
+      if (mappedChannelId) {
+        activePost = getInteractivePost(mappedChannelId);
+        if (activePost) {
+          channelMessageId = mappedChannelId;
+          schedulerLogger.info({ 
+            userId, 
+            channelMessageId,
+            messageThreadId,
+            foundByMapping: true,
+            postData: {
+              task1: activePost.task1_completed,
+              task2: activePost.task2_completed,
+              task3: activePost.task3_completed
+            }
+          }, 'Найден пост через маппинг пересланных сообщений');
+        }
+      }
+      
+      // Если не нашли через маппинг, пробуем напрямую
+      if (!activePost) {
+        activePost = getInteractivePost(messageThreadId);
+        if (activePost) {
+          channelMessageId = messageThreadId;
+          schedulerLogger.info({ 
+            userId, 
+            channelMessageId,
+            foundByThreadId: true,
+            postData: {
+              task1: activePost.task1_completed,
+              task2: activePost.task2_completed,
+              task3: activePost.task3_completed
+            }
+          }, 'Найден пост по messageThreadId напрямую');
+        } else {
+          schedulerLogger.warn({
+            messageThreadId,
+            userId,
+            mappedChannelId
+          }, 'Пост НЕ найден ни через маппинг, ни напрямую');
+        }
       }
     }
     
@@ -1985,11 +2031,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Отмечаем первое задание как выполненное
         updateTaskStatus(channelMessageId, 1, true);
         
-        // Отправляем слова поддержки + плюшки
-        const supportText = this.getRandomSupportText();
-        const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
+        // Отправляем схему разбора ситуации
+        const responseText = `Давай разложим самую беспокоящую ситуацию по схеме: Триггер - мысли - чувства - тело - действия`;
         
-        // Отправляем ответ в чат
         const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
@@ -1997,18 +2041,38 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        // Для ответов в треде используем channelMessageId как thread_id
-        if (channelMessageId) {
-          sendOptions.message_thread_id = channelMessageId;
-          schedulerLogger.info({ 
-            messageThreadId,
-            channelMessageId,
-            replyToChatId 
-          }, 'Используем channel_message_id как message_thread_id для ответа в треде');
-        }
+        await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
+        saveMessage(userId, responseText, new Date().toISOString(), 0);
+        
+        // Обновляем состояние сессии - ждем разбор по схеме
+        session.currentStep = 'waiting_schema';
+        return true;
+        
+      } else if (session.currentStep === 'waiting_schema') {
+        // Пользователь ответил на схему разбора
+        schedulerLogger.info({ 
+          userId,
+          channelMessageId,
+          messageText: messageText.substring(0, 50)
+        }, 'Получен ответ на схему разбора');
+        
+        // Отправляем слова поддержки + плюшки
+        const supportText = this.getRandomSupportText();
+        const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
+        
+        const sendOptions: any = {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId
+          }
+        };
         
         await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
         saveMessage(userId, responseText, new Date().toISOString(), 0);
+        
+        // Обновляем состояние - теперь ждем плюшки
+        session.currentStep = 'waiting_positive';
+        return true;
         
       } else if (session.currentStep === 'waiting_positive') {
         // Ответ на плюшки - отправляем финальную часть
@@ -2048,15 +2112,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           reply_markup: practiceKeyboard
         };
         
-        // Для ответов в треде используем channelMessageId как thread_id
-        if (channelMessageId) {
-          finalOptions.message_thread_id = channelMessageId;
-          schedulerLogger.info({ 
-            messageThreadId,
-            channelMessageId,
-            replyToChatId 
-          }, 'Используем channel_message_id как message_thread_id для финального сообщения в треде');
-        }
+        // Для обычных групп с комментариями не нужен message_thread_id
+        // Используем только reply_to_message_id который уже установлен выше
         
         await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
@@ -2197,6 +2254,29 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     if (userId === 5153477378) {
       chatId = -1002496122257; // Основная группа
     }
+    
+    // Получаем ID пересланного сообщения для правильной отправки в тред
+    let threadId: number | undefined;
+    
+    // Сначала проверяем в памяти
+    threadId = this.forwardedMessages.get(channelMessageId);
+    
+    // Если не нашли в памяти, проверяем в БД
+    if (!threadId) {
+      const { db } = await import('./db');
+      const row = db.query('SELECT thread_id FROM thread_mappings WHERE channel_message_id = ?').get(channelMessageId) as any;
+      if (row?.thread_id) {
+        threadId = row.thread_id;
+      }
+    }
+    
+    if (!threadId) {
+      schedulerLogger.warn({ 
+        userId, 
+        channelMessageId 
+      }, '⚠️ Не найден thread_id для незавершенного задания, сообщение будет отправлено в общий чат');
+    }
+    
     try {
       const { updateTaskStatus } = await import('./db');
       
@@ -2205,14 +2285,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         const supportText = this.getRandomSupportText();
         const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(post.message_data)}`;
         
-        await this.bot.telegram.sendMessage(chatId, responseText, {
-          parse_mode: 'HTML',
-          message_thread_id: channelMessageId
-        });
+        const sendOptions: any = {
+          parse_mode: 'HTML'
+        };
+        
+        // Для комментариев к постам из канала не используем message_thread_id
+        // Сообщение будет отправлено как обычное сообщение в группу
+        
+        await this.bot.telegram.sendMessage(chatId, responseText, sendOptions);
         
         updateTaskStatus(channelMessageId, 1, true);
         
-        schedulerLogger.info({ userId, channelMessageId }, '✅ Отправлены плюшки для незавершенного задания');
+        schedulerLogger.info({ 
+          userId, 
+          channelMessageId,
+          threadId,
+          hasThread: !!threadId
+        }, '✅ Отправлены плюшки для незавершенного задания');
         
       } else if (currentStep === 'waiting_positive') {
         // Отправляем третье задание
@@ -2230,15 +2319,24 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           ]
         };
         
-        await this.bot.telegram.sendMessage(chatId, finalMessage, {
+        const sendOptions: any = {
           parse_mode: 'HTML',
-          message_thread_id: channelMessageId,
           reply_markup: practiceKeyboard
-        });
+        };
+        
+        // Для комментариев к постам из канала не используем message_thread_id
+        // Сообщение будет отправлено как обычное сообщение в группу
+        
+        await this.bot.telegram.sendMessage(chatId, finalMessage, sendOptions);
         
         updateTaskStatus(channelMessageId, 2, true);
         
-        schedulerLogger.info({ userId, channelMessageId }, '✅ Отправлено третье задание для незавершенного поста');
+        schedulerLogger.info({ 
+          userId, 
+          channelMessageId,
+          threadId,
+          hasThread: !!threadId
+        }, '✅ Отправлено третье задание для незавершенного поста');
       }
       
     } catch (error) {
