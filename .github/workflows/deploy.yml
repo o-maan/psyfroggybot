@@ -18,7 +18,7 @@ jobs:
           bun-version: "1.1.38"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       # Временно отключаем тесты в CI
       # - name: Run tests (если есть)
@@ -85,8 +85,8 @@ jobs:
             git fetch origin
             git reset --hard origin/main
 
-            # Установка зависимостей
-            bun install --frozen-lockfile
+            # Установка зависимостей (без frozen lockfile из-за разных версий Bun)
+            bun install
 
             # Запуск миграций
             bun run knex migrate:latest --knexfile knexfile.cjs
