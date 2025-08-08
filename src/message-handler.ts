@@ -27,11 +27,14 @@ function detectMessageType(text: string, options?: any): string {
   // Проверяем кнопки
   if (options?.reply_markup?.inline_keyboard) {
     const buttons = options.reply_markup.inline_keyboard.flat();
-    if (buttons.some(b => b.callback_data?.includes('pract_'))) {
+    if (buttons.some((b: any) => b.callback_data?.includes('pract_'))) {
       return 'task3';
     }
-    if (buttons.some(b => b.callback_data?.includes('skip_task'))) {
+    if (buttons.some((b: any) => b.callback_data?.includes('skip_task'))) {
       return 'task1';
+    }
+    if (buttons.some((b: any) => b.callback_data?.includes('skip_schema'))) {
+      return 'schema';
     }
   }
   

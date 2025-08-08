@@ -1198,7 +1198,7 @@ export class Scheduler {
         
         // Сохраняем ID первого сообщения в БД
         const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_task1', {
+        updateInteractivePostState(channelMessageId, 'waiting_negative', {
           bot_task1_message_id: firstTaskMessage.message_id
         });
         
@@ -1227,7 +1227,7 @@ export class Scheduler {
         
         // Сохраняем ID первого сообщения в БД
         const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_task1', {
+        updateInteractivePostState(channelMessageId, 'waiting_negative', {
           bot_task1_message_id: firstTaskMessage.message_id
         });
       }
@@ -1823,7 +1823,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
 
   // Построение второй части сообщения
-  private buildSecondPart(json: any): string {
+  public buildSecondPart(json: any): string {
     let message = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
     if (json.positive_part?.additional_text) {
       message += `\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
@@ -1880,7 +1880,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   }
 
   // Получить случайный текст поддержки
-  private getRandomSupportText(): string {
+  public getRandomSupportText(): string {
     const supportTexts = [
       'Спасибо, что поделился 💚',
       'Понимаю тебя 🤗',
@@ -1895,9 +1895,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   
   // Определяем текущий шаг на основе состояния задач в БД
   private determineCurrentStep(post: any): string {
+    // Приоритет у current_state из БД
+    if (post.current_state) {
+      return post.current_state;
+    }
+    
+    // Fallback логика для старых записей
     if (!post.task1_completed) {
-      // Если первое задание не выполнено - ждем ответа на негатив
-      return 'waiting_negative';
+      // Если первое задание не выполнено
+      if (post.bot_schema_message_id && !post.user_schema_message_id) {
+        // Если схема отправлена, но пользователь не ответил - ждем ответа на схему
+        return 'waiting_schema';
+      } else {
+        // Иначе ждем ответа на негатив
+        return 'waiting_negative';
+      }
     } else if (post.task1_completed && !post.task2_completed) {
       // Первое выполнено, второе нет - ждем ответа на плюшки
       return 'waiting_positive';
@@ -2047,12 +2059,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         });
         
         // Отправляем схему разбора ситуации
-        const responseText = `Давай разложим самую беспокоящую ситуацию по схеме: Триггер - мысли - чувства - тело - действия`;
+        const responseText = `Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:
+🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию`;
         
         const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
             message_id: messageId
+          },
+          reply_markup: {
+            inline_keyboard: [[
+              { text: 'Пропустить', callback_data: `skip_schema_${channelMessageId}` }
+            ]]
           }
         };
         
@@ -2108,7 +2126,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         session.currentStep = 'waiting_positive';
         return true;
         
-      } else if (session.currentStep === 'waiting_positive') {
+      } else if (session.currentStep === 'waiting_positive' || session.currentStep === 'waiting_task2') {
         // Ответ на плюшки - отправляем финальную часть
         schedulerLogger.info({ 
           userId,
@@ -2121,11 +2139,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         updateTaskStatus(channelMessageId, 2, true);
         
         let finalMessage = 'У нас остался последний шаг\n\n';
-        if (session.relaxationType === 'body') {
-          finalMessage += '3. <b>Расслабление тела</b>\nОт Ирины 👉🏻 clck.ru/3LmcNv 👈🏻 или свое';
-        } else {
-          finalMessage += '3. <b>Дыхательная практика</b>';
-        }
+        finalMessage += '3. <b>Дыхательная практика</b>';
 
         // Добавляем кнопки к заданию 3
         // Передаем channelMessageId в callback_data для надежности
@@ -2149,10 +2163,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
         
-        await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
+        const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
         // Сохраняем сообщение
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
+        
+        // Обновляем состояние в БД
+        const { updateInteractivePostState } = await import('./db');
+        updateInteractivePostState(channelMessageId, 'waiting_practice', {
+          bot_task3_message_id: task3Message.message_id,
+          user_task2_message_id: messageId
+        });
+        
+        // Обновляем состояние сессии
+        session.currentStep = 'waiting_practice';
+        return true;
         
       } else if (session.currentStep === 'waiting_practice') {
         // Пользователь написал что-то после получения задания с кнопками
@@ -2363,7 +2388,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       if (currentStep === 'waiting_negative') {
         // Пользователь уже ответил на первое задание, но бот не успел ответить
         // Отправляем схему разбора ситуации
-        const responseText = `Давай разложим самую беспокоящую ситуацию по схеме: Триггер - мысли - чувства - тело - действия`;
+        const responseText = `Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:
+🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию`;
         
         const sendOptions: any = {
           parse_mode: 'HTML'

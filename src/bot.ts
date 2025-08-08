@@ -573,6 +573,64 @@ bot.command('test_buttons', async ctx => {
 
 // Команда /skip удалена, теперь используются кнопки в комментариях
 
+// Тестовая команда для проверки кнопки skip_schema
+bot.command('test_schema', async ctx => {
+  const chatId = ctx.chat.id;
+  const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+  
+  // Проверяем, что команду выполняет админ
+  if (chatId !== adminChatId) {
+    await ctx.reply('❌ Эта команда доступна только администратору');
+    return;
+  }
+  
+  try {
+    // Создаем тестовый channelMessageId
+    const testChannelMessageId = Date.now();
+    
+    // Отправляем тестовое сообщение со схемой и кнопкой пропуска
+    const schemaText = `📝 <b>Тестовая схема разбора ситуации</b>
+
+Давай разложим самую беспокоящую ситуацию по схеме:
+
+1. <b>Ситуация</b> - что произошло?
+2. <b>Эмоции</b> - что я чувствую?
+3. <b>Мысли</b> - о чем думаю?
+4. <b>Действия</b> - что делаю или хочу сделать?
+
+<i>Это тестовое сообщение для проверки кнопки пропуска схемы.</i>`;
+    
+    await ctx.reply(schemaText, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: 'Пропустить', callback_data: `skip_schema_${testChannelMessageId}` }
+        ]]
+      }
+    });
+    
+    // Создаем тестовую запись в БД
+    const { db } = await import('./db');
+    db.run(`
+      INSERT OR REPLACE INTO interactive_posts 
+      (channel_message_id, user_id, created_at, task1_completed, task2_completed, task3_completed)
+      VALUES (?, ?, datetime('now'), 1, 0, 0)
+    `, [testChannelMessageId, chatId]);
+    
+    await ctx.reply(
+      `✅ Тестовая схема отправлена!\n\n` +
+      `Test Channel Message ID: <code>${testChannelMessageId}</code>\n\n` +
+      `Нажмите кнопку "Пропустить" для проверки обработчика.`,
+      { parse_mode: 'HTML' }
+    );
+    
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error({ error: err.message }, 'Ошибка команды /test_schema');
+    await ctx.reply(`❌ Ошибка: ${err.message}`);
+  }
+});
+
 // Обработка команды /calendar
 bot.command('calendar', async ctx => {
   const chatId = ctx.chat.id;
@@ -2265,6 +2323,7 @@ bot.action(/skip_neg_(\d+)/, async ctx => {
   }
 });
 
+
 // Старый обработчик для обратной совместимости
 bot.action('daily_skip_negative', async ctx => {
   await ctx.answerCbQuery('Эта кнопка устарела. Используйте новый пост.');
@@ -2585,6 +2644,12 @@ clearPendingUpdates()
     // Логируем зарегистрированные обработчики
     logger.info({
       handlers: [
+        'test_button_click',
+        'logs_*',
+        'skip_neg_*',
+        'skip_schema_*',
+        'pract_done_*',
+        'pract_delay_*',
         'callback_query (общий)',
         'daily_skip_all',
         'daily_skip_negative', 
@@ -2626,6 +2691,83 @@ if (adminChatId) {
       logger.error({ error: error.message, adminChatId }, 'Ошибка отправки уведомления админу о запуске');
     });
 }
+// Обработчик кнопки "Пропустить" для схемы разбора ситуации
+bot.action(/skip_schema_(\d+)/, async ctx => {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    await ctx.answerCbQuery('Переходим к плюшкам! 🌱', { show_alert: false });
+    
+    botLogger.info({ 
+      action: 'skip_schema',
+      channelMessageId,
+      userId: ctx.from?.id
+    }, 'Пользователь пропустил схему разбора');
+    
+    // Получаем данные о посте
+    const { getInteractivePost, updateInteractivePostState, updateTaskStatus } = await import('./db');
+    const post = getInteractivePost(channelMessageId);
+    
+    if (!post) {
+      botLogger.warn({ channelMessageId }, 'Пост не найден для skip_schema');
+      return;
+    }
+    
+    // Обновляем состояние - пропускаем схему и переходим к плюшкам
+    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+      user_schema_message_id: ctx.callbackQuery.message?.message_id
+    });
+    
+    // Отмечаем первое задание как выполненное (схема пропущена)
+    updateTaskStatus(channelMessageId, 1, true);
+    
+    // Получаем данные сообщения для генерации плюшек
+    const messageData = post.message_data;
+    
+    botLogger.debug({ 
+      channelMessageId,
+      hasMessageData: !!messageData,
+      messageDataKeys: messageData ? Object.keys(messageData) : [],
+      positivePartText: messageData?.positive_part?.additional_text
+    }, 'Данные для плюшек');
+    
+    // Отправляем слова поддержки + плюшки
+    const supportText = scheduler.getRandomSupportText();
+    const responseText = `<i>${supportText}</i>\n\n${scheduler.buildSecondPart(messageData)}`;
+    
+    const task2Message = await ctx.telegram.sendMessage(
+      ctx.chat!.id,
+      responseText,
+      {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.callbackQuery.message!.message_id
+        }
+      }
+    );
+    
+    // Сохраняем ID сообщения с плюшками
+    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+      bot_task2_message_id: task2Message.message_id
+    });
+    
+    // Сохраняем сообщение в историю
+    const { saveMessage } = await import('./db');
+    saveMessage(ctx.from!.id, responseText, new Date().toISOString(), 0);
+    
+    // Обновляем сессию, если она существует
+    const session = scheduler.getInteractiveSession(ctx.from!.id) || scheduler.getInteractiveSession(channelMessageId);
+    if (session) {
+      session.currentStep = 'waiting_positive';
+    }
+    
+    botLogger.info({ channelMessageId, userId: ctx.from?.id }, 'Схема пропущена, отправлены плюшки');
+    
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка обработки skip_schema');
+    await ctx.answerCbQuery('Произошла ошибка. Попробуйте еще раз.');
+  }
+});
+
 // Обработка завершения работы
 process.once('SIGINT', () => {
   logger.info('🛑 Telegram бот остановлен (SIGINT)');
