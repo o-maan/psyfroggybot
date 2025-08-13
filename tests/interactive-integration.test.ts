@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Scheduler } from '../src/scheduler';
 
 describe('Интеграционные тесты интерактивных ответов', () => {
@@ -41,32 +41,40 @@ describe('Интеграционные тесты интерактивных о�
   describe('determineCurrentStep', () => {
     it('должен правильно определять текущий шаг', () => {
       // Ничего не выполнено
-      expect(scheduler.determineCurrentStep({
-        task1_completed: false,
-        task2_completed: false,
-        task3_completed: false,
-      })).toBe('waiting_negative');
+      expect(
+        scheduler.determineCurrentStep({
+          task1_completed: false,
+          task2_completed: false,
+          task3_completed: false,
+        })
+      ).toBe('waiting_negative');
 
       // Первое выполнено
-      expect(scheduler.determineCurrentStep({
-        task1_completed: true,
-        task2_completed: false,
-        task3_completed: false,
-      })).toBe('waiting_positive');
+      expect(
+        scheduler.determineCurrentStep({
+          task1_completed: true,
+          task2_completed: false,
+          task3_completed: false,
+        })
+      ).toBe('waiting_positive');
 
       // Два выполнено
-      expect(scheduler.determineCurrentStep({
-        task1_completed: true,
-        task2_completed: true,
-        task3_completed: false,
-      })).toBe('waiting_practice');
+      expect(
+        scheduler.determineCurrentStep({
+          task1_completed: true,
+          task2_completed: true,
+          task3_completed: false,
+        })
+      ).toBe('waiting_practice');
 
       // Все выполнено
-      expect(scheduler.determineCurrentStep({
-        task1_completed: true,
-        task2_completed: true,
-        task3_completed: true,
-      })).toBe('finished');
+      expect(
+        scheduler.determineCurrentStep({
+          task1_completed: true,
+          task2_completed: true,
+          task3_completed: true,
+        })
+      ).toBe('finished');
     });
   });
 
@@ -80,20 +88,16 @@ describe('Интеграционные тесты интерактивных о�
         relaxation_type: 'breathing',
       };
 
-      await scheduler.sendPendingResponse(
-        5153477378,
-        mockPost,
-        'waiting_negative',
-        -1002496122257,
-        1000
-      );
+      await scheduler.sendPendingResponse(5153477378, mockPost, 'waiting_negative', -1002496122257, 1000);
 
       // Проверяем, что было отправлено сообщение
       expect(sentMessages.length).toBe(1);
-      
+
       const message = sentMessages[0];
       expect(message.type).toBe('text');
-      expect(message.text).toBe('Давай разложим самую беспокоящую ситуацию по схеме: Триггер - мысли - чувства - тело - действия');
+      expect(message.text).toBe(
+        'Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:\n🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию'
+      );
       expect(message.options.parse_mode).toBe('HTML');
     });
 
@@ -102,17 +106,11 @@ describe('Интеграционные тесты интерактивных о�
         relaxation_type: 'breathing',
       };
 
-      await scheduler.sendPendingResponse(
-        5153477378,
-        mockPost,
-        'waiting_positive',
-        -1002496122257,
-        1000
-      );
+      await scheduler.sendPendingResponse(5153477378, mockPost, 'waiting_positive', -1002496122257, 1000);
 
       // Проверяем, что было отправлено сообщение
       expect(sentMessages.length).toBe(1);
-      
+
       const message = sentMessages[0];
       expect(message.type).toBe('text');
       expect(message.text).toContain('У нас остался последний шаг');
@@ -126,13 +124,7 @@ describe('Интеграционные тесты интерактивных о�
         relaxation_type: 'body',
       };
 
-      await scheduler.sendPendingResponse(
-        5153477378,
-        mockPost,
-        'waiting_positive',
-        -1002496122257,
-        1000
-      );
+      await scheduler.sendPendingResponse(5153477378, mockPost, 'waiting_positive', -1002496122257, 1000);
 
       const message = sentMessages[0];
       expect(message.text).toContain('3. <b>Расслабление тела</b>');
@@ -145,12 +137,12 @@ describe('Интеграционные тесты интерактивных о�
       const messageData = {
         positive_part: {
           title: 'Плюшки для лягушки',
-          additional_text: 'Расскажи о чем-то хорошем'
-        }
+          additional_text: 'Расскажи о чем-то хорошем',
+        },
       };
 
       const result = scheduler.buildSecondPart(messageData);
-      
+
       expect(result).toContain('2. <b>Плюшки для лягушки</b>');
       expect(result).toContain('Расскажи о чем-то хорошем');
     });
@@ -165,7 +157,7 @@ describe('Интеграционные тесты интерактивных о�
         'Ты молодец, что проговариваешь это 🌱',
         'Твои чувства важны 💙',
         'Слышу тебя 🤍',
-        'Благодарю за доверие 🌿'
+        'Благодарю за доверие 🌿',
       ];
 
       const result = scheduler.getRandomSupportText();
@@ -182,13 +174,13 @@ describe('Интеграционные тесты интерактивных о�
         task2_completed: false,
         task3_completed: false,
         message_data: {
-          negative_part: { 
+          negative_part: {
             title: 'Выгрузка неприятных переживаний',
-            additional_text: 'Расскажи о том, что тебя беспокоит' 
+            additional_text: 'Расскажи о том, что тебя беспокоит',
           },
-          positive_part: { 
+          positive_part: {
             title: 'Плюшки для лягушки',
-            additional_text: 'Поделись чем-то хорошим' 
+            additional_text: 'Поделись чем-то хорошим',
           },
         },
         relaxation_type: 'breathing',
@@ -208,7 +200,9 @@ describe('Интеграционные тесты интерактивных о�
       );
 
       expect(sentMessages.length).toBe(1);
-      expect(sentMessages[0].text).toBe('Давай разложим самую беспокоящую ситуацию по схеме: Триггер - мысли - чувства - тело - действия');
+      expect(sentMessages[0].text).toBe(
+        'Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:\n🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию'
+      );
 
       // Шаг 2: Пользователь ответил на схему (симулируем обновление)
       mockPost.task1_completed = true;
