@@ -2292,7 +2292,7 @@ bot.action(/skip_neg_(\d+)/, async ctx => {
     }, '🔘 Нажата кнопка пропуска первого задания');
     
     // Получаем данные поста из БД
-    const { getInteractivePost, updateTaskStatus, escapeHTML } = await import('./db');
+    const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML } = await import('./db');
     const post = getInteractivePost(channelMessageId);
     
     if (!post) {
@@ -2309,11 +2309,16 @@ bot.action(/skip_neg_(\d+)/, async ctx => {
       plushkiText += `\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
     
-    await bot.telegram.sendMessage(chatId!, plushkiText, {
+    const plushkiMessage = await bot.telegram.sendMessage(chatId!, plushkiText, {
       parse_mode: 'HTML',
       reply_parameters: {
         message_id: messageId!
       }
+    });
+    
+    // Обновляем текущее состояние поста, чтобы НЕ отправлять схему после пропуска
+    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+      bot_task2_message_id: plushkiMessage.message_id
     });
     
     botLogger.info({ channelMessageId }, '✅ Плюшки отправлены после пропуска');
