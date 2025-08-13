@@ -50,20 +50,23 @@ export class Scheduler {
   private morningCheckCronJob: cron.ScheduledTask | null = null;
   private testModeCheckTimeout: NodeJS.Timeout | null = null;
   // Для хранения состояния интерактивных сессий
-  private interactiveSessions: Map<number, {
-    messageData: any;
-    relaxationType: 'body' | 'breathing';
-    currentStep: 'waiting_negative' | 'waiting_schema' | 'waiting_positive' | 'waiting_practice' | 'finished';
-    startTime: string;
-    messageId?: number;
-    channelMessageId?: number; // ID поста в канале для использования как thread_id
-    clarificationSent?: boolean;
-    schemaRequested?: boolean;
-    practiceCompleted?: boolean;
-    practicePostponed?: boolean;
-    postponedUntil?: number;
-  }> = new Map();
-  
+  private interactiveSessions: Map<
+    number,
+    {
+      messageData: any;
+      relaxationType: 'body' | 'breathing';
+      currentStep: 'waiting_negative' | 'waiting_schema' | 'waiting_positive' | 'waiting_practice' | 'finished';
+      startTime: string;
+      messageId?: number;
+      channelMessageId?: number; // ID поста в канале для использования как thread_id
+      clarificationSent?: boolean;
+      schemaRequested?: boolean;
+      practiceCompleted?: boolean;
+      practicePostponed?: boolean;
+      postponedUntil?: number;
+    }
+  > = new Map();
+
   // Для хранения ID пересланных сообщений
   private forwardedMessages: Map<number, number> = new Map(); // channelMessageId -> discussionMessageId
 
@@ -72,7 +75,7 @@ export class Scheduler {
     this.calendarService = calendarService;
     this.loadImages();
     this.loadUsers();
-    
+
     // Инициализируем расписание для всех ботов
     this.initializeDailySchedule();
   }
@@ -81,28 +84,28 @@ export class Scheduler {
   getCalendarService(): CalendarService {
     return this.calendarService;
   }
-  
+
   // Получить интерактивную сессию пользователя
   public getInteractiveSession(userId: number) {
     return this.interactiveSessions.get(userId);
   }
-  
+
   // Удалить интерактивную сессию
   public deleteInteractiveSession(userId: number) {
     this.interactiveSessions.delete(userId);
   }
-  
+
   // Получить экземпляр бота
   public getBot() {
     return this.bot;
   }
-  
+
   // Генерация простого сообщения через LLM
   public async generateSimpleMessage(promptName: string, context: any): Promise<string> {
     try {
       const promptPath = path.join(__dirname, '..', 'assets', 'prompts', `${promptName}.md`);
       let prompt = readFileSync(promptPath, 'utf-8');
-      
+
       // Заменяем плейсхолдеры в промпте
       if (context.userName) {
         prompt = prompt.replace(/\{\{userName\}\}/g, context.userName);
@@ -110,29 +113,37 @@ export class Scheduler {
       if (context.gender) {
         prompt = prompt.replace(/\{\{gender\}\}/g, context.gender);
       }
-      
+
       // Добавляем явную инструкцию для модели
       prompt = `ВАЖНО: Ответь ТОЛЬКО текстом поздравления на русском языке, без дополнительных комментариев. Текст должен быть КОРОТКИМ - максимум 2 предложения, как в примерах!\n\n${prompt}\n\nНапиши КОРОТКОЕ поздравление (не более 15 слов):`;
-      
+
       schedulerLogger.info({ promptName, promptLength: prompt.length }, 'Генерация простого сообщения');
-      
+
       const response = await generateMessage(prompt);
-      
+
       // Удаляем теги <think>...</think> из ответа
       const cleanedResponse = removeThinkTags(response);
-      
-      schedulerLogger.info({ 
-        promptName, 
-        responseLength: response.length,
-        cleanedLength: cleanedResponse.length,
-        response: cleanedResponse.substring(0, 100) 
-      }, 'Ответ от LLM получен');
-      
+
+      schedulerLogger.info(
+        {
+          promptName,
+          responseLength: response.length,
+          cleanedLength: cleanedResponse.length,
+          response: cleanedResponse.substring(0, 100),
+        },
+        'Ответ от LLM получен'
+      );
+
       // Если ответ слишком короткий, слишком длинный или это просто "Отлично", используем fallback
-      if (cleanedResponse.length < 20 || cleanedResponse.length > 150 || cleanedResponse.toLowerCase() === 'отлично' || cleanedResponse === 'HF_JSON_ERROR') {
+      if (
+        cleanedResponse.length < 20 ||
+        cleanedResponse.length > 150 ||
+        cleanedResponse.toLowerCase() === 'отлично' ||
+        cleanedResponse === 'HF_JSON_ERROR'
+      ) {
         throw new Error(`Неподходящий ответ от LLM: ${cleanedResponse.length} символов`);
       }
-      
+
       return cleanedResponse;
     } catch (error) {
       schedulerLogger.error({ error, promptName }, 'Ошибка генерации простого сообщения');
@@ -148,26 +159,29 @@ export class Scheduler {
           'Я горжусь тобой! 💫 Ты сделал отличную работу.',
           'Прекрасная работа! 🎉 Теперь можно расслабиться.',
           'Браво! 🌿 Все задания на сегодня завершены.',
-          'Замечательно! ⭐ Ты проявил заботу о себе.'
+          'Замечательно! ⭐ Ты проявил заботу о себе.',
         ];
         return fallbacks[Math.floor(Math.random() * fallbacks.length)];
       }
       return 'Отлично! 👍';
     }
   }
-  
+
   // Сохранить ID пересланного сообщения
   saveForwardedMessage(channelMessageId: number, discussionMessageId: number) {
     this.forwardedMessages.set(channelMessageId, discussionMessageId);
-    
+
     // Сохраняем маппинг в БД
     const { saveThreadMapping } = require('./db');
     saveThreadMapping(channelMessageId, discussionMessageId);
-    
-    schedulerLogger.debug({ 
-      channelMessageId, 
-      discussionMessageId 
-    }, 'Сохранен ID пересланного сообщения');
+
+    schedulerLogger.debug(
+      {
+        channelMessageId,
+        discussionMessageId,
+      },
+      'Сохранен ID пересланного сообщения'
+    );
   }
 
   // Определяем ID канала в зависимости от окружения
@@ -184,7 +198,17 @@ export class Scheduler {
     // Проверяем по переменной окружения NODE_ENV или по специальному флагу
     return process.env.NODE_ENV === 'test' || process.env.IS_TEST_BOT === 'true' || false;
   }
-  
+
+  // Получить ID основного пользователя из env (fallback: USER_ID или дефолт)
+  public getMainUserId(): number {
+    return Number(process.env.MAIN_USER_ID || process.env.USER_ID || 5153477378);
+  }
+
+  // Получить ID тестового пользователя из env (fallback: дефолт)
+  public getTestUserId(): number {
+    return Number(process.env.TEST_USER_ID || 476561547);
+  }
+
   // Получить ID группы обсуждений для текущего бота
   public getChatId(): number | null {
     if (this.isTestBot()) {
@@ -193,14 +217,15 @@ export class Scheduler {
     }
     return process.env.CHAT_ID ? Number(process.env.CHAT_ID) : null;
   }
-  
+
   // Получить ID целевого пользователя для проверки ответов
   public getTargetUserId(): number {
     if (this.isTestBot()) {
-      // Для тестового бота используем тестового пользователя
-      return 476561547; // Это должен быть ID пользователя, а не группы
+      // Для тестового бота используем тестового пользователя из env
+      return this.getTestUserId();
     }
-    return 5153477378; // Основной пользователь
+    // Для основного бота используем MAIN_USER_ID/USER_ID
+    return this.getMainUserId();
   }
 
   // Загрузить список картинок при старте
@@ -370,15 +395,15 @@ export class Scheduler {
     // if (Math.random() < 0.5) {
     //   parts.push(`${n++}. <b>Расслабление тела</b>\nОт Ирины 👉🏻 clck.ru/3LmcNv 👈🏻 или свое`);
     // } else {
-      parts.push(`${n++}. <b>Дыхательная практика</b>`);
+    parts.push(`${n++}. <b>Дыхательная практика</b>`);
     // }
 
     return parts.filter(Boolean).join('\n\n').trim();
   }
 
   // Новый метод для интерактивной генерации сообщения
-  private buildInteractiveMessage(json: any): { 
-    firstPart: string; 
+  private buildInteractiveMessage(json: any): {
+    firstPart: string;
     messageData: any;
     relaxationType: 'body' | 'breathing';
   } {
@@ -403,7 +428,7 @@ export class Scheduler {
     return {
       firstPart,
       messageData: json,
-      relaxationType
+      relaxationType,
     };
   }
 
@@ -683,7 +708,7 @@ export class Scheduler {
 
     // Определяем занятость пользователя через анализ календаря
     const busyStatus = await this.detectUserBusy(events || []);
-    
+
     // Для интерактивного режима всегда используем обычный промпт
     const promptPath = 'assets/prompts/scheduled-message.md';
 
@@ -708,10 +733,13 @@ export class Scheduler {
     promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
 
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
-    
+
     // Генерируем сообщение
     let jsonText = await generateMessage(prompt);
-    schedulerLogger.info({ chatId, jsonLength: jsonText?.length || 0 }, `📝 LLM ответ получен для интерактивного режима`);
+    schedulerLogger.info(
+      { chatId, jsonLength: jsonText?.length || 0 },
+      `📝 LLM ответ получен для интерактивного режима`
+    );
 
     if (jsonText === 'HF_JSON_ERROR') {
       schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме');
@@ -721,10 +749,10 @@ export class Scheduler {
         json: {
           encouragement: { text: fallback },
           negative_part: { additional_text: '' },
-          positive_part: { additional_text: '' }
+          positive_part: { additional_text: '' },
         },
         firstPart: fallback,
-        relaxationType: 'breathing'
+        relaxationType: 'breathing',
       };
     }
 
@@ -737,7 +765,7 @@ export class Scheduler {
       jsonText = jsonText.slice(1, -1);
     }
     jsonText = jsonText.replace(/\\"/g, '"').replace(/\"/g, '"');
-    
+
     let json: any;
     try {
       json = JSON.parse(jsonText);
@@ -763,10 +791,10 @@ export class Scheduler {
         json: {
           encouragement: { text: fallback },
           negative_part: { additional_text: '' },
-          positive_part: { additional_text: '' }
+          positive_part: { additional_text: '' },
         },
         firstPart: fallback,
-        relaxationType: 'breathing'
+        relaxationType: 'breathing',
       };
     }
 
@@ -776,7 +804,7 @@ export class Scheduler {
     return {
       json,
       firstPart: interactiveData.firstPart,
-      relaxationType: interactiveData.relaxationType
+      relaxationType: interactiveData.relaxationType,
     };
   }
 
@@ -800,7 +828,10 @@ export class Scheduler {
       try {
         calendarEvents = await getUserTodayEvents(chatId);
       } catch (calendarError) {
-        schedulerLogger.debug({ chatId, error: (calendarError as Error).message }, 'Календарь недоступен, продолжаем без него');
+        schedulerLogger.debug(
+          { chatId, error: (calendarError as Error).message },
+          'Календарь недоступен, продолжаем без него'
+        );
         calendarEvents = null;
       }
 
@@ -931,7 +962,7 @@ export class Scheduler {
       '🍀 Все чудесно - пропустить',
       '🌺 Все прекрасно - пропустить',
       '🎯 Все на месте - пропустить',
-      '🌸 Все классно - пропустить'
+      '🌸 Все классно - пропустить',
     ];
     return skipButtons[Math.floor(Math.random() * skipButtons.length)];
   }
@@ -945,17 +976,20 @@ export class Scheduler {
     }
 
     try {
-      schedulerLogger.debug({ 
-        chatId,
-        isTestBot: this.isTestBot(),
-        channelId: this.CHANNEL_ID,
-        chatGroupId: this.getChatId(),
-        isManualCommand
-      }, 'Начало отправки интерактивного сообщения');
+      schedulerLogger.debug(
+        {
+          chatId,
+          isTestBot: this.isTestBot(),
+          channelId: this.CHANNEL_ID,
+          chatGroupId: this.getChatId(),
+          isManualCommand,
+        },
+        'Начало отправки интерактивного сообщения'
+      );
 
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
-      
+
       // Генерируем интерактивное сообщение
       const { json, firstPart, relaxationType } = await this.generateInteractiveScheduledMessage(chatId);
 
@@ -964,7 +998,10 @@ export class Scheduler {
       try {
         calendarEvents = await getUserTodayEvents(chatId);
       } catch (calendarError) {
-        schedulerLogger.debug({ chatId, error: (calendarError as Error).message }, 'Календарь недоступен, продолжаем без него');
+        schedulerLogger.debug(
+          { chatId, error: (calendarError as Error).message },
+          'Календарь недоступен, продолжаем без него'
+        );
         calendarEvents = null;
       }
 
@@ -1006,7 +1043,7 @@ export class Scheduler {
           { source: imageBuffer },
           {
             caption: captionWithComment,
-            parse_mode: 'HTML'
+            parse_mode: 'HTML',
           }
         );
         const postSentTime = new Date();
@@ -1017,7 +1054,7 @@ export class Scheduler {
             imageSize: imageBuffer.length,
             messageId: sentMessage.message_id,
             sentAt: postSentTime.toISOString(),
-            timestamp: postSentTime.getTime()
+            timestamp: postSentTime.getTime(),
           },
           'Основной пост с изображением отправлен в канал'
         );
@@ -1029,7 +1066,7 @@ export class Scheduler {
           { source: imagePath },
           {
             caption: captionWithComment,
-            parse_mode: 'HTML'
+            parse_mode: 'HTML',
           }
         );
         schedulerLogger.info(
@@ -1043,7 +1080,7 @@ export class Scheduler {
       }
 
       const messageId = sentMessage.message_id;
-      
+
       // Сразу отправляем первое задание как комментарий с кнопкой пропуска
       const skipButtonText = this.getRandomSkipButtonText();
       const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)';
@@ -1051,43 +1088,40 @@ export class Scheduler {
       if (json.negative_part?.additional_text) {
         firstTaskFullText += `\n<blockquote>${escapeHTML(json.negative_part.additional_text)}</blockquote>`;
       }
-      
+
       const firstTaskKeyboard = {
-        inline_keyboard: [
-          [{ text: skipButtonText, callback_data: `skip_neg_${messageId}` }]
-        ]
+        inline_keyboard: [[{ text: skipButtonText, callback_data: `skip_neg_${messageId}` }]],
       };
 
       // Получаем ID группы обсуждений
       const CHAT_ID = this.getChatId();
-      
+
       if (!CHAT_ID) {
         schedulerLogger.error('❌ CHAT_ID не настроен в .env - не можем отправить первое задание в группу обсуждений');
         return;
       }
-      
+
       // Отправляем первое задание асинхронно после появления пересланного сообщения
       this.sendFirstTaskAsync(messageId, firstTaskFullText, firstTaskKeyboard, skipButtonText, chatId, CHAT_ID);
-      
+
       schedulerLogger.info(
-        { 
+        {
           channelMessageId: messageId,
           channelId: this.CHANNEL_ID,
           chatId: CHAT_ID,
-          skipButton: skipButtonText
-        }, 
+          skipButton: skipButtonText,
+        },
         '✅ Процесс отправки первого задания запущен асинхронно'
       );
-      
 
       // Сохраняем сообщение в БД
       const startTime = new Date().toISOString();
       saveMessage(chatId, captionWithComment, startTime);
-      
+
       // Сохраняем интерактивный пост в БД для надежности
       const { saveInteractivePost } = await import('./db');
-      // ВСЕГДА используем 5153477378 для основного канала, независимо от бота!
-      const postUserId = this.isTestBot() && this.CHANNEL_ID === -1002846400650 ? 476561547 : 5153477378;
+      // Определяем пользователя для поста из env, с учетом режима бота
+      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
       saveInteractivePost(messageId, postUserId, json, relaxationType);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
@@ -1110,18 +1144,20 @@ export class Scheduler {
       } else {
         schedulerLogger.info('🤖 Тестовый бот - автоматическая проверка ответов отключена');
       }
-
     } catch (e) {
       const error = e as Error;
-      schedulerLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка отправки интерактивного сообщения');
+      schedulerLogger.error(
+        { error: error.message, stack: error.stack, chatId },
+        'Ошибка отправки интерактивного сообщения'
+      );
     }
   }
 
   // Асинхронная отправка первого задания как комментария к посту
   private async sendFirstTaskAsync(
-    channelMessageId: number, 
-    firstTaskFullText: string, 
-    firstTaskKeyboard: any, 
+    channelMessageId: number,
+    firstTaskFullText: string,
+    firstTaskKeyboard: any,
     skipButtonText: string,
     originalChatId: number,
     CHAT_ID: number
@@ -1132,113 +1168,125 @@ export class Scheduler {
       let attempts = 0;
       const maxAttempts = 60; // Максимум 60 попыток (5 минут)
       const checkInterval = 5000; // Проверяем каждые 5 секунд
-      
-      schedulerLogger.info({ 
-        channelMessageId,
-        CHAT_ID,
-        checkInterval: `${checkInterval/1000}s`
-      }, '🔍 Начинаем периодическую проверку пересланного сообщения');
-      
+
+      schedulerLogger.info(
+        {
+          channelMessageId,
+          CHAT_ID,
+          checkInterval: `${checkInterval / 1000}s`,
+        },
+        '🔍 Начинаем периодическую проверку пересланного сообщения'
+      );
+
       while (!forwardedMessageId && attempts < maxAttempts) {
         attempts++;
-        
+
         // Проверяем сразу, потом ждем
         forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
-        
+
         if (forwardedMessageId) {
-          schedulerLogger.info({ 
-            forwardedMessageId,
-            channelMessageId,
-            attempts,
-            waitedSeconds: attempts * checkInterval / 1000
-          }, '✅ Найден ID пересланного сообщения в группе');
+          schedulerLogger.info(
+            {
+              forwardedMessageId,
+              channelMessageId,
+              attempts,
+              waitedSeconds: (attempts * checkInterval) / 1000,
+            },
+            '✅ Найден ID пересланного сообщения в группе'
+          );
           break;
         }
-        
+
         // Логируем прогресс
-        if (attempts % 3 === 0) { // Каждые 15 секунд
-          schedulerLogger.debug({ 
-            attempts,
-            channelMessageId,
-            waitedMinutes: (attempts * checkInterval / 1000 / 60).toFixed(1),
-            forwardedMessagesCount: this.forwardedMessages.size
-          }, '⏳ Продолжаем ждать пересланное сообщение...');
+        if (attempts % 3 === 0) {
+          // Каждые 15 секунд
+          schedulerLogger.debug(
+            {
+              attempts,
+              channelMessageId,
+              waitedMinutes: ((attempts * checkInterval) / 1000 / 60).toFixed(1),
+              forwardedMessagesCount: this.forwardedMessages.size,
+            },
+            '⏳ Продолжаем ждать пересланное сообщение...'
+          );
         }
-        
+
         // Ждем до следующей проверки
         await new Promise(resolve => setTimeout(resolve, checkInterval));
       }
-      
+
       // Отправляем первое задание
       const messageOptions: any = {
         parse_mode: 'HTML',
         reply_markup: firstTaskKeyboard,
-        disable_notification: true
+        disable_notification: true,
       };
-      
+
       if (forwardedMessageId) {
         // Отправляем как комментарий к посту
         // В Telegram для комментариев используется reply_to_message_id
         messageOptions.reply_to_message_id = forwardedMessageId;
-        
-        const firstTaskMessage = await this.bot.telegram.sendMessage(
-          CHAT_ID,
-          firstTaskFullText,
-          messageOptions
+
+        const firstTaskMessage = await this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions);
+
+        schedulerLogger.info(
+          {
+            success: true,
+            firstTaskId: firstTaskMessage.message_id,
+            channelMessageId,
+            forwardedMessageId,
+            chat_id: CHAT_ID,
+            waitedSeconds: (attempts * checkInterval) / 1000,
+          },
+          '✅ Первое задание отправлено как комментарий к посту'
         );
-        
-        schedulerLogger.info({ 
-          success: true,
-          firstTaskId: firstTaskMessage.message_id,
-          channelMessageId,
-          forwardedMessageId,
-          chat_id: CHAT_ID,
-          waitedSeconds: attempts * checkInterval / 1000
-        }, '✅ Первое задание отправлено как комментарий к посту');
-        
+
         // Сохраняем ID первого сообщения в БД
         const { updateInteractivePostState } = await import('./db');
         updateInteractivePostState(channelMessageId, 'waiting_negative', {
-          bot_task1_message_id: firstTaskMessage.message_id
+          bot_task1_message_id: firstTaskMessage.message_id,
         });
-        
       } else {
         // Таймаут - отправляем в группу с пометкой
-        schedulerLogger.warn({ 
-          channelMessageId,
-          attempts,
-          maxAttempts,
-          waitedMinutes: (maxAttempts * checkInterval / 1000 / 60).toFixed(1)
-        }, '⚠️ Таймаут ожидания пересланного сообщения, отправляем в группу с пометкой');
-        
-        const firstTaskMessage = await this.bot.telegram.sendMessage(
-          CHAT_ID,
-          firstTaskFullText,
-          messageOptions
+        schedulerLogger.warn(
+          {
+            channelMessageId,
+            attempts,
+            maxAttempts,
+            waitedMinutes: ((maxAttempts * checkInterval) / 1000 / 60).toFixed(1),
+          },
+          '⚠️ Таймаут ожидания пересланного сообщения, отправляем в группу с пометкой'
         );
-        
-        schedulerLogger.info({ 
-          success: true,
-          firstTaskId: firstTaskMessage.message_id,
-          channelMessageId,
-          chat_id: CHAT_ID,
-          used_note: true
-        }, '✅ Первое задание отправлено в группу с пометкой');
-        
+
+        const firstTaskMessage = await this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions);
+
+        schedulerLogger.info(
+          {
+            success: true,
+            firstTaskId: firstTaskMessage.message_id,
+            channelMessageId,
+            chat_id: CHAT_ID,
+            used_note: true,
+          },
+          '✅ Первое задание отправлено в группу с пометкой'
+        );
+
         // Сохраняем ID первого сообщения в БД
         const { updateInteractivePostState } = await import('./db');
         updateInteractivePostState(channelMessageId, 'waiting_negative', {
-          bot_task1_message_id: firstTaskMessage.message_id
+          bot_task1_message_id: firstTaskMessage.message_id,
         });
       }
-      
     } catch (error) {
-      schedulerLogger.error({ 
-        error: (error as Error).message,
-        stack: (error as Error).stack,
-        channelMessageId,
-        CHAT_ID
-      }, '❌ Ошибка асинхронной отправки первого задания');
+      schedulerLogger.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          channelMessageId,
+          CHAT_ID,
+        },
+        '❌ Ошибка асинхронной отправки первого задания'
+      );
     }
   }
 
@@ -1312,7 +1360,7 @@ export class Scheduler {
     }
 
     // Отправляем отчет админу
-    const TARGET_USER_ID = 5153477378;
+    const TARGET_USER_ID = this.getMainUserId();
     const reportMessage = `📊 Отчет о ежедневной отправке:
 ✅ Пост отправлен: ${successCount === 1 ? 'Да' : 'Нет'}
 ❌ Ошибок: ${errorCount}
@@ -1677,8 +1725,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   // Если он не ответил на задание после заданной задержки (по умолчанию 10 часов) - отправляется ОДИН злой пост в канал
   // Эта проверка запускается после каждой отправки поста через sendDailyMessage с задержкой ANGRY_POST_DELAY_MINUTES
   private async checkUsersResponses() {
-    // Всегда проверяем целевого пользователя
-    const TARGET_USER_ID = 5153477378;
+    // Всегда проверяем целевого пользователя из конфигурации
+    const TARGET_USER_ID = this.getMainUserId();
 
     schedulerLogger.info(
       {
@@ -1820,8 +1868,6 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-
-
   // Построение второй части сообщения
   public buildSecondPart(json: any): string {
     let message = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
@@ -1839,34 +1885,40 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     supportText?: string;
   }> {
     const words = response.split(' ').length;
-    const hasEmotions = /радост|груст|злость|страх|тревог|спокой|счаст|обид|разочаров|восторг|удивл|стыд|вин|гнев|ярост|паник|беспокой|умиротвор|блажен|восхищ|отвращ|презр|ненавист|любовь|нежн|тепл|холод|пуст|тоск|печаль|горе|отчаян|безнадежн|апат|равнодуш|скук|интерес|азарт|воодушевл|энтузиа|надежд|вер|довер|сомнен|подозрен|насторож|уверен|решительн|смел|робост|застенчив|смущен|неловк|гордост|высокомер|униж|оскорбл|благодарн|признательн|зависть|ревность|жалость|сочувств|сострадан|эмпат|одиночеств|покинут|нужн|важн|значим|беспомощн|бессил|сил|мощ|энерг|устал|истощ|вымотан|опустошен/i.test(response);
+    const hasEmotions =
+      /радост|груст|злость|страх|тревог|спокой|счаст|обид|разочаров|восторг|удивл|стыд|вин|гнев|ярост|паник|беспокой|умиротвор|блажен|восхищ|отвращ|презр|ненавист|любовь|нежн|тепл|холод|пуст|тоск|печаль|горе|отчаян|безнадежн|апат|равнодуш|скук|интерес|азарт|воодушевл|энтузиа|надежд|вер|довер|сомнен|подозрен|насторож|уверен|решительн|смел|робост|застенчив|смущен|неловк|гордост|высокомер|униж|оскорбл|благодарн|признательн|зависть|ревность|жалость|сочувств|сострадан|эмпат|одиночеств|покинут|нужн|важн|значим|беспомощн|бессил|сил|мощ|энерг|устал|истощ|вымотан|опустошен/i.test(
+        response
+      );
     const hasFeelWords = /чувств|ощущ|эмоц|настроен|состоян/i.test(response);
-    const significantWords = /важн|серьезн|сложн|проблем|тяжел|невыносим|катастроф|кризис|критич|опасн|угроз|беспокоит|волнует|тревожит|мучает|терзает|гложет|довод|изматывает|подавляет|давит|душит/i.test(response);
-    
+    const significantWords =
+      /важн|серьезн|сложн|проблем|тяжел|невыносим|катастроф|кризис|критич|опасн|угроз|беспокоит|волнует|тревожит|мучает|терзает|гложет|довод|изматывает|подавляет|давит|душит/i.test(
+        response
+      );
+
     // Проверяем, описал ли пользователь эмоции
     const emotionsDescribed = hasEmotions || hasFeelWords;
-    
+
     if (words > 15 && emotionsDescribed) {
       // Вариант 1: Пользователь подробно описал эмоции
       return {
         detailed: true,
         needsClarification: false,
         significant: false,
-        supportText: this.getRandomSupportText()
+        supportText: this.getRandomSupportText(),
       };
     } else if (words < 10 && !emotionsDescribed) {
       // Вариант 2: Пользователь не описал эмоции И мало написал
       return {
         detailed: false,
         needsClarification: true,
-        significant: false
+        significant: false,
       };
     } else if (significantWords) {
       // Вариант 3: Было значимое/важное событие
       return {
         detailed: false,
         needsClarification: false,
-        significant: true
+        significant: true,
       };
     } else {
       // По умолчанию переходим к плюшкам с базовой поддержкой
@@ -1874,7 +1926,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         detailed: true,
         needsClarification: false,
         significant: false,
-        supportText: this.getRandomSupportText()
+        supportText: this.getRandomSupportText(),
       };
     }
   }
@@ -1888,18 +1940,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       'Ты молодец, что проговариваешь это 🌱',
       'Твои чувства важны 💙',
       'Слышу тебя 🤍',
-      'Благодарю за доверие 🌿'
+      'Благодарю за доверие 🌿',
     ];
     return supportTexts[Math.floor(Math.random() * supportTexts.length)];
   }
-  
+
   // Определяем текущий шаг на основе состояния задач в БД
   private determineCurrentStep(post: any): string {
     // Приоритет у current_state из БД
     if (post.current_state) {
       return post.current_state;
     }
-    
+
     // Fallback логика для старых записей
     if (!post.task1_completed) {
       // Если первое задание не выполнено
@@ -1922,31 +1974,39 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-
   // Обработка ответа пользователя в интерактивной сессии
-  public async handleInteractiveUserResponse(userId: number, messageText: string, replyToChatId: number, messageId: number, messageThreadId?: number) {
+  public async handleInteractiveUserResponse(
+    userId: number,
+    messageText: string,
+    replyToChatId: number,
+    messageId: number,
+    messageThreadId?: number
+  ) {
     // Интерактивные ответы ВКЛЮЧЕНЫ - это нужно для работы логики заданий
     const INTERACTIVE_RESPONSES_ENABLED = true; // Это НУЖНО для работы заданий!
-    
+
     // Пытаемся найти активный пост пользователя в БД
     const { getUserIncompletePosts, getInteractivePost } = await import('./db');
-    
+
     // Если есть messageThreadId, это может быть ID поста в канале
     let activePost = null;
     let channelMessageId = null;
-    
+
     if (messageThreadId) {
       // В тестовом канале messageThreadId - это ID пересланного сообщения
       // Нужно найти соответствующий пост через маппинг
-      schedulerLogger.debug({
-        messageThreadId,
-        userId,
-        messageText: messageText.substring(0, 50)
-      }, 'Ищем пост по messageThreadId');
-      
+      schedulerLogger.debug(
+        {
+          messageThreadId,
+          userId,
+          messageText: messageText.substring(0, 50),
+        },
+        'Ищем пост по messageThreadId'
+      );
+
       // Сначала пробуем найти channelMessageId через маппинг пересланных сообщений
       let mappedChannelId = null;
-      
+
       // Сначала проверяем в памяти
       for (const [channelId, forwardedId] of this.forwardedMessages.entries()) {
         if (forwardedId === messageThreadId) {
@@ -1954,231 +2014,249 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           break;
         }
       }
-      
+
       // Если не нашли в памяти, проверяем в БД
       if (!mappedChannelId) {
         const { getChannelMessageIdByThreadId } = require('./db');
         mappedChannelId = getChannelMessageIdByThreadId(messageThreadId);
       }
-      
+
       if (mappedChannelId) {
         activePost = getInteractivePost(mappedChannelId);
         if (activePost) {
           channelMessageId = mappedChannelId;
-          schedulerLogger.info({ 
-            userId, 
-            channelMessageId,
-            messageThreadId,
-            foundByMapping: true,
-            postData: {
-              task1: activePost.task1_completed,
-              task2: activePost.task2_completed,
-              task3: activePost.task3_completed
-            }
-          }, 'Найден пост через маппинг пересланных сообщений');
+          schedulerLogger.info(
+            {
+              userId,
+              channelMessageId,
+              messageThreadId,
+              foundByMapping: true,
+              postData: {
+                task1: activePost.task1_completed,
+                task2: activePost.task2_completed,
+                task3: activePost.task3_completed,
+              },
+            },
+            'Найден пост через маппинг пересланных сообщений'
+          );
         }
       }
-      
+
       // Если не нашли через маппинг, пробуем напрямую
       if (!activePost) {
         activePost = getInteractivePost(messageThreadId);
         if (activePost) {
           channelMessageId = messageThreadId;
-          schedulerLogger.info({ 
-            userId, 
-            channelMessageId,
-            foundByThreadId: true,
-            postData: {
-              task1: activePost.task1_completed,
-              task2: activePost.task2_completed,
-              task3: activePost.task3_completed
-            }
-          }, 'Найден пост по messageThreadId напрямую');
+          schedulerLogger.info(
+            {
+              userId,
+              channelMessageId,
+              foundByThreadId: true,
+              postData: {
+                task1: activePost.task1_completed,
+                task2: activePost.task2_completed,
+                task3: activePost.task3_completed,
+              },
+            },
+            'Найден пост по messageThreadId напрямую'
+          );
         } else {
-          schedulerLogger.warn({
-            messageThreadId,
-            userId,
-            mappedChannelId
-          }, 'Пост НЕ найден ни через маппинг, ни напрямую');
+          schedulerLogger.warn(
+            {
+              messageThreadId,
+              userId,
+              mappedChannelId,
+            },
+            'Пост НЕ найден ни через маппинг, ни напрямую'
+          );
         }
       }
     }
-    
+
     // Если не нашли по threadId, ищем незавершенные посты пользователя
     if (!activePost) {
       const incompletePosts = getUserIncompletePosts(userId);
-      
-      schedulerLogger.info({ 
-        userId, 
-        incompletePostsCount: incompletePosts.length,
-        messageThreadId
-      }, 'Проверка незавершенных постов пользователя');
-      
+
+      schedulerLogger.info(
+        {
+          userId,
+          incompletePostsCount: incompletePosts.length,
+          messageThreadId,
+        },
+        'Проверка незавершенных постов пользователя'
+      );
+
       if (incompletePosts.length === 0) {
         // Нет активных постов
         schedulerLogger.debug({ userId }, 'Нет активных интерактивных постов');
         return false;
       }
-      
+
       // Берем самый последний незавершенный пост
       activePost = incompletePosts[0];
       channelMessageId = activePost.channel_message_id;
     }
-    
-    
+
     // Создаем объект session из данных БД для обратной совместимости
     const session = {
       messageData: activePost.message_data,
       relaxationType: activePost.relaxation_type,
       channelMessageId: channelMessageId,
-      currentStep: this.determineCurrentStep(activePost)
+      currentStep: this.determineCurrentStep(activePost),
     };
 
-    schedulerLogger.info({ 
-      userId, 
-      step: session.currentStep,
-      messageText: messageText.substring(0, 50) 
-    }, 'Обработка интерактивного ответа пользователя');
+    schedulerLogger.info(
+      {
+        userId,
+        step: session.currentStep,
+        messageText: messageText.substring(0, 50),
+      },
+      'Обработка интерактивного ответа пользователя'
+    );
 
     // Импортируем функцию обновления статуса
     const { updateTaskStatus } = await import('./db');
-    
+
     try {
       if (session.currentStep === 'waiting_negative') {
         // Пользователь ответил на первое задание
-        schedulerLogger.info({ 
-          userId,
-          channelMessageId,
-          messageText: messageText.substring(0, 50)
-        }, 'Получен ответ на первое задание');
-        
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+          },
+          'Получен ответ на первое задание'
+        );
+
         // Сохраняем ID сообщения пользователя и обновляем состояние
         const { updateInteractivePostState } = await import('./db');
         updateInteractivePostState(channelMessageId, 'waiting_schema', {
-          user_task1_message_id: messageId
+          user_task1_message_id: messageId,
         });
-        
+
         // Отправляем схему разбора ситуации
         const responseText = `Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:
 🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию`;
-        
+
         const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
-            message_id: messageId
+            message_id: messageId,
           },
           reply_markup: {
-            inline_keyboard: [[
-              { text: 'Пропустить', callback_data: `skip_schema_${channelMessageId}` }
-            ]]
-          }
+            inline_keyboard: [[{ text: 'Пропустить', callback_data: `skip_schema_${channelMessageId}` }]],
+          },
         };
-        
+
         const schemaMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
         saveMessage(userId, responseText, new Date().toISOString(), 0);
-        
+
         // Сохраняем ID сообщения со схемой
         updateInteractivePostState(channelMessageId, 'waiting_schema', {
-          bot_schema_message_id: schemaMessage.message_id
+          bot_schema_message_id: schemaMessage.message_id,
         });
-        
+
         // Обновляем состояние сессии - ждем разбор по схеме
         session.currentStep = 'waiting_schema';
         return true;
-        
       } else if (session.currentStep === 'waiting_schema') {
         // Пользователь ответил на схему разбора
-        schedulerLogger.info({ 
-          userId,
-          channelMessageId,
-          messageText: messageText.substring(0, 50)
-        }, 'Получен ответ на схему разбора');
-        
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+          },
+          'Получен ответ на схему разбора'
+        );
+
         // Сохраняем ID ответа на схему и обновляем состояние
         const { updateInteractivePostState } = await import('./db');
         updateInteractivePostState(channelMessageId, 'waiting_task2', {
-          user_schema_message_id: messageId
+          user_schema_message_id: messageId,
         });
-        
+
         // Теперь отмечаем первое задание как выполненное
         updateTaskStatus(channelMessageId, 1, true);
-        
+
         // Отправляем слова поддержки + плюшки
         const supportText = this.getRandomSupportText();
         const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
-        
+
         const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
-            message_id: messageId
-          }
+            message_id: messageId,
+          },
         };
-        
+
         const task2Message = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
         saveMessage(userId, responseText, new Date().toISOString(), 0);
-        
+
         // Сохраняем ID сообщения с плюшками
         updateInteractivePostState(channelMessageId, 'waiting_task2', {
-          bot_task2_message_id: task2Message.message_id
+          bot_task2_message_id: task2Message.message_id,
         });
-        
+
         // Обновляем состояние - теперь ждем плюшки
         session.currentStep = 'waiting_positive';
         return true;
-        
       } else if (session.currentStep === 'waiting_positive' || session.currentStep === 'waiting_task2') {
         // Ответ на плюшки - отправляем финальную часть
-        schedulerLogger.info({ 
-          userId,
-          currentStep: session.currentStep,
-          channelMessageId,
-          messageText: messageText.substring(0, 50)
-        }, '📝 Получен ответ на плюшки, отправляем задание 3');
-        
+        schedulerLogger.info(
+          {
+            userId,
+            currentStep: session.currentStep,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+          },
+          '📝 Получен ответ на плюшки, отправляем задание 3'
+        );
+
         // Отмечаем второе задание как выполненное
         updateTaskStatus(channelMessageId, 2, true);
-        
+
         let finalMessage = 'У нас остался последний шаг\n\n';
         finalMessage += '3. <b>Дыхательная практика</b>';
 
         // Добавляем кнопки к заданию 3
         // Передаем channelMessageId в callback_data для надежности
         const channelMsgId = session.channelMessageId || 0;
-        
+
         const practiceKeyboard = {
           inline_keyboard: [
             [{ text: '✅ Сделал', callback_data: `pract_done_${channelMsgId}` }],
-            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMsgId}` }]
-          ]
+            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMsgId}` }],
+          ],
         };
 
         const finalOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
-            message_id: messageId
+            message_id: messageId,
           },
-          reply_markup: practiceKeyboard
+          reply_markup: practiceKeyboard,
         };
-        
+
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
-        
+
         const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
         // Сохраняем сообщение
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
-        
+
         // Обновляем состояние в БД
         const { updateInteractivePostState } = await import('./db');
         updateInteractivePostState(channelMessageId, 'waiting_practice', {
           bot_task3_message_id: task3Message.message_id,
-          user_task2_message_id: messageId
+          user_task2_message_id: messageId,
         });
-        
+
         // Обновляем состояние сессии
         session.currentStep = 'waiting_practice';
         return true;
-        
       } else if (session.currentStep === 'waiting_practice') {
         // Пользователь написал что-то после получения задания с кнопками
         // Просто игнорируем это сообщение, пусть нажимает кнопки
@@ -2193,20 +2271,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-
-
-
   // Проверка незавершенных заданий после запуска бота
   public async checkUncompletedTasks() {
     try {
       schedulerLogger.info('🔍 Проверка незавершенных заданий после запуска бота...');
-      
+
       const db = await import('./db');
       const { restoreUncompletedDialogs } = await import('./interactive-tracker');
-      
+
       // Вызываем универсальную функцию восстановления диалогов
       await restoreUncompletedDialogs(this.bot);
-      
+
       // Получаем все незавершенные посты с учетом нового поля current_state
       const query = db.db.query(`
         SELECT DISTINCT ip.*, u.chat_id as user_chat_id
@@ -2216,31 +2291,34 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         AND ip.created_at > datetime('now', '-7 days')
         ORDER BY ip.created_at DESC
       `);
-      
+
       const incompletePosts = query.all() as any[];
-      
-      schedulerLogger.info({ 
-        count: incompletePosts.length,
-        posts: incompletePosts.map(p => ({
-          channelMessageId: p.channel_message_id,
-          userId: p.user_id,
-          task1: p.task1_completed,
-          task2: p.task2_completed,
-          task3: p.task3_completed,
-          created: p.created_at
-        }))
-      }, `Найдено ${incompletePosts.length} незавершенных постов за последние 7 дней`);
-      
+
+      schedulerLogger.info(
+        {
+          count: incompletePosts.length,
+          posts: incompletePosts.map(p => ({
+            channelMessageId: p.channel_message_id,
+            userId: p.user_id,
+            task1: p.task1_completed,
+            task2: p.task2_completed,
+            task3: p.task3_completed,
+            created: p.created_at,
+          })),
+        },
+        `Найдено ${incompletePosts.length} незавершенных постов за последние 7 дней`
+      );
+
       for (const post of incompletePosts) {
         try {
           // Парсим message_data
           if (post.message_data && typeof post.message_data === 'string') {
             post.message_data = JSON.parse(post.message_data);
           }
-          
+
           const userId = post.user_id;
           const channelMessageId = post.channel_message_id;
-          
+
           // Используем универсальную систему для проверки последних сообщений
           const messageLinksQuery = db.db.query(`
             SELECT * FROM message_links
@@ -2249,7 +2327,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             LIMIT 1
           `);
           const lastUserLink = messageLinksQuery.get(channelMessageId) as any;
-          
+
           if (!lastUserLink) {
             // Fallback к старой системе
             const msgQuery = db.db.query(`
@@ -2260,41 +2338,49 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               LIMIT 1
             `);
             const lastUserMsg = msgQuery.get(userId, userId) as any;
-            
-            schedulerLogger.debug({
-              userId,
-              channelMessageId,
-              lastUserMsg: lastUserMsg ? {
-                text: lastUserMsg.message_text?.substring(0, 50),
-                time: lastUserMsg.sent_time
-              } : null
-            }, 'Результат поиска последнего сообщения (старая система)');
-            
+
+            schedulerLogger.debug(
+              {
+                userId,
+                channelMessageId,
+                lastUserMsg: lastUserMsg
+                  ? {
+                      text: lastUserMsg.message_text?.substring(0, 50),
+                      time: lastUserMsg.sent_time,
+                    }
+                  : null,
+              },
+              'Результат поиска последнего сообщения (старая система)'
+            );
+
             if (!lastUserMsg) {
               schedulerLogger.debug({ userId }, 'Пользователь еще не писал - пропускаем');
               continue;
             }
-            
+
             // Проверяем, было ли последнее сообщение после создания поста
             const postTime = new Date(post.created_at).getTime();
             const msgTime = new Date(lastUserMsg.sent_time).getTime();
-            
+
             if (msgTime > postTime) {
               // Пользователь что-то писал после поста
               const currentStep = this.determineCurrentStep(post);
-              
-              schedulerLogger.info({
-                userId,
-                channelMessageId,
-                currentStep,
-                lastMessage: lastUserMsg.message_text.substring(0, 50)
-              }, '📨 Обнаружен пользователь с незавершенным заданием');
-              
+
+              schedulerLogger.info(
+                {
+                  userId,
+                  channelMessageId,
+                  currentStep,
+                  lastMessage: lastUserMsg.message_text.substring(0, 50),
+                },
+                '📨 Обнаружен пользователь с незавершенным заданием'
+              );
+
               // Генерируем и отправляем ответ в зависимости от текущего шага
               const CHAT_ID = this.getChatId();
               if (CHAT_ID) {
                 await this.sendPendingResponse(userId, post, currentStep, CHAT_ID, channelMessageId);
-                
+
                 // Добавляем задержку между отправками, чтобы не перегрузить API
                 await new Promise(resolve => setTimeout(resolve, 1000));
               }
@@ -2303,115 +2389,130 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             // Используем данные из универсальной системы
             const postTime = new Date(post.created_at).getTime();
             const msgTime = new Date(lastUserLink.created_at).getTime();
-            
-            schedulerLogger.debug({
-              userId,
-              channelMessageId,
-              messageId: lastUserLink.message_id,
-              messageType: lastUserLink.message_type,
-              time: lastUserLink.created_at
-            }, 'Найдено последнее сообщение через универсальную систему');
-            
+
+            schedulerLogger.debug(
+              {
+                userId,
+                channelMessageId,
+                messageId: lastUserLink.message_id,
+                messageType: lastUserLink.message_type,
+                time: lastUserLink.created_at,
+              },
+              'Найдено последнее сообщение через универсальную систему'
+            );
+
             // Определяем текущий шаг на основе current_state или старой логики
             const currentStep = post.current_state || this.determineCurrentStep(post);
-            
-            schedulerLogger.info({
-              userId,
-              channelMessageId,
-              currentStep,
-              messageId: lastUserLink.message_id
-            }, '📨 Обнаружен пользователь с незавершенным заданием (универсальная система)');
-            
+
+            schedulerLogger.info(
+              {
+                userId,
+                channelMessageId,
+                currentStep,
+                messageId: lastUserLink.message_id,
+              },
+              '📨 Обнаружен пользователь с незавершенным заданием (универсальная система)'
+            );
+
             // Генерируем и отправляем ответ в зависимости от текущего шага
             const CHAT_ID = this.getChatId();
             if (CHAT_ID) {
               await this.sendPendingResponse(userId, post, currentStep, CHAT_ID, channelMessageId);
-              
+
               // Добавляем задержку между отправками, чтобы не перегрузить API
               await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
         } catch (error) {
-          schedulerLogger.error({ 
-            error, 
-            postId: post.channel_message_id 
-          }, 'Ошибка обработки незавершенного поста');
+          schedulerLogger.error(
+            {
+              error,
+              postId: post.channel_message_id,
+            },
+            'Ошибка обработки незавершенного поста'
+          );
         }
       }
-      
+
       schedulerLogger.info('✅ Проверка незавершенных заданий завершена');
-      
     } catch (error) {
       schedulerLogger.error({ error }, 'Ошибка проверки незавершенных заданий');
     }
   }
-  
+
   // Отправка отложенного ответа
   private async sendPendingResponse(
-    userId: number, 
-    post: any, 
-    currentStep: string, 
+    userId: number,
+    post: any,
+    currentStep: string,
     chatId: number,
     channelMessageId: number
   ) {
     // Определяем правильный chat_id для отправки
     // Для основного пользователя всегда используем основную группу
-    if (userId === 5153477378) {
+    if (userId === this.getMainUserId()) {
       chatId = -1002496122257; // Основная группа
     }
-    
+
     // Получаем ID пересланного сообщения для правильной отправки в тред
     let threadId: number | undefined;
-    
+
     // Сначала проверяем в памяти
     threadId = this.forwardedMessages.get(channelMessageId);
-    
+
     // Если не нашли в памяти, проверяем в БД
     if (!threadId) {
       const { db } = await import('./db');
-      const row = db.query('SELECT thread_id FROM thread_mappings WHERE channel_message_id = ?').get(channelMessageId) as any;
+      const row = db
+        .query('SELECT thread_id FROM thread_mappings WHERE channel_message_id = ?')
+        .get(channelMessageId) as any;
       if (row?.thread_id) {
         threadId = row.thread_id;
       }
     }
-    
+
     if (!threadId) {
-      schedulerLogger.warn({ 
-        userId, 
-        channelMessageId 
-      }, '⚠️ Не найден thread_id для незавершенного задания, сообщение будет отправлено в общий чат');
+      schedulerLogger.warn(
+        {
+          userId,
+          channelMessageId,
+        },
+        '⚠️ Не найден thread_id для незавершенного задания, сообщение будет отправлено в общий чат'
+      );
     }
-    
+
     try {
       const { updateTaskStatus } = await import('./db');
-      
+
       if (currentStep === 'waiting_negative') {
         // Пользователь уже ответил на первое задание, но бот не успел ответить
         // Отправляем схему разбора ситуации
         const responseText = `Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:
 🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию`;
-        
+
         const sendOptions: any = {
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
         };
-        
+
         // Для отправки в комментарии используем reply_to_message_id с ID пересланного сообщения
         // Это автоматически отправит сообщение в правильный тред комментариев
         if (threadId) {
           sendOptions.reply_to_message_id = threadId;
         }
-        
+
         await this.bot.telegram.sendMessage(chatId, responseText, sendOptions);
-        
+
         // НЕ обновляем статус, так как пользователь еще не ответил на схему
-        
-        schedulerLogger.info({ 
-          userId, 
-          channelMessageId,
-          threadId,
-          hasThread: !!threadId
-        }, '✅ Отправлена схема разбора для незавершенного задания');
-        
+
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            threadId,
+            hasThread: !!threadId,
+          },
+          '✅ Отправлена схема разбора для незавершенного задания'
+        );
       } else if (currentStep === 'waiting_positive') {
         // Отправляем третье задание
         let finalMessage = 'У нас остался последний шаг\n\n';
@@ -2420,34 +2521,36 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         } else {
           finalMessage += '3. <b>Дыхательная практика</b>';
         }
-        
+
         const practiceKeyboard = {
           inline_keyboard: [
             [{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }],
-            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMessageId}` }]
-          ]
+            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMessageId}` }],
+          ],
         };
-        
+
         const sendOptions: any = {
           parse_mode: 'HTML',
-          reply_markup: practiceKeyboard
+          reply_markup: practiceKeyboard,
         };
-        
+
         // Для комментариев к постам из канала не используем message_thread_id
         // Сообщение будет отправлено как обычное сообщение в группу
-        
+
         await this.bot.telegram.sendMessage(chatId, finalMessage, sendOptions);
-        
+
         updateTaskStatus(channelMessageId, 2, true);
-        
-        schedulerLogger.info({ 
-          userId, 
-          channelMessageId,
-          threadId,
-          hasThread: !!threadId
-        }, '✅ Отправлено третье задание для незавершенного поста');
+
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            threadId,
+            hasThread: !!threadId,
+          },
+          '✅ Отправлено третье задание для незавершенного поста'
+        );
       }
-      
     } catch (error) {
       schedulerLogger.error({ error, userId }, 'Ошибка отправки отложенного ответа');
     }
