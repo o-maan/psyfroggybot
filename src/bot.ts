@@ -1,6 +1,6 @@
 import { config } from 'dotenv';
 import express, { Request, Response } from 'express';
-import fs, { readFileSync } from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar.ts';
@@ -15,7 +15,6 @@ import {
   getRecentUnreadInfoLogs,
   getRecentUnreadLogs,
   getUnreadLogsCount,
-  getUserByChatId,
   markAllLogsAsRead,
   markLogAsRead,
   markLogsAsRead,
@@ -33,11 +32,14 @@ import { Scheduler } from './scheduler.ts';
 config();
 
 // Логируем информацию о запуске
-logger.info({
-  IS_TEST_BOT: process.env.IS_TEST_BOT,
-  TOKEN_PREFIX: process.env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
-  NODE_ENV: process.env.NODE_ENV
-}, '🤖 Запуск бота');
+logger.info(
+  {
+    IS_TEST_BOT: process.env.IS_TEST_BOT,
+    TOKEN_PREFIX: process.env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
+    NODE_ENV: process.env.NODE_ENV,
+  },
+  '🤖 Запуск бота'
+);
 
 // Создаем экземпляр бота
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
@@ -58,16 +60,16 @@ bot.use(async (ctx, next) => {
     chatId: ctx.chat?.id,
     from: ctx.from?.id,
     callbackQuery: ctx.callbackQuery ? true : false,
-    message: ctx.message ? true : false
+    message: ctx.message ? true : false,
   };
-  
+
   // Добавляем детали для callback_query
   if (ctx.callbackQuery) {
     logData.callbackData = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
     logData.callbackFrom = ctx.callbackQuery.from?.id;
     logData.callbackChatId = ctx.callbackQuery.message?.chat?.id;
   }
-  
+
   botLogger.info(logData, '📥 Получено обновление от Telegram');
   return next();
 });
@@ -75,13 +77,13 @@ bot.use(async (ctx, next) => {
 // Обработчик ошибок
 bot.catch((err: any, ctx) => {
   botLogger.error(
-    { 
-      error: err?.message || String(err), 
+    {
+      error: err?.message || String(err),
       stack: err?.stack,
       updateType: ctx.updateType,
       chatId: ctx.chat?.id,
-      userId: ctx.from?.id
-    }, 
+      userId: ctx.from?.id,
+    },
     '❌ Ошибка в обработчике бота'
   );
 });
@@ -96,29 +98,35 @@ bot.use(async (ctx, next) => {
   if (!ctx.chat) {
     return next();
   }
-  
+
   const chatId = ctx.chat.id;
   const TEST_CHANNEL_ID = -1002846400650;
   const TEST_CHAT_ID = -1002798126153;
   const isTestChannel = chatId === TEST_CHANNEL_ID || chatId === TEST_CHAT_ID;
-  
+
   // Для команд в личных сообщениях разрешаем обоим ботам
   if (ctx.chat.type === 'private') {
     return next();
   }
-  
+
   if (scheduler.isTestBot() && !isTestChannel) {
     // Тестовый бот работает только в тестовых каналах (кроме личных сообщений)
-    botLogger.debug({ chatId, isTestBot: true, chatType: ctx.chat.type }, 'Тестовый бот игнорирует обновление не из тестового канала');
+    botLogger.debug(
+      { chatId, isTestBot: true, chatType: ctx.chat.type },
+      'Тестовый бот игнорирует обновление не из тестового канала'
+    );
     return;
   }
-  
+
   if (!scheduler.isTestBot() && isTestChannel) {
     // Основной бот не работает в тестовых каналах
-    botLogger.debug({ chatId, isTestBot: false, chatType: ctx.chat.type }, 'Основной бот игнорирует обновление из тестового канала');
+    botLogger.debug(
+      { chatId, isTestBot: false, chatType: ctx.chat.type },
+      'Основной бот игнорирует обновление из тестового канала'
+    );
     return;
   }
-  
+
   return next();
 });
 
@@ -174,14 +182,17 @@ restServ.get('/status', (req: Request, res: Response) => {
 restServ.all('/sendDailyMessage', async (req: Request, res: Response) => {
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
   try {
-    logger.info({ 
-      method: req.method, 
-      ip: req.ip,
-      userAgent: req.headers['user-agent'] 
-    }, 'REST API: Получен запрос на ручную рассылку');
-    
+    logger.info(
+      {
+        method: req.method,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+      'REST API: Получен запрос на ручную рассылку'
+    );
+
     await scheduler.sendDailyMessagesToAll(adminChatId);
-    
+
     // Если рассылка была заблокирована из-за дублирования, метод вернется без ошибки
     // но сообщений не отправит
     res
@@ -219,7 +230,7 @@ bot.command('start', async ctx => {
 
   // Добавляем пользователя в планировщик для рассылки
   scheduler.addUser(chatId);
-  
+
   // Проверяем, если это Алекс (ID: 5153477378), автоматически устанавливаем имя и пол
   if (userId === 5153477378) {
     addUser(chatId, username, 'Алекс', 'male');
@@ -258,12 +269,12 @@ bot.command('setname', async ctx => {
   const userId = ctx.from?.id || 0;
   const text = ctx.message.text;
   const name = text.split(' ').slice(1).join(' ').trim();
-  
+
   if (!name) {
     await ctx.reply('Пожалуйста, укажите имя после команды. Например: /setname Иван');
     return;
   }
-  
+
   updateUserName(chatId, name);
   botLogger.info({ userId, chatId, name }, '✅ Установлено имя пользователя');
   await ctx.reply(`✅ Твоё имя установлено: ${name}`);
@@ -274,17 +285,19 @@ bot.command('test', async ctx => {
   const chatId = ctx.chat.id;
   const fromId = ctx.from?.id;
   botLogger.info({ userId: fromId || 0, chatId }, `📱 Команда /test от пользователя ${fromId}`);
-  
+
   // Генерируем сообщение и проверяем его длину
   const message = await scheduler.generateScheduledMessage(fromId);
   await ctx.reply(
     `📊 <b>ТЕСТ ГЕНЕРАЦИИ СООБЩЕНИЯ</b>\n\n` +
-    `📏 Длина: ${message.length} символов\n` +
-    `${message.length > 1024 ? `❌ ПРЕВЫШЕН ЛИМИТ на ${message.length - 1024} символов!` : '✅ В пределах лимита'}\n\n` +
-    `<b>Сообщение:</b>\n${message}`,
+      `📏 Длина: ${message.length} символов\n` +
+      `${
+        message.length > 1024 ? `❌ ПРЕВЫШЕН ЛИМИТ на ${message.length - 1024} символов!` : '✅ В пределах лимита'
+      }\n\n` +
+      `<b>Сообщение:</b>\n${message}`,
     { parse_mode: 'HTML' }
   );
-  
+
   // Отправляем в канал только если не превышен лимит
   if (message.length <= 1024) {
     await scheduler.sendDailyMessage(fromId);
@@ -304,19 +317,19 @@ bot.command('test_tracking', async ctx => {
 
   try {
     const { db } = await import('./db');
-    
+
     // Получаем последние записи из таблицы message_links
     const query = db.query(`
       SELECT * FROM message_links
       ORDER BY created_at DESC
       LIMIT 10
     `);
-    
+
     const links = query.all() as any[];
-    
+
     let message = `🔍 <b>ТЕСТ УНИВЕРСАЛЬНОГО ОТСЛЕЖИВАНИЯ</b>\n\n`;
     message += `📊 Последние 10 записей в message_links:\n\n`;
-    
+
     if (links.length === 0) {
       message += `<i>Таблица пуста. Отправьте несколько сообщений для тестирования.</i>\n`;
     } else {
@@ -327,9 +340,9 @@ bot.command('test_tracking', async ctx => {
           month: '2-digit',
           hour: '2-digit',
           minute: '2-digit',
-          second: '2-digit'
+          second: '2-digit',
         });
-        
+
         message += `${i + 1}. <b>${link.message_type}</b>\n`;
         message += `   📝 ID сообщения: ${link.message_id}\n`;
         message += `   📍 ID поста: ${link.channel_message_id}\n`;
@@ -343,9 +356,9 @@ bot.command('test_tracking', async ctx => {
         message += `   🕐 Время: ${createdAt}\n\n`;
       });
     }
-    
+
     message += `\n💡 <i>Система автоматически отслеживает все входящие и исходящие сообщения</i>`;
-    
+
     await ctx.reply(message, { parse_mode: 'HTML' });
   } catch (error) {
     const err = error as Error;
@@ -450,43 +463,49 @@ bot.command('sendnow', async ctx => {
 bot.command('fro', async ctx => {
   const chatId = ctx.chat.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
+
   try {
     // Отладочная информация
-    botLogger.info({ 
-      chatId, 
-      adminChatId,
-      isTestBot: scheduler.isTestBot(),
-      channelId: scheduler.CHANNEL_ID,
-      targetUserId: scheduler.getTargetUserId()
-    }, 'Получена команда /fro');
-    
+    botLogger.info(
+      {
+        chatId,
+        adminChatId,
+        isTestBot: scheduler.isTestBot(),
+        channelId: scheduler.CHANNEL_ID,
+        targetUserId: scheduler.getTargetUserId(),
+      },
+      'Получена команда /fro'
+    );
+
     // Сначала отвечаем пользователю
     botLogger.info('📤 Отправляем первый ответ пользователю...');
     await ctx.reply('🐸 Отправляю сообщение...');
     botLogger.info('✅ Первый ответ отправлен');
-    
+
     // Используем интерактивный метод с флагом ручной команды
     botLogger.info('🚀 Запускаем sendInteractiveDailyMessage...');
     await scheduler.sendInteractiveDailyMessage(chatId, true);
     botLogger.info('✅ sendInteractiveDailyMessage завершен');
-    
+
     // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
     if (scheduler.isTestBot()) {
       botLogger.info('📤 Отправляем уведомление о тестовом режиме...');
       await ctx.reply('🤖 Тестовый режим: проверка ответов запланирована через заданное время');
       botLogger.info('✅ Уведомление о тестовом режиме отправлено');
     }
-    
+
     botLogger.info('🎉 Команда /fro полностью выполнена');
   } catch (error) {
     const err = error as Error;
-    botLogger.error({ 
-      error: err.message, 
-      stack: err.stack,
-      chatId,
-      isTestBot: scheduler.isTestBot() 
-    }, 'Ошибка при выполнении команды /fro');
+    botLogger.error(
+      {
+        error: err.message,
+        stack: err.stack,
+        chatId,
+        isTestBot: scheduler.isTestBot(),
+      },
+      'Ошибка при выполнении команды /fro'
+    );
     await ctx.reply(`❌ Ошибка: ${err.message}`);
   }
 });
@@ -502,68 +521,67 @@ bot.command('remind', async ctx => {
 bot.command('test_buttons', async ctx => {
   const chatId = ctx.chat.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
+
   // Проверяем, что команду выполняет админ
   if (chatId !== adminChatId) {
     await ctx.reply('❌ Эта команда доступна только администратору');
     return;
   }
-  
+
   try {
     // Отправляем тестовый пост в канал
     const CHANNEL_ID = scheduler.CHANNEL_ID;
-    
+
     const testMessage = await bot.telegram.sendMessage(
       CHANNEL_ID,
       '🧪 <b>ТЕСТОВЫЙ ПОСТ ДЛЯ ПРОВЕРКИ КНОПОК</b>\n\n' +
-      'Это тестовое сообщение для проверки работы кнопок в комментариях.\n\n' +
-      '⬇️ Кнопки должны появиться в комментариях ниже',
+        'Это тестовое сообщение для проверки работы кнопок в комментариях.\n\n' +
+        '⬇️ Кнопки должны появиться в комментариях ниже',
       { parse_mode: 'HTML' }
     );
-    
+
     const messageId = testMessage.message_id;
-    
+
     // Ждем немного
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     // Отправляем кнопки в группу обсуждений
     const CHAT_ID = scheduler.getChatId();
-    
+
     if (!CHAT_ID) {
       await ctx.reply('❌ CHAT_ID не настроен в .env');
       return;
     }
-    
+
     // Формируем URL для перехода в комментарии
     const commentUrl = `https://t.me/c/${CHANNEL_ID.toString().slice(4)}/${messageId}?thread=${messageId}`;
-    
+
     const keyboard = {
       inline_keyboard: [
         [{ text: '💬 Написать ответ', url: commentUrl }],
-        [{ text: '✅ Все ок - пропустить', callback_data: 'daily_skip_all' }]
-      ]
+        [{ text: '✅ Все ок - пропустить', callback_data: 'daily_skip_all' }],
+      ],
     };
-    
+
     const buttonMessage = await bot.telegram.sendMessage(
       CHAT_ID,
       '🧪 Тестовые кнопки:\n\n' +
-      `Channel ID: ${CHANNEL_ID}\n` +
-      `Message ID: ${messageId}\n` +
-      `Comment URL: ${commentUrl}`,
+        `Channel ID: ${CHANNEL_ID}\n` +
+        `Message ID: ${messageId}\n` +
+        `Comment URL: ${commentUrl}`,
       {
-        reply_markup: keyboard
+        reply_markup: keyboard,
       }
     );
-    
+
     await ctx.reply(
       '✅ Тестовый пост отправлен!\n\n' +
-      `📢 Channel ID: <code>${CHANNEL_ID}</code>\n` +
-      `💬 Chat ID: <code>${CHAT_ID}</code>\n` +
-      `📝 Message ID: <code>${messageId}</code>\n` +
-      `🔗 URL: <code>${commentUrl}</code>`,
+        `📢 Channel ID: <code>${CHANNEL_ID}</code>\n` +
+        `💬 Chat ID: <code>${CHAT_ID}</code>\n` +
+        `📝 Message ID: <code>${messageId}</code>\n` +
+        `🔗 URL: <code>${commentUrl}</code>`,
       { parse_mode: 'HTML' }
     );
-    
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message, stack: err.stack }, 'Ошибка команды /test_buttons');
@@ -577,17 +595,17 @@ bot.command('test_buttons', async ctx => {
 bot.command('test_schema', async ctx => {
   const chatId = ctx.chat.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
+
   // Проверяем, что команду выполняет админ
   if (chatId !== adminChatId) {
     await ctx.reply('❌ Эта команда доступна только администратору');
     return;
   }
-  
+
   try {
     // Создаем тестовый channelMessageId
     const testChannelMessageId = Date.now();
-    
+
     // Отправляем тестовое сообщение со схемой и кнопкой пропуска
     const schemaText = `📝 <b>Тестовая схема разбора ситуации</b>
 
@@ -599,31 +617,31 @@ bot.command('test_schema', async ctx => {
 4. <b>Действия</b> - что делаю или хочу сделать?
 
 <i>Это тестовое сообщение для проверки кнопки пропуска схемы.</i>`;
-    
+
     await ctx.reply(schemaText, {
       parse_mode: 'HTML',
       reply_markup: {
-        inline_keyboard: [[
-          { text: 'Пропустить', callback_data: `skip_schema_${testChannelMessageId}` }
-        ]]
-      }
+        inline_keyboard: [[{ text: 'Пропустить', callback_data: `skip_schema_${testChannelMessageId}` }]],
+      },
     });
-    
+
     // Создаем тестовую запись в БД
     const { db } = await import('./db');
-    db.run(`
-      INSERT OR REPLACE INTO interactive_posts 
+    db.run(
+      `
+      INSERT OR REPLACE INTO interactive_posts
       (channel_message_id, user_id, created_at, task1_completed, task2_completed, task3_completed)
       VALUES (?, ?, datetime('now'), 1, 0, 0)
-    `, [testChannelMessageId, chatId]);
-    
+    `,
+      [testChannelMessageId, chatId]
+    );
+
     await ctx.reply(
       `✅ Тестовая схема отправлена!\n\n` +
-      `Test Channel Message ID: <code>${testChannelMessageId}</code>\n\n` +
-      `Нажмите кнопку "Пропустить" для проверки обработчика.`,
+        `Test Channel Message ID: <code>${testChannelMessageId}</code>\n\n` +
+        `Нажмите кнопку "Пропустить" для проверки обработчика.`,
       { parse_mode: 'HTML' }
     );
-    
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message }, 'Ошибка команды /test_schema');
@@ -695,13 +713,11 @@ bot.command('minimalTestLLM', async ctx => {
 bot.command('test_button', async ctx => {
   try {
     const keyboard = {
-      inline_keyboard: [
-        [{ text: '✅ Тестовая кнопка', callback_data: 'test_button_click' }]
-      ]
+      inline_keyboard: [[{ text: '✅ Тестовая кнопка', callback_data: 'test_button_click' }]],
     };
-    
+
     await ctx.reply('🧪 Тест кнопки:', {
-      reply_markup: keyboard
+      reply_markup: keyboard,
     });
   } catch (error) {
     await ctx.reply(`❌ Ошибка: ${(error as Error).message}`);
@@ -720,14 +736,14 @@ bot.command('chat_info', async ctx => {
   const chatType = ctx.chat.type;
   const userId = ctx.from?.id || 0;
   const username = ctx.from?.username || 'unknown';
-  
+
   await ctx.reply(
     `📊 <b>ИНФОРМАЦИЯ О ЧАТЕ</b>\n\n` +
-    `🆔 Chat ID: <code>${chatId}</code>\n` +
-    `📝 Тип: <code>${chatType}</code>\n` +
-    `👤 User ID: <code>${userId}</code>\n` +
-    `👤 Username: @${username}\n\n` +
-    `💡 Добавьте CHAT_ID=${chatId} в файл .env`,
+      `🆔 Chat ID: <code>${chatId}</code>\n` +
+      `📝 Тип: <code>${chatType}</code>\n` +
+      `👤 User ID: <code>${userId}</code>\n` +
+      `👤 Username: @${username}\n\n` +
+      `💡 Добавьте CHAT_ID=${chatId} в файл .env`,
     { parse_mode: 'HTML' }
   );
 });
@@ -745,10 +761,10 @@ bot.command('users', async ctx => {
 
   const { getAllUsers } = await import('./db.ts');
   const users = getAllUsers();
-  
+
   let message = `👥 <b>ПОЛЬЗОВАТЕЛИ В БАЗЕ</b>\n\n`;
   message += `Всего: ${users.length}\n\n`;
-  
+
   users.forEach((user, index) => {
     message += `${index + 1}. User ID: <code>${user.chat_id}</code>\n`;
     if (user.name) message += `   Имя: ${user.name}\n`;
@@ -756,13 +772,13 @@ bot.command('users', async ctx => {
     message += `   Ответов: ${user.response_count || 0}\n`;
     if (user.last_response_time) {
       const lastResponse = new Date(user.last_response_time).toLocaleString('ru-RU', {
-        timeZone: 'Europe/Moscow'
+        timeZone: 'Europe/Moscow',
       });
       message += `   Последний ответ: ${lastResponse}\n`;
     }
     message += '\n';
   });
-  
+
   await ctx.reply(message, { parse_mode: 'HTML' });
 });
 
@@ -811,7 +827,7 @@ bot.command('last_run', async ctx => {
   try {
     // Получаем время последней рассылки через приватный метод
     const lastRun = await (scheduler as any).getLastDailyRunTime();
-    
+
     if (lastRun) {
       const moscowTime = lastRun.toLocaleString('ru-RU', {
         timeZone: 'Europe/Moscow',
@@ -822,17 +838,17 @@ bot.command('last_run', async ctx => {
         minute: '2-digit',
         second: '2-digit',
       });
-      
+
       const now = new Date();
       const timeDiff = now.getTime() - lastRun.getTime();
       const hoursDiff = Math.floor(timeDiff / (1000 * 60 * 60));
       const minutesDiff = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
-      
+
       await ctx.reply(
         `📅 <b>ПОСЛЕДНЯЯ РАССЫЛКА</b>\n\n` +
-        `🕐 Время: <code>${moscowTime}</code>\n` +
-        `⏱️ Прошло: ${hoursDiff} ч. ${minutesDiff} мин.\n\n` +
-        `${hoursDiff < 20 ? '✅ Сегодняшняя рассылка уже выполнена' : '⏳ Ожидается сегодняшняя рассылка в 22:00'}`,
+          `🕐 Время: <code>${moscowTime}</code>\n` +
+          `⏱️ Прошло: ${hoursDiff} ч. ${minutesDiff} мин.\n\n` +
+          `${hoursDiff < 20 ? '✅ Сегодняшняя рассылка уже выполнена' : '⏳ Ожидается сегодняшняя рассылка в 22:00'}`,
         { parse_mode: 'HTML' }
       );
     } else {
@@ -855,7 +871,7 @@ bot.command('ans', async ctx => {
   }
 
   await ctx.reply('🔍 Запускаю проверку незавершенных заданий...');
-  
+
   try {
     await scheduler.checkUncompletedTasks();
     await ctx.reply('✅ Проверка завершена! Посмотрите логи для деталей.');
@@ -877,7 +893,7 @@ bot.command('test_morning_check', async ctx => {
   }
 
   await ctx.reply('🌅 Запускаю тестовую утреннюю проверку...');
-  
+
   try {
     // Вызываем приватный метод через any cast
     await (scheduler as any).checkUsersResponses();
@@ -899,7 +915,7 @@ bot.command('angry', async ctx => {
   }
 
   await ctx.reply('😠 Генерирую злой пост...');
-  
+
   try {
     // Вызываем приватный метод sendAngryPost напрямую
     // Используем ID целевого пользователя
@@ -910,7 +926,6 @@ bot.command('angry', async ctx => {
     await ctx.reply(`❌ Ошибка при генерации злого поста:\n<code>${error}</code>`, { parse_mode: 'HTML' });
   }
 });
-
 
 // Команда для проверки конфигурации утренней проверки
 bot.command('check_config', async ctx => {
@@ -925,22 +940,22 @@ bot.command('check_config', async ctx => {
 
   const TARGET_USER_ID = scheduler.getTargetUserId();
   const status = scheduler.getSchedulerStatus();
-  
+
   // Проверяем существование файлов промптов
   const fs = require('fs');
   const textPromptExists = fs.existsSync('assets/prompts/no-answer');
   const imagePromptExists = fs.existsSync('assets/prompts/frog-image-promt-angry');
-  
+
   await ctx.reply(
     `🔧 <b>КОНФИГУРАЦИЯ УТРЕННЕЙ ПРОВЕРКИ</b>\n\n` +
-    `👤 Целевой пользователь: <code>${TARGET_USER_ID}</code>\n` +
-    `📢 Канал для постов: <code>${scheduler.CHANNEL_ID}</code>\n` +
-    `⏰ Время проверки: <b>8:00 МСК</b>\n` +
-    `☀️ Статус утренней проверки: ${status.isMorningRunning ? '🟢 Активна' : '🔴 Остановлена'}\n\n` +
-    `📄 <b>Файлы промптов:</b>\n` +
-    `├─ Текст (no-answer): ${textPromptExists ? '✅ Найден' : '❌ Не найден'}\n` +
-    `└─ Изображение (frog-image-promt-angry): ${imagePromptExists ? '✅ Найден' : '❌ Не найден'}\n\n` +
-    `🕐 Текущее время МСК: <code>${status.currentTime}</code>`,
+      `👤 Целевой пользователь: <code>${TARGET_USER_ID}</code>\n` +
+      `📢 Канал для постов: <code>${scheduler.CHANNEL_ID}</code>\n` +
+      `⏰ Время проверки: <b>8:00 МСК</b>\n` +
+      `☀️ Статус утренней проверки: ${status.isMorningRunning ? '🟢 Активна' : '🔴 Остановлена'}\n\n` +
+      `📄 <b>Файлы промптов:</b>\n` +
+      `├─ Текст (no-answer): ${textPromptExists ? '✅ Найден' : '❌ Не найден'}\n` +
+      `└─ Изображение (frog-image-promt-angry): ${imagePromptExists ? '✅ Найден' : '❌ Не найден'}\n\n` +
+      `🕐 Текущее время МСК: <code>${status.currentTime}</code>`,
     { parse_mode: 'HTML' }
   );
 });
@@ -949,7 +964,7 @@ bot.command('check_config', async ctx => {
 bot.command('check_access', async ctx => {
   const chatId = ctx.chat.id;
   const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-  
+
   // Проверяем, что команду выполняет админ
   if (chatId !== adminChatId) {
     await ctx.reply('❌ Эта команда доступна только администратору');
@@ -958,12 +973,12 @@ bot.command('check_access', async ctx => {
 
   const channelId = scheduler.CHANNEL_ID;
   const groupId = scheduler.getChatId();
-  
+
   let message = `🔍 <b>Проверка доступа бота</b>\n\n`;
   message += `🤖 Тестовый режим: ${scheduler.isTestBot() ? 'ДА' : 'НЕТ'}\n`;
   message += `📢 ID канала: <code>${channelId}</code>\n`;
   message += `💬 ID группы: <code>${groupId}</code>\n\n`;
-  
+
   // Проверяем доступ к каналу
   try {
     const channelInfo = await bot.telegram.getChat(channelId);
@@ -975,7 +990,7 @@ bot.command('check_access', async ctx => {
     message += `❌ Доступ к каналу: НЕТ\n`;
     message += `   Ошибка: ${err.message}\n`;
   }
-  
+
   // Проверяем доступ к группе
   if (groupId) {
     try {
@@ -991,7 +1006,7 @@ bot.command('check_access', async ctx => {
   } else {
     message += `\n⚠️ ID группы не настроен\n`;
   }
-  
+
   // Проверяем права администратора в канале
   try {
     const botInfo = await bot.telegram.getMe();
@@ -1004,7 +1019,7 @@ bot.command('check_access', async ctx => {
     const err = error as Error;
     message += `\n❌ Не удалось проверить права: ${err.message}\n`;
   }
-  
+
   await ctx.reply(message, { parse_mode: 'HTML' });
 });
 
@@ -1021,7 +1036,7 @@ bot.command('check_posts', async ctx => {
 
   try {
     const { db } = await import('./db');
-    
+
     // Получаем все интерактивные посты за последние 7 дней
     const query = db.query(`
       SELECT ip.*, u.chat_id as user_chat_id, u.username
@@ -1031,21 +1046,21 @@ bot.command('check_posts', async ctx => {
       ORDER BY ip.created_at DESC
       LIMIT 10
     `);
-    
+
     const posts = query.all() as any[];
-    
+
     let message = `📊 <b>ИНТЕРАКТИВНЫЕ ПОСТЫ (последние 7 дней)</b>\n\n`;
     message += `Всего постов: ${posts.length}\n\n`;
-    
+
     for (const post of posts) {
       const createdDate = new Date(post.created_at).toLocaleString('ru-RU', {
         timeZone: 'Europe/Moscow',
         day: '2-digit',
         month: '2-digit',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
       });
-      
+
       message += `📝 <b>Пост #${post.channel_message_id}</b>\n`;
       message += `👤 Пользователь: ${post.username || post.user_chat_id}\n`;
       message += `📅 Создан: ${createdDate}\n`;
@@ -1053,7 +1068,7 @@ bot.command('check_posts', async ctx => {
       message += `   1️⃣ Задание 1: ${post.task1_completed ? '✅ Выполнено' : '❌ Не выполнено'}\n`;
       message += `   2️⃣ Задание 2: ${post.task2_completed ? '✅ Выполнено' : '❌ Не выполнено'}\n`;
       message += `   3️⃣ Задание 3: ${post.task3_completed ? '✅ Выполнено' : '❌ Не выполнено'}\n`;
-      
+
       // Проверяем последнее сообщение пользователя
       const msgQuery = db.query(`
         SELECT m.* FROM messages m
@@ -1063,24 +1078,23 @@ bot.command('check_posts', async ctx => {
         LIMIT 1
       `);
       const lastMsg = msgQuery.get(post.user_id, post.user_id) as any;
-      
+
       if (lastMsg) {
         const msgDate = new Date(lastMsg.sent_time).toLocaleString('ru-RU', {
           timeZone: 'Europe/Moscow',
           day: '2-digit',
           month: '2-digit',
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         });
         message += `💬 Последнее сообщение: ${msgDate}\n`;
         message += `   "${lastMsg.message_text.substring(0, 50)}..."\n`;
       }
-      
+
       message += '\n';
     }
-    
+
     await ctx.reply(message, { parse_mode: 'HTML' });
-    
   } catch (error) {
     const err = error as Error;
     botLogger.error({ error: err.message }, 'Ошибка проверки постов');
@@ -1208,9 +1222,7 @@ bot.command('test_reminder', async ctx => {
   }
 
   await ctx.reply(
-    '🧪 <b>ТЕСТ НАПОМИНАНИЯ</b>\n\n' +
-    'Устанавливаю напоминание на 10 секунд...\n' +
-    'Оно придет вам в личку',
+    '🧪 <b>ТЕСТ НАПОМИНАНИЯ</b>\n\n' + 'Устанавливаю напоминание на 10 секунд...\n' + 'Оно придет вам в личку',
     { parse_mode: 'HTML' }
   );
 
@@ -1230,14 +1242,14 @@ bot.command('test_reply', async ctx => {
   const chatId = ctx.chat.id;
   const chatType = ctx.chat.type;
   const CHAT_ID = scheduler.getChatId();
-  
+
   await ctx.reply(
     `🧪 <b>ТЕСТ ОБРАБОТКИ СООБЩЕНИЙ</b>\n\n` +
-    `📍 Текущий чат ID: <code>${chatId}</code>\n` +
-    `📝 Тип чата: <code>${chatType}</code>\n` +
-    `🎯 Целевой CHAT_ID: <code>${CHAT_ID || 'НЕ УСТАНОВЛЕН'}</code>\n` +
-    `✅ Бот обрабатывает сообщения: ${!CHAT_ID || chatId === CHAT_ID ? 'ДА' : 'НЕТ'}\n\n` +
-    `Напишите любое сообщение для теста...`,
+      `📍 Текущий чат ID: <code>${chatId}</code>\n` +
+      `📝 Тип чата: <code>${chatType}</code>\n` +
+      `🎯 Целевой CHAT_ID: <code>${CHAT_ID || 'НЕ УСТАНОВЛЕН'}</code>\n` +
+      `✅ Бот обрабатывает сообщения: ${!CHAT_ID || chatId === CHAT_ID ? 'ДА' : 'НЕТ'}\n\n` +
+      `Напишите любое сообщение для теста...`,
     { parse_mode: 'HTML' }
   );
 });
@@ -1936,58 +1948,58 @@ bot.action(/logs_download_(\d+)_(.+)/, async ctx => {
 /*
 bot.action(/practice_postpone_(\d+)/, async ctx => {
   const userId = parseInt(ctx.match![1]);
-  
+
   try {
     // Проверяем, что кнопку нажал тот же пользователь
     if (ctx.from?.id !== userId) {
       await ctx.answerCbQuery('❌ Эта кнопка не для вас');
       return;
     }
-    
+
     // Удаляем кнопки из исходного сообщения
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    
+
     // Устанавливаем напоминание через час
     const chatId = ctx.chat?.id || 0;
     const reminderTime = Date.now() + 60 * 60 * 1000; // 1 час
-    
+
     // Сохраняем информацию о практике для напоминания
     const session = scheduler.getInteractiveSession(userId);
     if (session) {
       session.practicePostponed = true;
       session.postponedUntil = reminderTime;
     }
-    
+
     // Устанавливаем таймер для напоминания
     setTimeout(async () => {
       try {
         const reminderMessage = '⏰ Напоминание: давай сделаем практику! Это займет всего несколько минут 💚';
-        
+
         // Определяем куда отправлять напоминание
         const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
         const replyOptions: any = {
           parse_mode: 'HTML'
         };
-        
+
         if (messageThreadId) {
           replyOptions.reply_to_message_id = messageThreadId;
         }
-        
+
         await scheduler.getBot().telegram.sendMessage(chatId, reminderMessage, replyOptions);
-        
+
         // Сохраняем в историю
         saveMessage(userId, reminderMessage, new Date().toISOString(), 0);
-        
+
       } catch (error) {
         botLogger.error({ error, userId }, 'Ошибка отправки напоминания о практике');
       }
     }, 60 * 60 * 1000); // 1 час
-    
+
     await ctx.answerCbQuery('⏰ Напомню через час');
-    
+
     // Сохраняем в историю
     saveMessage(userId, `[Отложил практику на час]`, new Date().toISOString(), userId);
-    
+
   } catch (error) {
     botLogger.error({ error, userId }, 'Ошибка обработки practice_postpone');
     await ctx.answerCbQuery('❌ Произошла ошибка');
@@ -2000,44 +2012,51 @@ bot.action(/practice_postpone_(\d+)/, async ctx => {
 // Обработчик для отслеживания пересланных сообщений из канала
 bot.on('message', async (ctx, next) => {
   // Проверяем, является ли это пересланным сообщением из канала
-  if (ctx.message && 
-      'forward_from_chat' in ctx.message && 
-      ctx.message.forward_from_chat &&
-      typeof ctx.message.forward_from_chat === 'object' &&
-      'type' in ctx.message.forward_from_chat &&
-      ctx.message.forward_from_chat.type === 'channel' &&
-      'id' in ctx.message.forward_from_chat &&
-      ctx.message.forward_from_chat.id === scheduler.CHANNEL_ID &&
-      'forward_from_message_id' in ctx.message) {
-    
+  if (
+    ctx.message &&
+    'forward_from_chat' in ctx.message &&
+    ctx.message.forward_from_chat &&
+    typeof ctx.message.forward_from_chat === 'object' &&
+    'type' in ctx.message.forward_from_chat &&
+    ctx.message.forward_from_chat.type === 'channel' &&
+    'id' in ctx.message.forward_from_chat &&
+    ctx.message.forward_from_chat.id === scheduler.CHANNEL_ID &&
+    'forward_from_message_id' in ctx.message
+  ) {
     const channelMessageId = ctx.message.forward_from_message_id as number;
     const discussionMessageId = ctx.message.message_id;
-    
+
     // Сохраняем соответствие ID
     scheduler.saveForwardedMessage(channelMessageId, discussionMessageId);
-    
+
     const currentTime = new Date();
-    botLogger.info({
-      channelMessageId,
-      discussionMessageId,
-      chatId: ctx.chat.id,
-      isTopicMessage: ctx.message.is_topic_message,
-      messageThreadId: (ctx.message as any).message_thread_id,
-      fromChat: ctx.message.forward_from_chat,
-      receivedAt: currentTime.toISOString(),
-      timestamp: currentTime.getTime()
-    }, '📎 Обнаружено пересланное сообщение из канала');
+    botLogger.info(
+      {
+        channelMessageId,
+        discussionMessageId,
+        chatId: ctx.chat.id,
+        isTopicMessage: ctx.message.is_topic_message,
+        messageThreadId: (ctx.message as any).message_thread_id,
+        fromChat: ctx.message.forward_from_chat,
+        receivedAt: currentTime.toISOString(),
+        timestamp: currentTime.getTime(),
+      },
+      '📎 Обнаружено пересланное сообщение из канала'
+    );
   }
-  
+
   // Также проверяем, если это сообщение в теме (комментарий к посту)
   if (ctx.message && 'message_thread_id' in ctx.message) {
-    botLogger.debug({
-      messageThreadId: (ctx.message as any).message_thread_id,
-      chatId: ctx.chat.id,
-      messageId: ctx.message.message_id
-    }, '💬 Сообщение в теме/треде');
+    botLogger.debug(
+      {
+        messageThreadId: (ctx.message as any).message_thread_id,
+        chatId: ctx.chat.id,
+        messageId: ctx.message.message_id,
+      },
+      '💬 Сообщение в теме/треде'
+    );
   }
-  
+
   // Продолжаем обработку
   return next();
 });
@@ -2051,92 +2070,104 @@ bot.on('text', async ctx => {
   const message = ctx.message.text;
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id || 0;
-  
+
   // Логируем ВСЕ текстовые сообщения для отладки
-  botLogger.info({
-    message: message.substring(0, 100),
-    chatId,
-    userId,
-    chatType: ctx.chat.type,
-    messageThreadId: (ctx.message as any).message_thread_id,
-    isBot: ctx.from?.is_bot,
-    timestamp: new Date().toISOString()
-  }, '📨 Получено текстовое сообщение');
-  
+  botLogger.info(
+    {
+      message: message.substring(0, 100),
+      chatId,
+      userId,
+      chatType: ctx.chat.type,
+      messageThreadId: (ctx.message as any).message_thread_id,
+      isBot: ctx.from?.is_bot,
+      timestamp: new Date().toISOString(),
+    },
+    '📨 Получено текстовое сообщение'
+  );
+
   // Пропускаем команды - они обрабатываются отдельными обработчиками
   if (message.startsWith('/')) {
     return;
   }
-  
+
   // Получаем ID чата и канала
   const CHAT_ID = scheduler.getChatId();
   const CHANNEL_ID = scheduler.CHANNEL_ID;
-  
+
   // Логируем для отладки
   botLogger.info(
-    { 
-      chatId, 
-      CHAT_ID, 
+    {
+      chatId,
+      CHAT_ID,
       CHANNEL_ID,
       chatType: ctx.chat.type,
       messageId: ctx.message.message_id,
       fromId: ctx.from?.id,
       fromIsBot: ctx.from?.is_bot,
       fromUsername: ctx.from?.username,
-      message: message.substring(0, 50) 
-    }, 
+      message: message.substring(0, 50),
+    },
     '🔍 Проверка сообщения'
   );
-  
+
   // Проверяем, что сообщение не от самого бота
   if (ctx.from?.is_bot) {
     botLogger.debug({ userId: ctx.from?.id, chatId, isBot: ctx.from?.is_bot }, 'Игнорируем сообщение от бота');
     return;
   }
-  
+
   // Проверяем, что сообщение пришло либо из канала, либо из чата
   const isFromChannel = chatId === CHANNEL_ID;
   const isFromChat = CHAT_ID && chatId === CHAT_ID;
-  
+
   // ВАЖНО: В Telegram, когда группа привязана к каналу, сообщения из группы
   // могут иметь другой chat_id. Нужно проверить тип чата.
   const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
-  
+
   if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
     // Игнорируем сообщения не из канала и не из связанной группы
-    botLogger.debug({ chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type }, 'Сообщение не из целевого канала/чата, игнорируем');
+    botLogger.debug(
+      { chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type },
+      'Сообщение не из целевого канала/чата, игнорируем'
+    );
     return;
   }
-  
+
   // Если это связанная группа, используем её ID для ответов
-  const replyToChatId = isFromLinkedChat ? chatId : (CHAT_ID || chatId);
-  
+  const replyToChatId = isFromLinkedChat ? chatId : CHAT_ID || chatId;
+
   if (!CHAT_ID && !isFromLinkedChat) {
     botLogger.warn('⚠️ CHAT_ID не установлен в .env! Бот не сможет отвечать в чат');
     return;
   }
-  
+
   botLogger.debug({ userId, chatId, messageLength: message.length }, `💬 Сообщение от пользователя в чате`);
-  
+
   // Константа для целевого пользователя
   const TARGET_USER_ID = scheduler.getTargetUserId();
-  
+
   // Обновляем время ответа только для целевого пользователя
   if (userId === TARGET_USER_ID) {
     const responseTime = new Date().toISOString();
     updateUserResponse(userId, responseTime);
-    botLogger.info({ 
-      userId, 
-      responseTime,
-      targetUserId: TARGET_USER_ID 
-    }, `✅ Обновлено время ответа для целевого пользователя ${TARGET_USER_ID}`);
+    botLogger.info(
+      {
+        userId,
+        responseTime,
+        targetUserId: TARGET_USER_ID,
+      },
+      `✅ Обновлено время ответа для целевого пользователя ${TARGET_USER_ID}`
+    );
   } else {
-    botLogger.debug({ 
-      userId, 
-      targetUserId: TARGET_USER_ID
-    }, `⏭️ Пропущено обновление времени ответа - не целевой пользователь`);
+    botLogger.debug(
+      {
+        userId,
+        targetUserId: TARGET_USER_ID,
+      },
+      `⏭️ Пропущено обновление времени ответа - не целевой пользователь`
+    );
   }
-  
+
   // Очищаем напоминание для этого пользователя
   scheduler.clearReminder(userId);
 
@@ -2144,12 +2175,12 @@ bot.on('text', async ctx => {
     // Сначала сохраняем сообщение пользователя в БД
     const userMessageTime = new Date().toISOString();
     saveMessage(userId, message, userMessageTime, userId);
-    
+
     // Проверяем, есть ли активная интерактивная сессия
     const messageThreadId = (ctx.message as any).message_thread_id;
     const isInteractive = await scheduler.handleInteractiveUserResponse(
-      userId, 
-      message, 
+      userId,
+      message,
       replyToChatId,
       ctx.message.message_id,
       messageThreadId
@@ -2191,7 +2222,7 @@ bot.on('text', async ctx => {
       },
       '🤖 Генерируем ответ пользователю'
     );
-    
+
     if (AUTO_RESPONSES_ENABLED) {
       // Генерируем контекстуальный ответ через LLM
       const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
@@ -2199,18 +2230,21 @@ bot.on('text', async ctx => {
       // Отправляем текстовый ответ в правильный чат
       // Если сообщение из связанной группы - отвечаем туда же
       // Иначе - в CHAT_ID из конфига
-      await bot.telegram.sendMessage(replyToChatId, textResponse, { 
-        reply_parameters: { 
+      await bot.telegram.sendMessage(replyToChatId, textResponse, {
+        reply_parameters: {
           message_id: ctx.message.message_id,
-          chat_id: chatId // указываем исходный чат для правильной ссылки на сообщение
-        } 
+          chat_id: chatId, // указываем исходный чат для правильной ссылки на сообщение
+        },
       });
 
       // Сохраняем ответ бота в БД (author_id = 0 для бота)
       const botResponseTime = new Date().toISOString();
       saveMessage(userId, textResponse, botResponseTime, 0);
 
-      botLogger.info({ userId, chatId, responseLength: textResponse.length }, '✅ Ответ пользователю отправлен и сохранен');
+      botLogger.info(
+        { userId, chatId, responseLength: textResponse.length },
+        '✅ Ответ пользователю отправлен и сохранен'
+      );
     } else {
       botLogger.debug({ userId, chatId }, '⏸️ Автоматические ответы временно отключены');
     }
@@ -2224,8 +2258,8 @@ bot.on('text', async ctx => {
       await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
         reply_parameters: {
           message_id: ctx.message.message_id,
-          chat_id: chatId
-        }
+          chat_id: chatId,
+        },
       });
 
       // Сохраняем fallback ответ в БД
@@ -2241,25 +2275,30 @@ bot.on('text', async ctx => {
 bot.on('callback_query', async (ctx, next) => {
   const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
   const chatId = ctx.callbackQuery.message?.chat?.id;
-  
-  botLogger.info({
-    callbackData: data,
-    fromId: ctx.from?.id,
-    chatId: chatId,
-    messageId: ctx.callbackQuery.message?.message_id,
-    isPracticeDone: data?.startsWith('practice_done_'),
-    isPracticePostpone: data?.startsWith('practice_postpone_')
-  }, '🔔 Получен callback_query');
-  
-  
+
+  botLogger.info(
+    {
+      callbackData: data,
+      fromId: ctx.from?.id,
+      chatId: chatId,
+      messageId: ctx.callbackQuery.message?.message_id,
+      isPracticeDone: data?.startsWith('practice_done_'),
+      isPracticePostpone: data?.startsWith('practice_postpone_'),
+    },
+    '🔔 Получен callback_query'
+  );
+
   // Проверяем, что callback обрабатывается
   if (data?.startsWith('practice_')) {
-    botLogger.info({ 
-      callbackData: data,
-      willBeHandled: true 
-    }, '✅ Callback будет обработан');
+    botLogger.info(
+      {
+        callbackData: data,
+        willBeHandled: true,
+      },
+      '✅ Callback будет обработан'
+    );
   }
-  
+
   return next();
 });
 
@@ -2280,54 +2319,55 @@ bot.action(/skip_neg_(\d+)/, async ctx => {
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const userId = ctx.from?.id;
-    
+
     await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
-    
-    botLogger.info({
-      action: 'skip_neg',
-      channelMessageId,
-      messageId,
-      chatId,
-      userId
-    }, '🔘 Нажата кнопка пропуска первого задания');
-    
+
+    botLogger.info(
+      {
+        action: 'skip_neg',
+        channelMessageId,
+        messageId,
+        chatId,
+        userId,
+      },
+      '🔘 Нажата кнопка пропуска первого задания'
+    );
+
     // Получаем данные поста из БД
     const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML } = await import('./db');
     const post = getInteractivePost(channelMessageId);
-    
+
     if (!post) {
       botLogger.error({ channelMessageId }, 'Пост не найден в БД');
       return;
     }
-    
+
     // Отмечаем первое задание как пропущенное
     updateTaskStatus(channelMessageId, 1, true);
-    
+
     // Отправляем плюшки (второе задание)
     let plushkiText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
     if (post.message_data?.positive_part?.additional_text) {
       plushkiText += `\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
-    
+
     const plushkiMessage = await bot.telegram.sendMessage(chatId!, plushkiText, {
       parse_mode: 'HTML',
       reply_parameters: {
-        message_id: messageId!
-      }
+        message_id: messageId!,
+      },
     });
-    
+
     // Обновляем текущее состояние поста, чтобы НЕ отправлять схему после пропуска
     updateInteractivePostState(channelMessageId, 'waiting_task2', {
-      bot_task2_message_id: plushkiMessage.message_id
+      bot_task2_message_id: plushkiMessage.message_id,
     });
-    
+
     botLogger.info({ channelMessageId }, '✅ Плюшки отправлены после пропуска');
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки кнопки пропуска');
   }
 });
-
 
 // Старый обработчик для обратной совместимости
 bot.action('daily_skip_negative', async ctx => {
@@ -2339,28 +2379,31 @@ bot.action(/pract_done_(\d+)/, async ctx => {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
-    
+
     await ctx.answerCbQuery('🎉 Отлично! Ты молодец!');
-    
-    botLogger.info({ 
-      action: 'pract_done',
-      channelMessageId,
-      userId,
-      chatId: ctx.chat?.id 
-    }, '🎯 Обработка кнопки practice_done');
-    
+
+    botLogger.info(
+      {
+        action: 'pract_done',
+        channelMessageId,
+        userId,
+        chatId: ctx.chat?.id,
+      },
+      '🎯 Обработка кнопки practice_done'
+    );
+
     // Получаем данные из БД
     const { getInteractivePost, updateTaskStatus, setTrophyStatus } = await import('./db');
     const post = getInteractivePost(channelMessageId);
-    
+
     if (!post) {
       botLogger.error({ channelMessageId }, 'Пост не найден в БД для practice_done');
       return;
     }
-    
+
     // Отмечаем третье задание выполненным
     updateTaskStatus(channelMessageId, 3, true);
-    
+
     // Fallback сообщения поздравления
     const fallbacks = [
       'Ты молодец! 🌟 Сегодня мы отлично поработали вместе.',
@@ -2371,46 +2414,43 @@ bot.action(/pract_done_(\d+)/, async ctx => {
       'Ты молодец! 🌙 Пора отдыхать.',
       'Я горжусь тобой! 💫 Ты сделал отличную работу.',
       'Отлично! 🌿 Все задания на сегодня завершены.',
-      'Прекрасная работа! 🎉 Теперь можно расслабиться.'
+      'Прекрасная работа! 🎉 Теперь можно расслабиться.',
     ];
     const congratsMessage = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-    
-    await ctx.telegram.sendMessage(
-      ctx.chat!.id, 
-      congratsMessage,
-      {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id
-        }
-      }
-    );
-    
+
+    await ctx.telegram.sendMessage(ctx.chat!.id, congratsMessage, {
+      parse_mode: 'HTML',
+      reply_parameters: {
+        message_id: ctx.callbackQuery.message!.message_id,
+      },
+    });
+
     // Добавляем реакцию трофея к посту в канале
     if (!post.trophy_set) {
       try {
-        await ctx.telegram.setMessageReaction(
-          scheduler.CHANNEL_ID,
-          channelMessageId,
-          [{ type: 'emoji', emoji: '🏆' }]
-        );
-        
+        await ctx.telegram.setMessageReaction(scheduler.CHANNEL_ID, channelMessageId, [{ type: 'emoji', emoji: '🏆' }]);
+
         // Отмечаем в БД что трофей установлен
         setTrophyStatus(channelMessageId, true);
-        
-        botLogger.info({ 
-          channelMessageId,
-          channelId: scheduler.CHANNEL_ID 
-        }, '🏆 Добавлена реакция трофея к посту в канале');
+
+        botLogger.info(
+          {
+            channelMessageId,
+            channelId: scheduler.CHANNEL_ID,
+          },
+          '🏆 Добавлена реакция трофея к посту в канале'
+        );
       } catch (error) {
-        botLogger.error({ 
-          error: (error as Error).message,
-          channelMessageId,
-          channelId: scheduler.CHANNEL_ID
-        }, '❌ Ошибка добавления реакции к посту');
+        botLogger.error(
+          {
+            error: (error as Error).message,
+            channelMessageId,
+            channelId: scheduler.CHANNEL_ID,
+          },
+          '❌ Ошибка добавления реакции к посту'
+        );
       }
     }
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки practice_done');
   }
@@ -2426,66 +2466,56 @@ bot.action(/pract_delay_(\d+)/, async ctx => {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const isTestBot = process.env.IS_TEST_BOT === 'true';
-    
+
     await ctx.answerCbQuery('⏰ Хорошо, напомню через ' + (isTestBot ? '1 минуту' : 'час'));
-    
+
     // Задержка: 1 минута для тестового бота, 60 минут для основного
     const PRACTICE_REMINDER_DELAY_MINUTES = isTestBot ? 1 : 60;
     const reminderDelayMs = PRACTICE_REMINDER_DELAY_MINUTES * 60 * 1000;
-    
-    botLogger.info({ 
-      action: 'pract_delay',
-      channelMessageId,
-      isTestBot,
-      delayMinutes: PRACTICE_REMINDER_DELAY_MINUTES
-    }, '⏰ Устанавливаем напоминание о практике');
-    
-    // Отправляем сообщение о том, что ждем
-    const waitMessage = isTestBot 
-      ? '⏳ Жду тебя через 1 минуту (тестовый режим)'
-      : '⏳ Жду тебя через час';
-      
-    await ctx.telegram.sendMessage(
-      ctx.chat!.id,
-      waitMessage,
+
+    botLogger.info(
       {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id
-        }
-      }
+        action: 'pract_delay',
+        channelMessageId,
+        isTestBot,
+        delayMinutes: PRACTICE_REMINDER_DELAY_MINUTES,
+      },
+      '⏰ Устанавливаем напоминание о практике'
     );
-    
+
+    // Отправляем сообщение о том, что ждем
+    const waitMessage = isTestBot ? '⏳ Жду тебя через 1 минуту (тестовый режим)' : '⏳ Жду тебя через час';
+
+    await ctx.telegram.sendMessage(ctx.chat!.id, waitMessage, {
+      parse_mode: 'HTML',
+      reply_parameters: {
+        message_id: ctx.callbackQuery.message!.message_id,
+      },
+    });
+
     // Устанавливаем таймер на напоминание
     setTimeout(async () => {
       try {
         const reminderMessage = '⏰ Напоминание: пора сделать дыхательную практику! Это займет всего пару минут 💚';
-        
+
         // Добавляем кнопку "Сделал" к напоминанию
         const practiceKeyboard = {
-          inline_keyboard: [
-            [{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }]
-          ]
+          inline_keyboard: [[{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }]],
         };
-        
-        await ctx.telegram.sendMessage(
-          ctx.chat!.id,
-          reminderMessage,
-          {
-            parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: ctx.callbackQuery.message!.message_id
-            },
-            reply_markup: practiceKeyboard
-          }
-        );
-        
+
+        await ctx.telegram.sendMessage(ctx.chat!.id, reminderMessage, {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: ctx.callbackQuery.message!.message_id,
+          },
+          reply_markup: practiceKeyboard,
+        });
+
         botLogger.info({ channelMessageId }, '✅ Напоминание о практике отправлено');
       } catch (error) {
         botLogger.error({ error: (error as Error).message }, 'Ошибка отправки напоминания');
       }
     }, reminderDelayMs);
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки pract_delay');
   }
@@ -2493,95 +2523,97 @@ bot.action(/pract_delay_(\d+)/, async ctx => {
 
 // Обработчик кнопки "Отложить на 1 час" - старый формат
 bot.action(/practice_postpone_(\d+)/, async ctx => {
-  botLogger.info({ 
-    action: 'practice_postpone',
-    match: ctx.match,
-    callbackData: 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined,
-    fromId: ctx.from?.id,
-    chatId: ctx.chat?.id 
-  }, '⏰ Вызван обработчик practice_postpone');
-  
+  botLogger.info(
+    {
+      action: 'practice_postpone',
+      match: ctx.match,
+      callbackData: 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined,
+      fromId: ctx.from?.id,
+      chatId: ctx.chat?.id,
+    },
+    '⏰ Вызван обработчик practice_postpone'
+  );
+
   try {
     const userId = parseInt(ctx.match![1]);
     const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-    
+
     await ctx.answerCbQuery('⏰ Хорошо, напомню через час');
-    
+
     // Ищем сессию по adminChatId или userId
     const session = scheduler.getInteractiveSession(adminChatId) || scheduler.getInteractiveSession(userId);
     if (!session) {
       botLogger.warn({ userId, adminChatId }, 'Сессия не найдена для practice_postpone');
       return;
     }
-    
+
     // Константа для задержки напоминания (легко изменить)
     const PRACTICE_REMINDER_DELAY_MINUTES = 60; // 60 минут для продакшена
     const reminderDelayMs = PRACTICE_REMINDER_DELAY_MINUTES * 60 * 1000;
-    
-    botLogger.info({ 
-      delayMinutes: PRACTICE_REMINDER_DELAY_MINUTES,
-      delayMs: reminderDelayMs 
-    }, '⏰ Устанавливаем напоминание о практике');
-    
+
+    botLogger.info(
+      {
+        delayMinutes: PRACTICE_REMINDER_DELAY_MINUTES,
+        delayMs: reminderDelayMs,
+      },
+      '⏰ Устанавливаем напоминание о практике'
+    );
+
     // Сохраняем время откладывания
     session.practicePostponed = true;
     session.postponedUntil = Date.now() + reminderDelayMs;
-    
+
     // Отправляем сообщение о том, что ждем через час
     try {
-      const waitMessage = PRACTICE_REMINDER_DELAY_MINUTES === 60 
-        ? '⏳ Жду тебя через час'
-        : `⏳ Жду тебя через ${PRACTICE_REMINDER_DELAY_MINUTES} ${PRACTICE_REMINDER_DELAY_MINUTES === 1 ? 'минуту' : 'минут'}`;
-        
+      const waitMessage =
+        PRACTICE_REMINDER_DELAY_MINUTES === 60
+          ? '⏳ Жду тебя через час'
+          : `⏳ Жду тебя через ${PRACTICE_REMINDER_DELAY_MINUTES} ${
+              PRACTICE_REMINDER_DELAY_MINUTES === 1 ? 'минуту' : 'минут'
+            }`;
+
       const waitOptions: any = {
         parse_mode: 'HTML',
-        reply_to_message_id: ctx.callbackQuery.message?.message_id
+        reply_to_message_id: ctx.callbackQuery.message?.message_id,
       };
-      
-      await ctx.telegram.sendMessage(
-        ctx.chat!.id,
-        waitMessage,
-        waitOptions
-      );
-      
+
+      await ctx.telegram.sendMessage(ctx.chat!.id, waitMessage, waitOptions);
+
       botLogger.info({ userId }, '⏳ Отправлено сообщение ожидания');
     } catch (error) {
       botLogger.error({ error: (error as Error).message }, 'Ошибка отправки сообщения ожидания');
     }
-    
+
     // Устанавливаем таймер на напоминание
     setTimeout(async () => {
       try {
-        botLogger.info({ 
-          userId,
-          chatId: ctx.chat?.id 
-        }, '🔔 Отправляем напоминание о практике');
-        
+        botLogger.info(
+          {
+            userId,
+            chatId: ctx.chat?.id,
+          },
+          '🔔 Отправляем напоминание о практике'
+        );
+
         const reminderMessage = '⏰ Напоминание: давай сделаем практику! Это займет всего несколько минут 💚';
-        
+
         // В группах с комментариями используем только reply_to_message_id
         const sendOptions: any = {
           parse_mode: 'HTML',
-          reply_to_message_id: ctx.callbackQuery.message?.message_id
+          reply_to_message_id: ctx.callbackQuery.message?.message_id,
         };
-        
-        await ctx.telegram.sendMessage(
-          ctx.chat!.id,
-          reminderMessage,
-          sendOptions
-        );
-        
+
+        await ctx.telegram.sendMessage(ctx.chat!.id, reminderMessage, sendOptions);
+
         botLogger.info({ userId }, '✅ Напоминание о практике отправлено');
       } catch (error) {
         botLogger.error({ error: (error as Error).message }, 'Ошибка отправки напоминания');
       }
     }, reminderDelayMs);
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки practice_postpone');
   }
 });
-
 
 // Запускаем бота
 
@@ -2590,15 +2622,18 @@ async function clearPendingUpdates() {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) return;
-    
+
     // Получаем информацию o webhook
     const webhookResponse = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
     const webhookData = await webhookResponse.json();
-    
+
     if (webhookData.ok && webhookData.result.pending_update_count > 0) {
-      logger.info({ 
-        pendingCount: webhookData.result.pending_update_count 
-      }, '🔄 Найдены pending updates, Telegraf их обработает');
+      logger.info(
+        {
+          pendingCount: webhookData.result.pending_update_count,
+        },
+        '🔄 Найдены pending updates, Telegraf их обработает'
+      );
     } else {
       logger.info('✅ Очередь updates пуста');
     }
@@ -2615,10 +2650,10 @@ app.use(express.json());
 app.post('/webhook/deploy', async (req: Request, res: Response) => {
   try {
     logger.info('🚀 Получен webhook о деплое, запускаем проверку незавершенных заданий...');
-    
+
     // Вызываем проверку незавершенных заданий
     await scheduler.checkUncompletedTasks();
-    
+
     res.json({ success: true, message: 'Deploy webhook processed' });
   } catch (error) {
     logger.error({ error: (error as Error).message }, 'Ошибка обработки webhook деплоя');
@@ -2642,27 +2677,30 @@ clearPendingUpdates()
   .then(() => bot.launch())
   .then(() => {
     logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
-    
+
     // Логируем успешный запуск
     logger.info('✅ Polling активен и готов к получению команд');
-    
+
     // Логируем зарегистрированные обработчики
-    logger.info({
-      handlers: [
-        'test_button_click',
-        'logs_*',
-        'skip_neg_*',
-        'skip_schema_*',
-        'pract_done_*',
-        'pract_delay_*',
-        'callback_query (общий)',
-        'daily_skip_all',
-        'daily_skip_negative', 
-        'practice_done_*',
-        'practice_postpone_*'
-      ]
-    }, '📋 Зарегистрированные обработчики кнопок');
-    
+    logger.info(
+      {
+        handlers: [
+          'test_button_click',
+          'logs_*',
+          'skip_neg_*',
+          'skip_schema_*',
+          'pract_done_*',
+          'pract_delay_*',
+          'callback_query (общий)',
+          'daily_skip_all',
+          'daily_skip_negative',
+          'practice_done_*',
+          'practice_postpone_*',
+        ],
+      },
+      '📋 Зарегистрированные обработчики кнопок'
+    );
+
     // Запускаем проверку незавершенных заданий через 5 секунд после старта
     // Даем время боту полностью инициализироваться
     setTimeout(async () => {
@@ -2686,10 +2724,8 @@ if (adminChatId) {
   const processInfo = `PID: ${process.pid}${process.env.pm_id ? ` | PM2 ID: ${process.env.pm_id}` : ''}`;
   bot.telegram
     .sendMessage(
-      adminChatId, 
-      `🚀 <b>БОТ ЗАПУЩЕН</b>\n\n` +
-      `Телеграм бот успешно запущен в режиме polling\n` +
-      `🔧 ${processInfo}`, 
+      adminChatId,
+      `🚀 <b>БОТ ЗАПУЩЕН</b>\n\n` + `Телеграм бот успешно запущен в режиме polling\n` + `🔧 ${processInfo}`,
       { parse_mode: 'HTML' }
     )
     .catch(error => {
@@ -2701,72 +2737,73 @@ bot.action(/skip_schema_(\d+)/, async ctx => {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     await ctx.answerCbQuery('Переходим к плюшкам! 🌱', { show_alert: false });
-    
-    botLogger.info({ 
-      action: 'skip_schema',
-      channelMessageId,
-      userId: ctx.from?.id
-    }, 'Пользователь пропустил схему разбора');
-    
+
+    botLogger.info(
+      {
+        action: 'skip_schema',
+        channelMessageId,
+        userId: ctx.from?.id,
+      },
+      'Пользователь пропустил схему разбора'
+    );
+
     // Получаем данные о посте
     const { getInteractivePost, updateInteractivePostState, updateTaskStatus } = await import('./db');
     const post = getInteractivePost(channelMessageId);
-    
+
     if (!post) {
       botLogger.warn({ channelMessageId }, 'Пост не найден для skip_schema');
       return;
     }
-    
+
     // Обновляем состояние - пропускаем схему и переходим к плюшкам
     updateInteractivePostState(channelMessageId, 'waiting_task2', {
-      user_schema_message_id: ctx.callbackQuery.message?.message_id
+      user_schema_message_id: ctx.callbackQuery.message?.message_id,
     });
-    
+
     // Отмечаем первое задание как выполненное (схема пропущена)
     updateTaskStatus(channelMessageId, 1, true);
-    
+
     // Получаем данные сообщения для генерации плюшек
     const messageData = post.message_data;
-    
-    botLogger.debug({ 
-      channelMessageId,
-      hasMessageData: !!messageData,
-      messageDataKeys: messageData ? Object.keys(messageData) : [],
-      positivePartText: messageData?.positive_part?.additional_text
-    }, 'Данные для плюшек');
-    
+
+    botLogger.debug(
+      {
+        channelMessageId,
+        hasMessageData: !!messageData,
+        messageDataKeys: messageData ? Object.keys(messageData) : [],
+        positivePartText: messageData?.positive_part?.additional_text,
+      },
+      'Данные для плюшек'
+    );
+
     // Отправляем слова поддержки + плюшки
     const supportText = scheduler.getRandomSupportText();
     const responseText = `<i>${supportText}</i>\n\n${scheduler.buildSecondPart(messageData)}`;
-    
-    const task2Message = await ctx.telegram.sendMessage(
-      ctx.chat!.id,
-      responseText,
-      {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id
-        }
-      }
-    );
-    
+
+    const task2Message = await ctx.telegram.sendMessage(ctx.chat!.id, responseText, {
+      parse_mode: 'HTML',
+      reply_parameters: {
+        message_id: ctx.callbackQuery.message!.message_id,
+      },
+    });
+
     // Сохраняем ID сообщения с плюшками
     updateInteractivePostState(channelMessageId, 'waiting_task2', {
-      bot_task2_message_id: task2Message.message_id
+      bot_task2_message_id: task2Message.message_id,
     });
-    
+
     // Сохраняем сообщение в историю
     const { saveMessage } = await import('./db');
     saveMessage(ctx.from!.id, responseText, new Date().toISOString(), 0);
-    
+
     // Обновляем сессию, если она существует
     const session = scheduler.getInteractiveSession(ctx.from!.id) || scheduler.getInteractiveSession(channelMessageId);
     if (session) {
       session.currentStep = 'waiting_positive';
     }
-    
+
     botLogger.info({ channelMessageId, userId: ctx.from?.id }, 'Схема пропущена, отправлены плюшки');
-    
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки skip_schema');
     await ctx.answerCbQuery('Произошла ошибка. Попробуйте еще раз.');
