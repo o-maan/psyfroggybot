@@ -162,3 +162,8 @@ dist
 .calendar_token.json
 
 *.db
+
+# Test output files
+test-output.txt
+coverage-output.txt
+full-output.txt
