@@ -278,6 +278,12 @@ export class Scheduler {
     schedulerLogger.debug({ chatId }, 'Пользователь добавлен в планировщик');
   }
 
+  // Проверяем, является ли текущий день выходным (суббота или воскресенье)
+  private isWeekend(date: Date = new Date()): boolean {
+    const dayOfWeek = date.getDay();
+    return dayOfWeek === 0 || dayOfWeek === 6; // 0 - воскресенье, 6 - суббота
+  }
+
   // Определяем занятость пользователя через LLM анализ календаря
   private async detectUserBusy(events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
     try {
@@ -402,11 +408,11 @@ export class Scheduler {
   }
 
   // Новый метод для интерактивной генерации сообщения
-  private buildInteractiveMessage(json: any): {
+  private async buildInteractiveMessage(json: any): Promise<{
     firstPart: string;
     messageData: any;
     relaxationType: 'body' | 'breathing';
-  } {
+  }> {
     // Удаляем теги <think>...</think>
     if (json.encouragement?.text) {
       json.encouragement.text = removeThinkTags(json.encouragement.text);
@@ -422,8 +428,38 @@ export class Scheduler {
     // TODO: Временно отключаем расслабление тела, оставляем только дыхательную практику
     const relaxationType: 'body' | 'breathing' = 'breathing'; // Math.random() < 0.5 ? 'body' : 'breathing';
 
-    // Основной пост содержит только вдохновляющий текст
-    const firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+    // Проверяем, выходной ли сегодня день
+    const isWeekendToday = this.isWeekend();
+    
+    let firstPart: string;
+    
+    if (isWeekendToday) {
+      // В выходные генерируем специальный текст поддержки
+      try {
+        const weekendPrompt = readFileSync('assets/prompts/weekend-encouragement.md', 'utf-8');
+        const weekendResponse = await generateMessage(weekendPrompt);
+        
+        if (weekendResponse && weekendResponse !== 'HF_JSON_ERROR') {
+          const cleanedResponse = removeThinkTags(weekendResponse);
+          try {
+            const weekendJson = JSON.parse(cleanedResponse.replace(/```json|```/gi, '').trim());
+            firstPart = `<i>${escapeHTML(weekendJson.encouragement.text)}</i>`;
+          } catch {
+            // Fallback на обычный текст
+            firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+          }
+        } else {
+          // Fallback на обычный текст
+          firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+        }
+      } catch (error) {
+        schedulerLogger.warn({ error }, 'Ошибка генерации текста для выходных, используем обычный');
+        firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+      }
+    } else {
+      // В будни используем обычный вдохновляющий текст
+      firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
+    }
 
     return {
       firstPart,
@@ -799,7 +835,7 @@ export class Scheduler {
     }
 
     // Используем интерактивный билдер
-    const interactiveData = this.buildInteractiveMessage(json);
+    const interactiveData = await this.buildInteractiveMessage(json);
 
     return {
       json,
