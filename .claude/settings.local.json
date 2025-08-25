@@ -15,7 +15,17 @@
       "Bash(lsof:*)",
       "Bash(kill:*)",
       "Bash(bun run:*)",
-      "Bash(bun --watch run src/bot.ts)"
+      "Bash(bun --watch run src/bot.ts)",
+      "Bash(mkdir:*)",
+      "Bash(awk:*)",
+      "Bash(python3:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(npx tsc:*)",
+      "Bash(bun:*)",
+      "Bash(node:*)"
     ],
     "deny": []
   }
