@@ -163,7 +163,7 @@ async function saveUserMessageLink(
         ) VALUES (?, ?, 'user', ?, ?, datetime('now'))
       `);
       
-      save.run(0, userMessageId, finalUserId, replyToBotMessageId);
+      save.run(0, userMessageId, finalUserId, replyToBotMessageId || null);
       return;
     }
     

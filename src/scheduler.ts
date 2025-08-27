@@ -1117,16 +1117,14 @@ export class Scheduler {
 
       const messageId = sentMessage.message_id;
 
-      // Сразу отправляем первое задание как комментарий с кнопкой пропуска
-      const skipButtonText = this.getRandomSkipButtonText();
-      const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)';
-      let firstTaskFullText = firstTaskText;
-      if (json.negative_part?.additional_text) {
-        firstTaskFullText += `\n<blockquote>${escapeHTML(json.negative_part.additional_text)}</blockquote>`;
-      }
-
-      const firstTaskKeyboard = {
-        inline_keyboard: [[{ text: skipButtonText, callback_data: `skip_neg_${messageId}` }]],
+      // Готовим выбор сценария для отправки в комментарии
+      const scenarioChoiceText = '<b>Как сегодня хочешь поработать?</b>';
+      
+      const scenarioChoiceKeyboard = {
+        inline_keyboard: [
+          [{ text: 'Упрощенный сценарий 🧩', callback_data: `scenario_simplified_${messageId}` }],
+          [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${messageId}` }]
+        ],
       };
 
       // Получаем ID группы обсуждений
@@ -1137,17 +1135,17 @@ export class Scheduler {
         return;
       }
 
-      // Отправляем первое задание асинхронно после появления пересланного сообщения
-      this.sendFirstTaskAsync(messageId, firstTaskFullText, firstTaskKeyboard, skipButtonText, chatId, CHAT_ID);
+      // Отправляем выбор сценария асинхронно после появления пересланного сообщения
+      this.sendFirstTaskAsync(messageId, scenarioChoiceText, scenarioChoiceKeyboard, 'scenario_choice', chatId, CHAT_ID);
 
       schedulerLogger.info(
         {
           channelMessageId: messageId,
           channelId: this.CHANNEL_ID,
           chatId: CHAT_ID,
-          skipButton: skipButtonText,
+          type: 'scenario_choice',
         },
-        '✅ Процесс отправки первого задания запущен асинхронно'
+        '✅ Процесс отправки выбора сценария запущен асинхронно'
       );
 
       // Сохраняем сообщение в БД
@@ -1274,14 +1272,10 @@ export class Scheduler {
             chat_id: CHAT_ID,
             waitedSeconds: (attempts * checkInterval) / 1000,
           },
-          '✅ Первое задание отправлено как комментарий к посту'
+          '✅ Сообщение отправлено как комментарий к посту'
         );
 
-        // Сохраняем ID первого сообщения в БД
-        const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_negative', {
-          bot_task1_message_id: firstTaskMessage.message_id,
-        });
+        // Для выбора сценария не обновляем состояние в БД - это сделает обработчик кнопки
       } else {
         // Таймаут - отправляем в группу с пометкой
         schedulerLogger.warn(
@@ -1304,14 +1298,10 @@ export class Scheduler {
             chat_id: CHAT_ID,
             used_note: true,
           },
-          '✅ Первое задание отправлено в группу с пометкой'
+          '✅ Сообщение отправлено в группу с пометкой'
         );
 
-        // Сохраняем ID первого сообщения в БД
-        const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_negative', {
-          bot_task1_message_id: firstTaskMessage.message_id,
-        });
+        // Для выбора сценария не обновляем состояние в БД - это сделает обработчик кнопки
       }
     } catch (error) {
       schedulerLogger.error(
@@ -1321,7 +1311,7 @@ export class Scheduler {
           channelMessageId,
           CHAT_ID,
         },
-        '❌ Ошибка асинхронной отправки первого задания'
+        '❌ Ошибка асинхронной отправки сообщения'
       );
     }
   }
