@@ -1,8 +1,14 @@
 import type { BotContext } from '../../types';
+import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 
+// Функция экранирования для HTML (Telegram) 
+function escapeHTML(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Обработчик кнопки "Глубокая работа"
-export async function handleScenarioDeep(ctx: BotContext) {
+export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const messageId = ctx.callbackQuery.message?.message_id;
@@ -22,13 +28,42 @@ export async function handleScenarioDeep(ctx: BotContext) {
       '🔘 Выбрана глубокая работа'
     );
 
-    // Отправляем сообщение о том, что функционал в разработке
-    await ctx.reply('🧘🏻 Глубокая работа в разработке. Скоро здесь появятся новые практики!', {
+    // Получаем данные поста из БД
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    if (!post) {
+      botLogger.error({ channelMessageId }, 'Пост не найден в БД');
+      return;
+    }
+
+    // Генерируем текст первого задания БЕЗ кнопки пропуска
+    const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b>\n<i>Постарайся описать максимально подробно свои эмоции</i>';
+    let firstTaskFullText = firstTaskText;
+    if (post.message_data?.negative_part?.additional_text) {
+      firstTaskFullText += `\n<blockquote>${escapeHTML(post.message_data.negative_part.additional_text)}</blockquote>`;
+    }
+
+    // Кнопка "Таблица эмоций"
+    const emotionsTableKeyboard = {
+      inline_keyboard: [[{ text: '📊 Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+    };
+
+    // Отправляем первое задание с кнопкой таблицы эмоций
+    const firstTaskMessage = await bot.telegram.sendMessage(chatId!, firstTaskFullText, {
+      parse_mode: 'HTML',
+      reply_markup: emotionsTableKeyboard,
       reply_parameters: {
         message_id: messageId!,
       },
     });
 
+    // Обновляем состояние поста для глубокой работы
+    const { updateInteractivePostState } = await import('../../db');
+    updateInteractivePostState(channelMessageId, 'deep_waiting_negative', {
+      bot_task1_message_id: firstTaskMessage.message_id,
+    });
+
+    botLogger.info({ channelMessageId }, '✅ Первое задание глубокой работы отправлено');
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки выбора глубокой работы');
   }

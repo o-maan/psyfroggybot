@@ -2144,6 +2144,66 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     const { updateTaskStatus } = await import('./db');
 
     try {
+      // Проверяем глубокий сценарий
+      if (session.currentStep === 'deep_waiting_negative') {
+        // Пользователь ответил на первое задание в глубоком сценарии
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+            scenario: 'deep',
+          },
+          'Получен ответ на первое задание (глубокий сценарий)'
+        );
+
+        // Импортируем обработчик глубокой работы
+        const { DeepWorkHandler } = await import('./deep-work-handler');
+        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        
+        // Анализируем ответ и выбираем технику
+        await deepHandler.analyzeUserResponse(channelMessageId, messageText, userId, messageId);
+        
+        return;
+      }
+      
+      // Обработка глубоких состояний
+      if (session.currentStep === 'deep_waiting_thoughts') {
+        const { DeepWorkHandler } = await import('./deep-work-handler');
+        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleThoughtsResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'deep_waiting_distortions') {
+        const { DeepWorkHandler } = await import('./deep-work-handler');
+        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleDistortionsResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'deep_waiting_rational') {
+        // Завершаем работу с фильтрами
+        const sendOptions: any = { 
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId
+          }
+        };
+        
+        await this.bot.telegram.sendMessage(replyToChatId, 
+          '🎉 Отлично! Ты проделал большую работу.\n\n' +
+          'Запомни эту рациональную реакцию и используй её, когда снова столкнешься с похожими мыслями.',
+          sendOptions
+        );
+        
+        const { updateInteractivePostState, updateTaskStatus } = await import('./db');
+        updateInteractivePostState(channelMessageId, 'deep_completed');
+        updateTaskStatus(channelMessageId, 1, true);
+        
+        return;
+      }
+      
       if (session.currentStep === 'waiting_negative') {
         // Пользователь ответил на первое задание
         schedulerLogger.info(

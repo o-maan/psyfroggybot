@@ -78,8 +78,9 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
       return;
     }
 
-    // Если это связанная группа, используем её ID для ответов
-    const replyToChatId = isFromLinkedChat ? chatId : CHAT_ID || chatId;
+    // Всегда используем ID чата, откуда пришло сообщение
+    // Это важно для корректной работы с тестовыми ботами и группами обсуждений
+    const replyToChatId = chatId;
 
     if (!CHAT_ID && !isFromLinkedChat) {
       botLogger.warn('⚠️ CHAT_ID не установлен в .env! Бот не сможет отвечать в чат');
