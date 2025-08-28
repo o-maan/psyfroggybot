@@ -38,10 +38,7 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
 
     // Генерируем текст первого задания БЕЗ кнопки пропуска
     const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b>\n<i>Постарайся описать максимально подробно свои эмоции</i>';
-    let firstTaskFullText = firstTaskText;
-    if (post.message_data?.negative_part?.additional_text) {
-      firstTaskFullText += `\n<blockquote>${escapeHTML(post.message_data.negative_part.additional_text)}</blockquote>`;
-    }
+    const firstTaskFullText = firstTaskText;
 
     // Кнопка "Таблица эмоций"
     const emotionsTableKeyboard = {
