@@ -257,13 +257,18 @@ The app is designed for production deployment with:
 
 ### Interactive Messaging Pattern
 
+⚠️ **ОБЯЗАТЕЛЬНО К ПРОЧТЕНИЮ**: [docs/CRITICAL-RULES-DO-NOT-BREAK.md](docs/CRITICAL-RULES-DO-NOT-BREAK.md)
+
 После публикации поста в канале ВСЯ работа с пользователем переходит в комментарии. См. [docs/interactive-messaging-pattern.md](docs/interactive-messaging-pattern.md) для подробного описания правильного паттерна взаимодействия.
 
 Ключевые моменты:
 - Всегда используйте `replyToChatId` из контекста сообщения
-- Для ответов в треде используйте только `reply_parameters`
+- Для текстовых сообщений используйте `reply_parameters`
+- **Для фото используйте `reply_to_message_id` (НЕ reply_parameters!)**
 - НЕ используйте `message_thread_id` при ответах (вызовет ошибку)
 - Все обработчики должны создавать классы с `chatId` из контекста
+
+**КРИТИЧЕСКИ ВАЖНО**: sendPhoto с reply_parameters отправит фото в основную группу, а не в комментарии!
 
 ## LLM inferring post processing
 

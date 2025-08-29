@@ -1,5 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { readFileSync } from 'fs';
+import path from 'path';
 import { generateMessage } from './llm';
 import { botLogger } from './logger';
 import { 
@@ -72,6 +73,7 @@ export class DeepWorkHandler {
     // Отправляем в тот же чат откуда пришло сообщение (как replyToChatId в упрощенном)
     return await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
   }
+  
 
   // Анализ ответа пользователя и выбор техники
   async analyzeUserResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number): Promise<void> {
@@ -187,10 +189,12 @@ export class DeepWorkHandler {
         channelMessageId,
         userId,
         replyToMessageId,
-        chatId: this.chatId
+        hasReplyId: !!replyToMessageId,
+        chatId: this.chatId,
+        chatIdType: typeof this.chatId
       }, 'Начинаем отправку фильтров восприятия');
       
-      // Отправляем объяснение БЕЗ картинки (как в упрощенном сценарии)
+      // Отправляем объяснение С картинкой
       const text = 'Давай разберем через фильтры восприятия';
       
       const reply_markup = {
@@ -206,7 +210,23 @@ export class DeepWorkHandler {
         text
       }, 'Отправляем сообщение с фильтрами восприятия');
       
-      const message = await this.sendMessage(text, replyToMessageId, { reply_markup });
+      // Загружаем картинку
+      const imagePath = path.join(process.cwd(), 'assets', 'images', 'percept-filters-info.png');
+      const imageBuffer = readFileSync(imagePath);
+      
+      // Отправляем картинку с текстом
+      const sendOptions: any = {
+        caption: text,
+        parse_mode: 'HTML',
+        reply_markup
+      };
+      
+      // Используем старый формат reply_to_message_id (как в первом задании)
+      if (replyToMessageId) {
+        sendOptions.reply_to_message_id = replyToMessageId;
+      }
+      
+      const message = await this.bot.telegram.sendPhoto(this.chatId, { source: imageBuffer }, sendOptions);
 
       updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
     } catch (error) {

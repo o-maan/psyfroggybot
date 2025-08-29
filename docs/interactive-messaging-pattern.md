@@ -99,19 +99,35 @@ await bot.telegram.sendMessage(chatId, text, {
 
 // НЕ используйте getChatId() для ответов
 const handler = new Handler(bot, getChatId()); // НЕВЕРНО!
+
+// НЕ используйте reply_parameters для sendPhoto!
+await bot.telegram.sendPhoto(chatId, photo, {
+  reply_parameters: { message_id: replyTo } // ФОТО УЙДЕТ В ГРУППУ!
+});
 ```
 
 ### ✅ ПРАВИЛЬНО:
 ```typescript
-// Используйте только reply_parameters
+// Для текста используйте reply_parameters
 await bot.telegram.sendMessage(chatId, text, {
   reply_parameters: { message_id: replyTo }
+});
+
+// Для фото используйте reply_to_message_id
+await bot.telegram.sendPhoto(chatId, photo, {
+  caption: text,
+  reply_to_message_id: replyToMessageId // КРИТИЧЕСКИ ВАЖНО!
 });
 
 // Используйте chatId из контекста сообщения
 const replyToChatId = ctx.chat.id;
 const handler = new Handler(bot, replyToChatId); // ПРАВИЛЬНО!
 ```
+
+### 📸 КРИТИЧЕСКОЕ ПРАВИЛО ДЛЯ ФОТО
+- **sendMessage** → `reply_parameters`
+- **sendPhoto** → `reply_to_message_id`
+- Это разные API! Если перепутать - фото уйдет в основную группу вместо комментариев!
 
 ## Последовательность диалога
 
