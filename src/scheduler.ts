@@ -2195,16 +2195,77 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
+        const sendOptionsWithButton: any = { 
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId
+          },
+          reply_markup: {
+            inline_keyboard: [[
+              { text: 'Вперед', callback_data: `deep_continue_to_treats_${channelMessageId}` }
+            ]]
+          }
+        };
+        
         await this.bot.telegram.sendMessage(replyToChatId, 
-          '🎉 Отлично! Ты проделал большую работу.\n\n' +
-          'Запомни эту рациональную реакцию и используй её, когда снова столкнешься с похожими мыслями.',
-          sendOptions
+          '🎉 Отлично! Самая сложная часть позади!\n\n' +
+          'Перейдем к более приятной 🤗',
+          sendOptionsWithButton
         );
         
         const { updateInteractivePostState, updateTaskStatus } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'deep_completed');
+        updateInteractivePostState(channelMessageId, 'deep_waiting_continue_to_treats');
         updateTaskStatus(channelMessageId, 1, true);
         
+        return;
+      }
+      
+      if (session.currentStep === 'deep_waiting_positive') {
+        // Ответ на плюшки в глубоком сценарии - отправляем финальную часть
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+          },
+          '📝 Получен ответ на плюшки (глубокий сценарий), отправляем дыхательную практику'
+        );
+
+        // Отмечаем второе задание как выполненное
+        const { updateTaskStatus } = await import('./db');
+        updateTaskStatus(channelMessageId, 2, true);
+
+        let finalMessage = 'У нас остался последний шаг\n\n';
+        finalMessage += '3. <b>Дыхательная практика</b>';
+
+        // Добавляем кнопки к заданию 3
+        const practiceKeyboard = {
+          inline_keyboard: [
+            [{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }],
+            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMessageId}` }],
+          ],
+        };
+
+        const finalOptions: any = {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId,
+          },
+          reply_markup: practiceKeyboard,
+        };
+
+        const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
+
+        // Сохраняем сообщение
+        saveMessage(userId, finalMessage, new Date().toISOString(), 0);
+
+        // Обновляем состояние в БД
+        const { updateInteractivePostState } = await import('./db');
+        updateInteractivePostState(channelMessageId, 'deep_waiting_practice', {
+          bot_task3_message_id: task3Message.message_id,
+          user_task2_message_id: messageId,
+        });
+
         return;
       }
       

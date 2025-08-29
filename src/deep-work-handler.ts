@@ -243,7 +243,7 @@ export class DeepWorkHandler {
       {
         reply_markup: {
           inline_keyboard: [[
-            { text: '💡 Показать пример', callback_data: `deep_filters_example_thoughts_${channelMessageId}` }
+            { text: 'Показать пример', callback_data: `deep_filters_example_thoughts_${channelMessageId}` }
           ]]
         }
       }
@@ -267,7 +267,7 @@ export class DeepWorkHandler {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[
-            { text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }
+            { text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }
           ]]
         }
       };
@@ -325,8 +325,8 @@ export class DeepWorkHandler {
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💡 Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
-            [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+            [{ text: 'Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
+            [{ text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
           ]
         }
       }
@@ -350,8 +350,8 @@ export class DeepWorkHandler {
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💡 Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
-            [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+            [{ text: 'Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
+            [{ text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
           ]
         }
       }
@@ -375,5 +375,27 @@ export class DeepWorkHandler {
       '⚫⚪ <b>Черно-белое мышление</b> - видим только крайности без полутонов',
       replyToMessageId
     );
+  }
+
+  // Продолжение с плюшками после фильтров
+  async continueToPluskas(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    try {
+      // Отправляем задание про плюшки
+      const message = await this.sendMessage(
+        '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)',
+        replyToMessageId
+      );
+
+      // Обновляем состояние
+      updateInteractivePostState(channelMessageId, 'deep_waiting_positive', {
+        bot_task2_message_id: message.message_id
+      });
+      
+      updateTaskStatus(channelMessageId, 2, false); // Отмечаем что задание 2 начато
+
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка перехода к плюшкам');
+      throw error;
+    }
   }
 }

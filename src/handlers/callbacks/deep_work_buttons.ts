@@ -138,3 +138,27 @@ export async function handleDeepShowFilters(ctx: BotContext, bot: Telegraf) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа фильтров');
   }
 }
+
+// Обработчик кнопки "Вперед" для перехода к плюшкам
+export async function handleDeepContinueToTreats(ctx: BotContext, bot: Telegraf) {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+
+    await ctx.answerCbQuery('🤗 Переходим к приятному!');
+
+    botLogger.info({
+      action: 'deep_continue_to_treats',
+      channelMessageId,
+      userId
+    }, 'Переход к плюшкам после фильтров');
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    await handler.continueToPluskas(channelMessageId, userId!, messageId);
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам');
+  }
+}

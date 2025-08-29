@@ -18,7 +18,8 @@ import {
   handleDeepFiltersExampleThoughts,
   handleDeepFiltersExampleDistortions,
   handleDeepFiltersExampleRational,
-  handleDeepShowFilters
+  handleDeepShowFilters,
+  handleDeepContinueToTreats
 } from './deep_work_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
@@ -47,6 +48,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/deep_filters_example_distortions_(\d+)/, ctx => handleDeepFiltersExampleDistortions(ctx, bot));
   bot.action(/deep_filters_example_rational_(\d+)/, ctx => handleDeepFiltersExampleRational(ctx, bot));
   bot.action(/deep_show_filters_(\d+)/, ctx => handleDeepShowFilters(ctx, bot));
+  bot.action(/deep_continue_to_treats_(\d+)/, ctx => handleDeepContinueToTreats(ctx, bot));
 }
 
 // Export individual handlers for backwards compatibility
