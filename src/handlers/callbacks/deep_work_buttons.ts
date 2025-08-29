@@ -3,14 +3,14 @@ import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { DeepWorkHandler } from '../../deep-work-handler';
 
-// Храним экземпляры обработчиков для каждого чата
-const deepWorkHandlers = new Map<number, DeepWorkHandler>();
+// Храним экземпляры обработчиков для каждого чата/треда
+const deepWorkHandlers = new Map<string, DeepWorkHandler>();
 
 function getDeepWorkHandler(bot: Telegraf, chatId: number): DeepWorkHandler {
-  if (!deepWorkHandlers.has(chatId)) {
-    deepWorkHandlers.set(chatId, new DeepWorkHandler(bot, chatId));
+  if (!deepWorkHandlers.has(`${chatId}`)) {
+    deepWorkHandlers.set(`${chatId}`, new DeepWorkHandler(bot, chatId));
   }
-  return deepWorkHandlers.get(chatId)!;
+  return deepWorkHandlers.get(`${chatId}`)!;
 }
 
 // Обработчик выбора ситуации

@@ -253,6 +253,17 @@ The app is designed for production deployment with:
 - `/minimalTestLLM`: Test LLM connection
 - `/test_busy`: Test user busy detection via calendar analysis
 - `/test_buttons`: Test comment buttons functionality
+- `/test_scenario`: Test scenario selection (simplified/deep work)
+
+### Interactive Messaging Pattern
+
+После публикации поста в канале ВСЯ работа с пользователем переходит в комментарии. См. [docs/interactive-messaging-pattern.md](docs/interactive-messaging-pattern.md) для подробного описания правильного паттерна взаимодействия.
+
+Ключевые моменты:
+- Всегда используйте `replyToChatId` из контекста сообщения
+- Для ответов в треде используйте только `reply_parameters`
+- НЕ используйте `message_thread_id` при ответах (вызовет ошибку)
+- Все обработчики должны создавать классы с `chatId` из контекста
 
 ## LLM inferring post processing
 

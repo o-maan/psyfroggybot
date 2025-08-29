@@ -780,6 +780,8 @@ export class Scheduler {
     if (jsonText === 'HF_JSON_ERROR') {
       schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме');
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      // Для поста используем простое сообщение
+      const postFallback = 'Надеюсь, у тебя был хороший день!';
       // Возвращаем fallback как JSON
       return {
         json: {
@@ -787,7 +789,7 @@ export class Scheduler {
           negative_part: { additional_text: '' },
           positive_part: { additional_text: '' },
         },
-        firstPart: fallback,
+        firstPart: postFallback,
         relaxationType: 'breathing',
       };
     }
@@ -823,13 +825,15 @@ export class Scheduler {
       // fallback всегда
       schedulerLogger.warn({ chatId }, '❌ JSON парсинг не удался в интерактивном режиме, используем fallback');
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      // Для поста используем простое сообщение
+      const postFallback = 'Надеюсь, у тебя был хороший день!';
       return {
         json: {
           encouragement: { text: fallback },
           negative_part: { additional_text: '' },
           positive_part: { additional_text: '' },
         },
-        firstPart: fallback,
+        firstPart: postFallback,
         relaxationType: 'breathing',
       };
     }

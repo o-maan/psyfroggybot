@@ -40,17 +40,49 @@ const PERCEPT_FILTERS_EXAMPLES = [
 export class DeepWorkHandler {
   private bot: Telegraf;
   private exampleCounters: Map<string, number> = new Map();
-  private chatId: number; // ID группы обсуждений для отправки сообщений
+  private chatId: number; // ID чата откуда пришло сообщение (как replyToChatId в упрощенном сценарии)
 
-  constructor(bot: Telegraf, chatId?: number) {
+  constructor(bot: Telegraf, chatId: number) {
     this.bot = bot;
-    // Если chatId не передан, используем значение из env
-    this.chatId = chatId || Number(process.env.CHAT_ID) || -1002798126153;
+    // ВАЖНО: используем переданный chatId (это replyToChatId из handleInteractiveUserResponse)
+    this.chatId = chatId;
+  }
+  
+  // Универсальный метод отправки сообщений (как в упрощенном сценарии)
+  private async sendMessage(
+    text: string, 
+    replyToMessageId?: number,
+    options: {
+      parse_mode?: string;
+      reply_markup?: any;
+    } = {}
+  ) {
+    const sendOptions: any = {
+      parse_mode: options.parse_mode || 'HTML',
+      ...options
+    };
+    
+    // ВСЕГДА добавляем reply_parameters если есть messageId
+    if (replyToMessageId) {
+      sendOptions.reply_parameters = {
+        message_id: replyToMessageId
+      };
+    }
+    
+    // Отправляем в тот же чат откуда пришло сообщение (как replyToChatId в упрощенном)
+    return await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
   }
 
   // Анализ ответа пользователя и выбор техники
   async analyzeUserResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number): Promise<void> {
     try {
+      botLogger.info({
+        channelMessageId,
+        userId,
+        replyToMessageId,
+        hasReplyId: !!replyToMessageId
+      }, 'analyzeUserResponse вызван с параметрами');
+      
       // Загружаем промпт для анализа
       const analyzePrompt = readFileSync('assets/prompts/analyze_situations.md', 'utf-8');
       const fullPrompt = analyzePrompt + '\n' + userText;
@@ -82,7 +114,29 @@ export class DeepWorkHandler {
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка анализа ответа пользователя');
       // Fallback - используем фильтры восприятия
-      await this.startTechnique(channelMessageId, 'percept_filters', userId, replyToMessageId);
+      try {
+        await this.startTechnique(channelMessageId, 'percept_filters', userId, replyToMessageId);
+      } catch (fallbackError) {
+        botLogger.error({ 
+          error: fallbackError, 
+          channelMessageId,
+          originalError: error 
+        }, 'Ошибка при попытке fallback на фильтры восприятия');
+        // Отправляем простое fallback сообщение
+        try {
+          await this.sendMessage(
+            'Извини, произошла техническая ошибка. Попробуй еще раз позже или продолжи в упрощенном режиме.',
+            replyToMessageId
+          );
+        } catch (finalError) {
+          botLogger.error({
+            error: finalError,
+            channelMessageId,
+            chatId: this.chatId,
+            replyToMessageId
+          }, 'Критическая ошибка - не можем отправить даже fallback сообщение');
+        }
+      }
     }
   }
 
@@ -98,21 +152,13 @@ export class DeepWorkHandler {
 
     const keyboard = { inline_keyboard: buttons };
     
-    const sendOptions: any = {
-      reply_markup: keyboard,
-      parse_mode: 'HTML'
-    };
-
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = {
-        message_id: replyToMessageId
-      };
-    }
-    
-    const message = await this.bot.telegram.sendMessage(
-      this.chatId,
+    const message = await this.sendMessage(
       'Какую ситуацию разберем подробнее?',
-      sendOptions
+      replyToMessageId,
+      {
+        reply_markup: keyboard,
+        parse_mode: 'HTML'
+      }
     );
 
     // Сохраняем состояние
@@ -130,99 +176,57 @@ export class DeepWorkHandler {
       await this.startPerceptFilters(channelMessageId, userId, replyToMessageId);
     } else if (techniqueType === 'abc') {
       // TODO: реализовать ABC технику
-      const sendOptions: any = {
-        parse_mode: 'HTML'
-      };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
-      }
-      
-      await this.bot.telegram.sendMessage(this.chatId, 'ABC техника в разработке', sendOptions);
+      await this.sendMessage('ABC техника в разработке', replyToMessageId);
     }
   }
 
   // Начинаем работу с фильтрами восприятия
   private async startPerceptFilters(channelMessageId: number, userId: number, replyToMessageId?: number) {
     try {
-      // Отправляем объяснение и картинку
+      botLogger.info({
+        channelMessageId,
+        userId,
+        replyToMessageId,
+        chatId: this.chatId
+      }, 'Начинаем отправку фильтров восприятия');
+      
+      // Отправляем объяснение БЕЗ картинки (как в упрощенном сценарии)
       const text = 'Давай разберем через фильтры восприятия';
       
-      // Пробуем отправить картинку
-      try {
-        const imagePath = 'assets/images/percept-filters-info.jpg';
-        const image = readFileSync(imagePath);
-        
-        const sendOptions: any = {
-          caption: text,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '🚀 Погнали', callback_data: `deep_filters_start_${channelMessageId}` }
-            ]]
-          }
-        };
-        
-        if (replyToMessageId) {
-          sendOptions.reply_parameters = {
-            message_id: replyToMessageId
-          };
-        }
-        
-        const message = await this.bot.telegram.sendPhoto(this.chatId, 
-          { source: image },
-          sendOptions
-        );
+      const reply_markup = {
+        inline_keyboard: [[
+          { text: '🚀 Погнали', callback_data: `deep_filters_start_${channelMessageId}` }
+        ]]
+      };
+      
+      botLogger.debug({
+        channelMessageId,
+        chatId: this.chatId,
+        replyToMessageId,
+        text
+      }, 'Отправляем сообщение с фильтрами восприятия');
+      
+      const message = await this.sendMessage(text, replyToMessageId, { reply_markup });
 
-        updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
-      } catch (imageError) {
-        // Если картинки нет - отправляем только текст
-        const sendOptions: any = {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '🚀 Погнали', callback_data: `deep_filters_start_${channelMessageId}` }
-            ]]
-          }
-        };
-        
-        if (replyToMessageId) {
-          sendOptions.reply_parameters = {
-            message_id: replyToMessageId
-          };
-        }
-        
-        const message = await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
-
-        updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
-      }
+      updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка начала фильтров восприятия');
+      throw error; // Пробрасываем ошибку дальше для обработки в вызывающем коде
     }
   }
 
   // Обработчик кнопки "Погнали" для фильтров
   async handleFiltersStart(channelMessageId: number, userId: number, replyToMessageId?: number) {
-    const sendOptions: any = {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '💡 Показать пример', callback_data: `deep_filters_example_thoughts_${channelMessageId}` }
-        ]]
-      }
-    };
-    
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = {
-        message_id: replyToMessageId
-      };
-    }
-    
-    const message = await this.bot.telegram.sendMessage(this.chatId,
+    const message = await this.sendMessage(
       'Какие мысли возникли в выбранном событии?',
-      sendOptions
+      replyToMessageId,
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '💡 Показать пример', callback_data: `deep_filters_example_thoughts_${channelMessageId}` }
+          ]]
+        }
+      }
     );
 
     updateInteractivePostState(channelMessageId, 'deep_waiting_thoughts', {
@@ -276,15 +280,7 @@ export class DeepWorkHandler {
       const example = PERCEPT_FILTERS_EXAMPLES[count];
       const text = `<b>Мысли:</b> ${example.thoughts}\n\n<b>Искажения:</b> ${example.distortions}\n\n<b>Рациональная реакция:</b> ${example.rational}`;
       
-      const sendOptions: any = { parse_mode: 'HTML' };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
-      }
-      
-      await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
+      await this.sendMessage(text, replyToMessageId);
       
       this.exampleCounters.set(key, count + 1);
     }
@@ -303,25 +299,17 @@ export class DeepWorkHandler {
   // Обработка ответа на мысли
   async handleThoughtsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
     // Переходим к искажениям
-    const sendOptions: any = {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '💡 Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
-          [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
-        ]
-      }
-    };
-    
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = {
-        message_id: replyToMessageId
-      };
-    }
-    
-    const message = await this.bot.telegram.sendMessage(this.chatId,
+    const message = await this.sendMessage(
       'Какие искажения ты здесь видишь?',
-      sendOptions
+      replyToMessageId,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💡 Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
+            [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+          ]
+        }
+      }
     );
 
     updateInteractivePostState(channelMessageId, 'deep_waiting_distortions', {
@@ -336,25 +324,17 @@ export class DeepWorkHandler {
   // Обработка ответа на искажения
   async handleDistortionsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
     // Переходим к рациональной реакции
-    const sendOptions: any = {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '💡 Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
-          [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
-        ]
-      }
-    };
-    
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = {
-        message_id: replyToMessageId
-      };
-    }
-    
-    const message = await this.bot.telegram.sendMessage(this.chatId,
+    const message = await this.sendMessage(
       'А теперь постарайся написать рациональную реакцию',
-      sendOptions
+      replyToMessageId,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💡 Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
+            [{ text: '🎴 Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+          ]
+        }
+      }
     );
 
     updateInteractivePostState(channelMessageId, 'deep_waiting_rational', {
@@ -364,51 +344,16 @@ export class DeepWorkHandler {
 
   // Показ карточек фильтров
   async showFiltersCards(channelMessageId: number, userId: number, replyToMessageId?: number) {
-    try {
-      // Пробуем отправить картинки с фильтрами
-      const filterImages = [
-        'assets/images/filters-1.jpg',
-        'assets/images/filters-2.jpg',
-        'assets/images/filters-3.jpg'
-      ];
-
-      for (const imagePath of filterImages) {
-        try {
-          const image = readFileSync(imagePath);
-          const sendOptions: any = {};
-          
-          if (replyToMessageId) {
-            sendOptions.reply_parameters = {
-              message_id: replyToMessageId
-            };
-          }
-          
-          await this.bot.telegram.sendPhoto(this.chatId, { source: image }, sendOptions);
-        } catch (err) {
-          // Пропускаем если картинки нет
-          continue;
-        }
-      }
-    } catch (error) {
-      // Если картинок нет - отправляем текстовое описание
-      const sendOptions: any = { parse_mode: 'HTML' };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
-      }
-      
-      await this.bot.telegram.sendMessage(this.chatId, 
-        '<b>Основные когнитивные искажения:</b>\n\n' +
-        '🔮 <b>Чтение мыслей</b> - предполагаем, что знаем, о чем думают другие\n\n' +
-        '💣 <b>Катастрофизация</b> - ожидаем худшего исхода событий\n\n' +
-        '🎯 <b>Персонализация</b> - берем на себя вину за то, что от нас не зависит\n\n' +
-        '♾ <b>Обобщение</b> - используем слова "всегда", "никогда", "все", "никто"\n\n' +
-        '📈 <b>Преувеличение/преуменьшение</b> - искажаем значимость событий\n\n' +
-        '⚫⚪ <b>Черно-белое мышление</b> - видим только крайности без полутонов',
-        sendOptions
-      );
-    }
+    // В упрощенном варианте просто отправляем текстовое описание
+    await this.sendMessage(
+      '<b>Основные когнитивные искажения:</b>\n\n' +
+      '🔮 <b>Чтение мыслей</b> - предполагаем, что знаем, о чем думают другие\n\n' +
+      '💣 <b>Катастрофизация</b> - ожидаем худшего исхода событий\n\n' +
+      '🎯 <b>Персонализация</b> - берем на себя вину за то, что от нас не зависит\n\n' +
+      '♾ <b>Обобщение</b> - используем слова "всегда", "никогда", "все", "никто"\n\n' +
+      '📈 <b>Преувеличение/преуменьшение</b> - искажаем значимость событий\n\n' +
+      '⚫⚪ <b>Черно-белое мышление</b> - видим только крайности без полутонов',
+      replyToMessageId
+    );
   }
 }

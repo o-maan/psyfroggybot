@@ -124,17 +124,24 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
 
       // Проверяем, есть ли активная интерактивная сессия
       const messageThreadId = (ctx.message as any).message_thread_id;
-      const isInteractive = await scheduler.handleInteractiveUserResponse(
-        userId,
-        message,
-        replyToChatId,
-        ctx.message.message_id,
-        messageThreadId
-      );
+      
+      // Для интерактивных постов не обрабатываем сообщения из личных чатов
+      if (ctx.chat.type === 'private') {
+        botLogger.debug({ userId, chatType: ctx.chat.type }, 'Игнорируем личное сообщение для интерактивных постов');
+        return; // ВАЖНО: выходим из обработчика для личных сообщений
+      } else {
+        const isInteractive = await scheduler.handleInteractiveUserResponse(
+          userId,
+          message,
+          replyToChatId,
+          ctx.message.message_id,
+          messageThreadId
+        );
 
-      if (isInteractive) {
-        // Сообщение обработано в интерактивном режиме
-        return;
+        if (isInteractive) {
+          // Сообщение обработано в интерактивном режиме
+          return;
+        }
       }
 
       // Получаем последние 7 сообщений пользователя в хронологическом порядке
