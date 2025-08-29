@@ -42,7 +42,7 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
 
     // Кнопка "Таблица эмоций"
     const emotionsTableKeyboard = {
-      inline_keyboard: [[{ text: '📊 Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+      inline_keyboard: [[{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }]],
     };
 
     // Отправляем первое задание с кнопкой таблицы эмоций
