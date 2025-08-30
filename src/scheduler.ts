@@ -2148,6 +2148,71 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     const { updateTaskStatus } = await import('./db');
 
     try {
+      // Проверяем глубокий сценарий - ожидание списка ситуаций
+      if (session.currentStep === 'deep_waiting_situations_list') {
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+            scenario: 'deep',
+          },
+          'Получен список ситуаций в глубоком сценарии'
+        );
+
+        // Генерируем краткие слова поддержки через LLM
+        const supportPrompt = `Пользователь перечислил свои проблемы: "${messageText.substring(0, 200)}". Напиши краткие слова поддержки (не более 70 символов). Только текст ответа, без размышлений.`;
+        
+        let supportText = await generateMessage(supportPrompt);
+        
+        // Удаляем теги <think> если есть
+        const removeThinkTags = (text: string): string => {
+          const lastThinkClose = text.lastIndexOf('</think>');
+          if (lastThinkClose !== -1 && text.trim().startsWith('<think>')) {
+            return text.substring(lastThinkClose + 8).trim();
+          }
+          return text;
+        };
+        
+        supportText = removeThinkTags(supportText);
+        
+        // Если LLM не сработал, используем fallback
+        if (supportText === 'HF_JSON_ERROR' || !supportText) {
+          supportText = 'Понимаю, как тебе сейчас непросто';
+        }
+        
+        // Ограничиваем длину до 70 символов
+        if (supportText.length > 70) {
+          supportText = supportText.substring(0, 67) + '...';
+        }
+
+        // Второй этап - отправляем слова поддержки + задание с кнопкой
+        const secondTaskText = `<i>${escapeHTML(supportText)}</i>\n\nВыбери ситуацию, с которой хочешь поработать, и опиши ее подробно 📝`;
+        
+        // Кнопка "Таблица эмоций"
+        const emotionsTableKeyboard = {
+          inline_keyboard: [[{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }]],
+        };
+
+        // Отправляем второе сообщение с кнопкой
+        const secondTaskMessage = await this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
+          parse_mode: 'HTML',
+          reply_markup: emotionsTableKeyboard,
+          reply_parameters: {
+            message_id: messageId,
+          },
+        });
+
+        // Обновляем состояние - теперь ждем выбранную ситуацию
+        const { updateInteractivePostState } = await import('./db');
+        updateInteractivePostState(channelMessageId, 'deep_waiting_negative', {
+          bot_task2_message_id: secondTaskMessage.message_id,
+          user_task1_message_id: messageId,
+        });
+
+        return;
+      }
+      
       // Проверяем глубокий сценарий
       if (session.currentStep === 'deep_waiting_negative') {
         // Пользователь ответил на первое задание в глубоком сценарии
@@ -2202,13 +2267,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           },
           reply_markup: {
             inline_keyboard: [[
-              { text: 'Вперед', callback_data: `deep_continue_to_treats_${channelMessageId}` }
+              { text: 'Вперед 🤩', callback_data: `deep_continue_to_treats_${channelMessageId}` }
             ]]
           }
         };
         
         await this.bot.telegram.sendMessage(replyToChatId, 
-          '🎉 Отлично! Самая сложная часть позади!\n\n' +
+          '🎉 Отлично! Сложная часть позади!\n' +
+          'Можно выдохнуть 😌\n\n' +
           'Перейдем к более приятной 🤗',
           sendOptionsWithButton
         );
