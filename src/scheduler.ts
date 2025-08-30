@@ -2267,7 +2267,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           },
           reply_markup: {
             inline_keyboard: [[
-              { text: 'Вперед 🤩', callback_data: `deep_continue_to_treats_${channelMessageId}` }
+              { text: 'Вперед 🔥', callback_data: `deep_continue_to_treats_${channelMessageId}` }
             ]]
           }
         };
@@ -2301,7 +2301,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         const { updateTaskStatus } = await import('./db');
         updateTaskStatus(channelMessageId, 2, true);
 
-        let finalMessage = 'У нас остался последний шаг\n\n';
+        let finalMessage = '<i>Вау! 🤩 Ты справился! Это было потрясающе!</i>\n\n';
+        finalMessage += 'А теперь время замедлиться и побыть в покое 🤍\n';
         finalMessage += '3. <b>Дыхательная практика</b>';
 
         // Добавляем кнопки к заданию 3
