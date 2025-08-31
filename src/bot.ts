@@ -13,6 +13,7 @@ import { registerUserCommands } from './commands/user';
 import { registerAdminCommands } from './commands/admin';
 import { registerCallbackHandlers } from './handlers/callbacks';
 import { registerMessageHandlers } from './handlers/messages';
+import { registerInlineHandlers } from './handlers/inline';
 
 // Импортируем серверы
 import { createOAuthServer } from './servers/oauth';
@@ -56,6 +57,9 @@ registerCallbackHandlers(bot, scheduler);
 
 // Регистрируем обработчики сообщений
 registerMessageHandlers(bot, scheduler);
+
+// Регистрируем обработчики inline запросов
+registerInlineHandlers(bot);
 
 // Создаем Express серверы
 createOAuthServer(bot, calendarService, scheduler);

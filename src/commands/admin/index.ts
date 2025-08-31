@@ -22,6 +22,7 @@ import { registerTestNowCommand } from './test_now';
 import { registerTestReminderCommand } from './test_reminder';
 import { registerTestReplyCommand } from './test_reply';
 import { registerLogsCommand } from './logs';
+import { registerTestInlineCommand } from './test_inline';
 
 // Функция для регистрации всех административных команд
 export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
@@ -45,4 +46,5 @@ export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
   registerTestReminderCommand(bot, scheduler);
   registerTestReplyCommand(bot, scheduler);
   registerLogsCommand(bot, scheduler);
+  registerTestInlineCommand(bot);
 }
