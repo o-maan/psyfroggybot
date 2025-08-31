@@ -87,7 +87,13 @@ export async function handleDeepFiltersExample(ctx: BotContext, bot: Telegraf) {
       return;
     }
     
-    await ctx.answerCbQuery('💡 Показываю пример');
+    // Выбираем текст всплывающего сообщения в зависимости от счетчика
+    let callbackText = '💡 Показываю пример';
+    if (count === 3 || count === 4) {
+      callbackText = '🎴 Смотри фильтры восприятия';
+    }
+    
+    await ctx.answerCbQuery(callbackText);
     await handler.showThoughtsExample(channelMessageId, userId!, messageId);
 
   } catch (error) {
@@ -149,5 +155,31 @@ export async function handleDeepContinueToTreats(ctx: BotContext, bot: Telegraf)
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам');
+  }
+}
+
+// Обработчик кнопки "Показать фильтры"
+export async function handleShowFilters(ctx: any, bot: Telegraf) {
+  try {
+    await ctx.answerCbQuery();
+    
+    const match = ctx.callbackQuery.data.match(/show_filters_(\d+)/);
+    if (!match) return;
+    
+    const channelMessageId = parseInt(match[1]);
+    const userId = ctx.from?.id;
+    
+    if (!userId) {
+      botLogger.error('Нет ID пользователя в callback запросе');
+      return;
+    }
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    await handler.showFilters(channelMessageId, userId, messageId);
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка показа фильтров');
   }
 }
