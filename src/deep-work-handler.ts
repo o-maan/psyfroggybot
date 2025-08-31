@@ -491,67 +491,67 @@ export class DeepWorkHandler {
     try {
       // Фильтры восприятия с file_id картинок
       const FILTERS = [
-        // Первая группа (6 картинок)
+        // Первая группа (6 картинок) - картинки 2-7
         {
           file_id: 'AgACAgIAAxkBAAIF9Wi0ik4AAQHIlLvKfXIAAV9ZsRbvNCAAArn2MRsZmqhJLZzMKg8PIeUBAAMCAAN5AAM2BA',
-          title: 'Катастрофизация',
-          description: 'Ожидание худшего исхода событий'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF9mi0ik4E7-2nFVd2jxOFJ-ZikrU-AAK79jEbGZqoSXALrK3ECk06AQADAgADeQADNgQ',
           title: 'Чтение мыслей',
           description: 'Предполагаем, что знаем о чем думают другие'
         },
         {
-          file_id: 'AgACAgIAAxkBAAIF92i0ik6EM37s378C9rn_NwVuQpO_AAK89jEbGZqoSdGUmrDZmTnYAQADAgADeQADNgQ',
-          title: 'Персонализация',
-          description: 'Берем на себя вину за то, что от нас не зависит'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF-Gi0ik6gE3_DCCiyYOEAAbZEfBOAYgACvfYxGxmaqEk_b9ajzx_t9gEAAwIAA3kAAzYE',
-          title: 'Обобщение',
-          description: 'Используем слова "всегда", "никогда", "все", "никто"'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF-Wi0ik6K52oJUb1sMl7jmLtGagqrAAK_9jEbGZqoSaMTOzeV3bhJAQADAgADeQADNgQ',
+          file_id: 'AgACAgIAAxkBAAIF9mi0ik4E7-2nFVd2jxOFJ-ZikrU-AAK79jEbGZqoSXALrK3ECk06AQADAgADeQADNgQ',
           title: 'Черно-белое мышление',
           description: 'Видим только крайности без полутонов'
         },
         {
-          file_id: 'AgACAgIAAxkBAAIF-mi0ik4BxNIBSe8o_EGt3UVc5DlkAALA9jEbGZqoSX1oJUCbeGbNAQADAgADeQADNgQ',
-          title: 'Преувеличение/преуменьшение',
-          description: 'Искажаем значимость событий'
-        },
-        // Вторая группа (6 картинок)
-        {
-          file_id: 'AgACAgIAAxkBAAIF-2i0ik5f4f_vE8HVGhsyuSdXjF4TAALB9jEbGZqoSaSf-vW4Y8h_AQADAgADeQADNgQ',
-          title: 'Эмоциональное обоснование',
-          description: 'Считаем свои чувства доказательством истины'
+          file_id: 'AgACAgIAAxkBAAIF92i0ik6EM37s378C9rn_NwVuQpO_AAK89jEbGZqoSdGUmrDZmTnYAQADAgADeQADNgQ',
+          title: 'Катастрофизация',
+          description: 'Ожидание худшего исхода событий'
         },
         {
-          file_id: 'AgACAgIAAxkBAAIF_Gi0ik6DrRIJ2oQCdcvnczn5Zxf5AALC9jEbGZqoSYwEMIOSyT4bAQADAgADeQADNgQ',
+          file_id: 'AgACAgIAAxkBAAIF-Gi0ik6gE3_DCCiyYOEAAbZEfBOAYgACvfYxGxmaqEk_b9ajzx_t9gEAAwIAA3kAAzYE',
           title: 'Навешивание ярлыков',
           description: 'Присваиваем себе или другим негативные характеристики'
         },
         {
+          file_id: 'AgACAgIAAxkBAAIF-Wi0ik6K52oJUb1sMl7jmLtGagqrAAK_9jEbGZqoSaMTOzeV3bhJAQADAgADeQADNgQ',
+          title: 'Сверхобобщение',
+          description: 'Используем слова "всегда", "никогда", "все", "никто"'
+        },
+        {
+          file_id: 'AgACAgIAAxkBAAIF-mi0ik4BxNIBSe8o_EGt3UVc5DlkAALA9jEbGZqoSX1oJUCbeGbNAQADAgADeQADNgQ',
+          title: 'Обесценивание позитивного',
+          description: 'Игнорируем или преуменьшаем хорошее'
+        },
+        // Вторая группа (6 картинок) - картинки 8-13
+        {
+          file_id: 'AgACAgIAAxkBAAIF-2i0ik5f4f_vE8HVGhsyuSdXjF4TAALB9jEbGZqoSaSf-vW4Y8h_AQADAgADeQADNgQ',
+          title: 'Розовые очки',
+          description: 'Идеализируем ситуацию, игнорируя негативные аспекты'
+        },
+        {
+          file_id: 'AgACAgIAAxkBAAIF_Gi0ik6DrRIJ2oQCdcvnczn5Zxf5AALC9jEbGZqoSYwEMIOSyT4bAQADAgADeQADNgQ',
+          title: 'Эмоциональное обоснование',
+          description: 'Считаем свои чувства доказательством истины'
+        },
+        {
           file_id: 'AgACAgIAAxkBAAIF_Wi0ik4syr_yJd5IEvaSap4RgjXlAALD9jEbGZqoSRhu44-4826XAQADAgADeQADNgQ',
-          title: 'Долженствование',
-          description: 'Требования к себе и другим через "должен", "обязан"'
+          title: 'Персонализация',
+          description: 'Берем на себя вину за то, что от нас не зависит'
         },
         {
           file_id: 'AgACAgIAAxkBAAIF_mi0ik4QDysr0EUcE7ddA4G0bTOVAALE9jEbGZqoSQY3_YlELhp-AQADAgADeQADNgQ',
-          title: 'Ментальный фильтр',
+          title: 'Избирательное внимание',
           description: 'Фокусируемся только на негативе'
         },
         {
           file_id: 'AgACAgIAAxkBAAIF82i0ij6rJr8gvBFcERakN9mamHr_AAK69jEbGZqoSdBi8J2JaUl9AQADAgADeQADNgQ',
-          title: 'Обесценивание позитива',
-          description: 'Игнорируем или преуменьшаем хорошее'
+          title: 'Преувеличение',
+          description: 'Раздуваем значимость негативных событий'
         },
         {
-          file_id: 'AgACAgIAAxkBAAIF9Gi0ij7wfJoLrBApRaBXfRSeKB2DAAK-9jEbGZqoSYqi4i1O6U0lAQADAgADeQADNgQ',
-          title: 'Туннельное видение',
-          description: 'Видим только один аспект ситуации'
+          file_id: 'AgACAgIAAxkBAAIGzmi024_oBkIH9lBHRljpiIz45X1vAAJt-DEbGZqoSTtoREDebC7PAQADAgADeQADNgQ',
+          title: 'Преуменьшение',
+          description: 'Минимизируем значимость позитивных событий'
         }
       ];
 

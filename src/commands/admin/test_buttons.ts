@@ -68,6 +68,11 @@ export function registerTestButtonsCommand(bot: Telegraf, scheduler: Scheduler) 
           `🔗 URL: <code>${commentUrl}</code>`,
         { parse_mode: 'HTML' }
       );
+      
+      // Отправляем последнюю картинку из фильтров
+      await ctx.reply('📸 Последняя картинка из массива фильтров (Туннельное видение):');
+      const lastFilterId = 'AgACAgIAAxkBAAIF9Gi0ij7wfJoLrBApRaBXfRSeKB2DAAK-9jEbGZqoSYqi4i1O6U0lAQADAgADeQADNgQ';
+      await ctx.replyWithPhoto(lastFilterId);
     } catch (error) {
       const err = error as Error;
       botLogger.error({ error: err.message, stack: err.stack }, 'Ошибка команды /test_buttons');

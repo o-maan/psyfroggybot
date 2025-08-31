@@ -61,6 +61,17 @@ registerMessageHandlers(bot, scheduler);
 // Регистрируем обработчики inline запросов
 registerInlineHandlers(bot);
 
+// Быстрая команда для показа последней картинки
+bot.command('show_filter', async ctx => {
+  try {
+    const lastFilterId = 'AgACAgIAAxkBAAIGzmi024_oBkIH9lBHRljpiIz45X1vAAJt-DEbGZqoSTtoREDebC7PAQADAgADeQADNgQ';
+    await ctx.reply('📸 Последняя картинка из массива фильтров (Преуменьшение):');
+    await ctx.replyWithPhoto(lastFilterId);
+  } catch (error) {
+    await ctx.reply('Ошибка: ' + (error as Error).message);
+  }
+});
+
 // Создаем Express серверы
 createOAuthServer(bot, calendarService, scheduler);
 createWebhookServer(scheduler);
