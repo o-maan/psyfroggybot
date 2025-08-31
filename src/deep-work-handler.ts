@@ -294,7 +294,7 @@ export class DeepWorkHandler {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[
-            { text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }
+            { text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }
           ]]
         }
       };
@@ -353,7 +353,7 @@ export class DeepWorkHandler {
         reply_markup: {
           inline_keyboard: [
             [{ text: 'Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
-            [{ text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+            [{ text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }]
           ]
         }
       }
@@ -378,7 +378,7 @@ export class DeepWorkHandler {
         reply_markup: {
           inline_keyboard: [
             [{ text: 'Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
-            [{ text: 'Показать фильтры', callback_data: `deep_show_filters_${channelMessageId}` }]
+            [{ text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }]
           ]
         }
       }

@@ -108,6 +108,23 @@ db.query(
 `
 ).run();
 
+// Создаем таблицу для хранения file_id картинок лягушек для inline режима
+db.query(
+  `
+  CREATE TABLE IF NOT EXISTS frog_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT UNIQUE NOT NULL,
+    file_unique_id TEXT,
+    title TEXT,
+    description TEXT,
+    width INTEGER,
+    height INTEGER,
+    file_size INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`
+).run();
+
 // Функции для работы с пользователями
 export const addUser = (chatId: number, username: string, name?: string, gender?: string) => {
   const insertUser = db.query('INSERT OR IGNORE INTO users (chat_id, username, name, gender) VALUES (?, ?, ?, ?)');
@@ -726,4 +743,70 @@ export const getUncompletedPostsWithState = () => {
     }
     return row;
   });
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С INLINE КАРТИНКАМИ ЛЯГУШЕК =============
+
+// Сохранить картинку лягушки
+export const saveFrogImage = (
+  fileId: string,
+  fileUniqueId: string,
+  title: string,
+  description: string,
+  width: number,
+  height: number,
+  fileSize: number
+) => {
+  const insert = db.query(`
+    INSERT OR REPLACE INTO frog_images (file_id, file_unique_id, title, description, width, height, file_size)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  insert.run(fileId, fileUniqueId, title, description, width, height, fileSize);
+};
+
+// Получить все картинки лягушек
+export const getAllFrogImages = () => {
+  const get = db.query(`
+    SELECT * FROM frog_images
+    ORDER BY created_at DESC
+  `);
+  return get.all() as {
+    id: number;
+    file_id: string;
+    file_unique_id: string;
+    title: string;
+    description: string;
+    width: number;
+    height: number;
+    file_size: number;
+    created_at: string;
+  }[];
+};
+
+// Получить картинку по file_id
+export const getFrogImageByFileId = (fileId: string) => {
+  const get = db.query(`
+    SELECT * FROM frog_images
+    WHERE file_id = ?
+  `);
+  return get.get(fileId) as {
+    id: number;
+    file_id: string;
+    file_unique_id: string;
+    title: string;
+    description: string;
+    width: number;
+    height: number;
+    file_size: number;
+    created_at: string;
+  } | undefined;
+};
+
+// Удалить картинку лягушки
+export const deleteFrogImage = (fileId: string) => {
+  const del = db.query(`
+    DELETE FROM frog_images
+    WHERE file_id = ?
+  `);
+  del.run(fileId);
 };
