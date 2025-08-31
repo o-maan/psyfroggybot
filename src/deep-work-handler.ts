@@ -231,7 +231,34 @@ export class DeepWorkHandler {
       updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка начала фильтров восприятия');
-      throw error; // Пробрасываем ошибку дальше для обработки в вызывающем коде
+      
+      // Фолбэк - отправляем текст без картинки
+      try {
+        const fallbackText = 'Давай разберем через фильтры восприятия\n\n' +
+                           'Фильтры восприятия - это когнитивные искажения, которые влияют на наши мысли и эмоции';
+        
+        const fallbackOptions: any = {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🚀 Погнали', callback_data: `deep_filters_start_${channelMessageId}` }
+            ]]
+          }
+        };
+        
+        if (replyToMessageId) {
+          fallbackOptions.reply_parameters = {
+            message_id: replyToMessageId
+          };
+        }
+        
+        await this.bot.telegram.sendMessage(this.chatId, fallbackText, fallbackOptions);
+        updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
+        
+      } catch (fallbackError) {
+        botLogger.error({ fallbackError, channelMessageId }, 'Ошибка отправки fallback сообщения');
+        throw fallbackError; // Пробрасываем дальше для общего обработчика
+      }
     }
   }
 

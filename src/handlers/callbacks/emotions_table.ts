@@ -41,5 +41,30 @@ export async function handleEmotionsTable(ctx: BotContext) {
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа таблицы эмоций');
+    
+    // Фолбэк - отправляем текст с основными эмоциями
+    try {
+      const chatId = ctx.callbackQuery.message?.chat?.id!;
+      const replyToMessageId = ctx.callbackQuery.message?.message_id;
+      
+      const fallbackText = 'Вот основные эмоции - грусть, радость, злость, страх, вина, стыд\n' +
+                          'Попробуй описать ими или постарайся нащупать оттенки\n\n' +
+                          '<i>P.S. Таблица эмоций не загрузилась, попробуй чуть позже</i>';
+      
+      const sendOptions: any = {
+        parse_mode: 'HTML'
+      };
+      
+      if (replyToMessageId) {
+        sendOptions.reply_parameters = {
+          message_id: replyToMessageId
+        };
+      }
+      
+      await ctx.telegram.sendMessage(chatId, fallbackText, sendOptions);
+      
+    } catch (fallbackError) {
+      botLogger.error({ fallbackError }, 'Ошибка отправки fallback сообщения для таблицы эмоций');
+    }
   }
 }
