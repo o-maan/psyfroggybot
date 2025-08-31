@@ -15,6 +15,7 @@ import { handleEmotionsTable } from './emotions_table';
 import { 
   handleDeepSituationChoice,
   handleDeepFiltersStart,
+  handleDeepFiltersExample,
   handleDeepFiltersExampleThoughts,
   handleDeepFiltersExampleDistortions,
   handleDeepFiltersExampleRational,
@@ -35,6 +36,11 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/practice_postpone_(\d+)/, ctx => handlePracticePostpone(ctx, scheduler));
   bot.action(/skip_schema_(\d+)/, ctx => handleSkipSchema(ctx, scheduler));
   
+  // Обработчик для неактивной кнопки
+  bot.action('disabled', async (ctx) => {
+    await ctx.answerCbQuery();
+  });
+  
   // Обработчики выбора сценария
   bot.action(/scenario_simplified_(\d+)/, ctx => handleScenarioSimplified(ctx, bot));
   bot.action(/scenario_deep_(\d+)/, ctx => handleScenarioDeep(ctx, bot));
@@ -43,6 +49,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Обработчики глубокой работы
   bot.action(/deep_situation_(\d+)_(\d+)/, ctx => handleDeepSituationChoice(ctx, bot));
   bot.action(/deep_filters_start_(\d+)/, ctx => handleDeepFiltersStart(ctx, bot));
+  bot.action(/deep_filters_example_(\d+)/, ctx => handleDeepFiltersExample(ctx, bot));
   bot.action(/deep_filters_example_thoughts_(\d+)/, ctx => handleDeepFiltersExampleThoughts(ctx, bot));
   bot.action(/deep_filters_example_distortions_(\d+)/, ctx => handleDeepFiltersExampleDistortions(ctx, bot));
   bot.action(/deep_filters_example_rational_(\d+)/, ctx => handleDeepFiltersExampleRational(ctx, bot));

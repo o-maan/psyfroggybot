@@ -6,7 +6,7 @@ import { DeepWorkHandler } from '../../deep-work-handler';
 // Храним экземпляры обработчиков для каждого чата/треда
 const deepWorkHandlers = new Map<string, DeepWorkHandler>();
 
-function getDeepWorkHandler(bot: Telegraf, chatId: number): DeepWorkHandler {
+export function getDeepWorkHandler(bot: Telegraf, chatId: number): DeepWorkHandler {
   if (!deepWorkHandlers.has(`${chatId}`)) {
     deepWorkHandlers.set(`${chatId}`, new DeepWorkHandler(bot, chatId));
   }
@@ -67,58 +67,47 @@ export async function handleDeepFiltersStart(ctx: BotContext, bot: Telegraf) {
   }
 }
 
-// Обработчик показа примера мыслей
-export async function handleDeepFiltersExampleThoughts(ctx: BotContext, bot: Telegraf) {
+// Единый обработчик показа примеров
+export async function handleDeepFiltersExample(ctx: BotContext, bot: Telegraf) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
 
-    await ctx.answerCbQuery('💡 Показываю пример');
-
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const handler = getDeepWorkHandler(bot, chatId);
+    
+    // Проверяем, не исчерпаны ли примеры
+    const key = `examples_${channelMessageId}`;
+    const count = (handler as any).exampleCounters?.get(key) || 0;
+    
+    if (count >= 5) {
+      // Показываем всплывающее сообщение о том, что примеров больше нет
+      await ctx.answerCbQuery('А все, больше нет 😁');
+      return;
+    }
+    
+    await ctx.answerCbQuery('💡 Показываю пример');
     await handler.showThoughtsExample(channelMessageId, userId!, messageId);
 
   } catch (error) {
-    botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера мыслей');
+    botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера');
   }
 }
 
-// Обработчик показа примера искажений
+// Обработчик показа примера мыслей (для обратной совместимости)
+export async function handleDeepFiltersExampleThoughts(ctx: BotContext, bot: Telegraf) {
+  return handleDeepFiltersExample(ctx, bot);
+}
+
+// Обработчик показа примера искажений (для обратной совместимости)
 export async function handleDeepFiltersExampleDistortions(ctx: BotContext, bot: Telegraf) {
-  try {
-    const channelMessageId = parseInt(ctx.match![1]);
-    const userId = ctx.from?.id;
-
-    await ctx.answerCbQuery('💡 Показываю пример');
-
-    const messageId = ctx.callbackQuery.message?.message_id;
-    const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.showDistortionsExample(channelMessageId, userId!, messageId);
-
-  } catch (error) {
-    botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера искажений');
-  }
+  return handleDeepFiltersExample(ctx, bot);
 }
 
-// Обработчик показа примера рациональной реакции
+// Обработчик показа примера рациональной реакции (для обратной совместимости)
 export async function handleDeepFiltersExampleRational(ctx: BotContext, bot: Telegraf) {
-  try {
-    const channelMessageId = parseInt(ctx.match![1]);
-    const userId = ctx.from?.id;
-
-    await ctx.answerCbQuery('💡 Показываю пример');
-
-    const messageId = ctx.callbackQuery.message?.message_id;
-    const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.showRationalExample(channelMessageId, userId!, messageId);
-
-  } catch (error) {
-    botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера рациональной реакции');
-  }
+  return handleDeepFiltersExample(ctx, bot);
 }
 
 // Обработчик показа карточек фильтров

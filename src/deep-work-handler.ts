@@ -48,6 +48,17 @@ export class DeepWorkHandler {
     // ВАЖНО: используем переданный chatId (это replyToChatId из handleInteractiveUserResponse)
     this.chatId = chatId;
   }
+
+  // Получить текст кнопки в зависимости от количества нажатий
+  private getExampleButtonText(channelMessageId: number): string {
+    const key = `examples_${channelMessageId}`;
+    const count = this.exampleCounters.get(key) || 0;
+    // Если уже показаны все 3 примера - возвращаем null (кнопка не будет показана)
+    if (count >= 3) {
+      return '';
+    }
+    return count > 0 ? 'Показать еще пример' : 'Показать пример';
+  }
   
   // Универсальный метод отправки сообщений (как в упрощенном сценарии)
   private async sendMessage(
@@ -264,16 +275,22 @@ export class DeepWorkHandler {
 
   // Обработчик кнопки "Погнали" для фильтров
   async handleFiltersStart(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    const buttonText = this.getExampleButtonText(channelMessageId);
+    const messageOptions: any = {};
+    
+    // Добавляем кнопку только если есть доступные примеры
+    if (buttonText) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: buttonText, callback_data: `deep_filters_example_${channelMessageId}` }
+        ]]
+      };
+    }
+    
     const message = await this.sendMessage(
-      'Какие мысли возникли в выбранном событии?',
+      'Какие <b>мысли</b> возникли в выбранном событии?',
       replyToMessageId,
-      {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: 'Показать пример', callback_data: `deep_filters_example_thoughts_${channelMessageId}` }
-          ]]
-        }
-      }
+      messageOptions
     );
 
     updateInteractivePostState(channelMessageId, 'deep_waiting_thoughts', {
@@ -289,12 +306,17 @@ export class DeepWorkHandler {
     const key = `examples_${channelMessageId}`;
     const count = this.exampleCounters.get(key) || 0;
 
+    // Если уже показали финальное сообщение - ничего не делаем
+    if (count >= 5) {
+      return; // Молча выходим, не показываем никаких сообщений
+    }
+
     if (count >= 3) {
       const sendOptions: any = {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[
-            { text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }
+            { text: 'Показать фильтры', switch_inline_query_current_chat: '' }
           ]]
         }
       };
@@ -305,7 +327,7 @@ export class DeepWorkHandler {
         };
       }
       
-      // 4-е нажатие - показываем исходное сообщение
+      // 4-е нажатие - показываем первое финальное сообщение
       if (count === 3) {
         await this.bot.telegram.sendMessage(this.chatId,
           'Больше примеров можешь посмотреть в карточках <b>Фильтры восприятия</b>',
@@ -314,20 +336,44 @@ export class DeepWorkHandler {
         
         // Увеличиваем счетчик для перехода к следующему сообщению
         this.exampleCounters.set(key, count + 1);
-      } else {
-        // 5-е и последующие нажатия - показываем повторяющееся сообщение
+      } else if (count === 4) {
+        // 5-е нажатие - показываем финальное сообщение и устанавливаем счетчик в 5
         await this.bot.telegram.sendMessage(this.chatId,
           'Примеры смотри выше или открывай фильтры восприятия',
           sendOptions
         );
-        // Не увеличиваем счетчик, чтобы это сообщение повторялось
+        // Устанавливаем счетчик в 5, чтобы кнопки стали неактивными
+        this.exampleCounters.set(key, 5);
       }
     } else {
       // Показываем пример
       const example = PERCEPT_FILTERS_EXAMPLES[count];
       const text = `<b>Мысли:</b> ${example.thoughts}\n\n<b>Искажения:</b> ${example.distortions}\n\n<b>Рациональная реакция:</b> ${example.rational}`;
       
-      await this.sendMessage(text, replyToMessageId);
+      // Определяем какую кнопку показывать под примером
+      const nextCount = count + 1;
+      let keyboard;
+      
+      if (nextCount >= 3) {
+        // Это последний пример - показываем кнопку "Показать фильтры"
+        keyboard = {
+          inline_keyboard: [[
+            { text: 'Показать фильтры', switch_inline_query_current_chat: '' }
+          ]]
+        };
+      } else {
+        // Есть еще примеры - показываем кнопку "Еще пример"
+        // Используем тот же callback_data для единого счетчика
+        keyboard = {
+          inline_keyboard: [[
+            { text: 'Еще пример', callback_data: `deep_filters_example_${channelMessageId}` }
+          ]]
+        };
+      }
+      
+      await this.sendMessage(text, replyToMessageId, {
+        reply_markup: keyboard
+      });
       
       this.exampleCounters.set(key, count + 1);
     }
@@ -345,16 +391,23 @@ export class DeepWorkHandler {
 
   // Обработка ответа на мысли
   async handleThoughtsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const buttonText = this.getExampleButtonText(channelMessageId);
+    const keyboard = [];
+    
+    // Добавляем кнопку примера только если есть доступные примеры
+    if (buttonText) {
+      keyboard.push([{ text: buttonText, callback_data: `deep_filters_example_${channelMessageId}` }]);
+    }
+    // Кнопка "Показать фильтры" добавляется всегда
+    keyboard.push([{ text: 'Показать фильтры', switch_inline_query_current_chat: '' }]);
+    
     // Переходим к искажениям
     const message = await this.sendMessage(
-      'Какие искажения ты здесь видишь?',
+      'Какие <b>искажения</b> ты здесь видишь?',
       replyToMessageId,
       {
         reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Показать пример', callback_data: `deep_filters_example_distortions_${channelMessageId}` }],
-            [{ text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }]
-          ]
+          inline_keyboard: keyboard
         }
       }
     );
@@ -363,23 +416,28 @@ export class DeepWorkHandler {
       user_task2_message_id: message.message_id // Используем существующее поле для ID сообщения бота
     });
 
-    // Используем тот же счетчик для примеров искажений
-    const key = `distortions_${channelMessageId}`;
-    this.exampleCounters.set(key, this.exampleCounters.get(`thoughts_${channelMessageId}`) || 0);
+    // Счетчик примеров уже обновлен в showThoughtsExample
   }
 
   // Обработка ответа на искажения
   async handleDistortionsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const buttonText = this.getExampleButtonText(channelMessageId);
+    const keyboard = [];
+    
+    // Добавляем кнопку примера только если есть доступные примеры
+    if (buttonText) {
+      keyboard.push([{ text: buttonText, callback_data: `deep_filters_example_${channelMessageId}` }]);
+    }
+    // Кнопка "Показать фильтры" добавляется всегда
+    keyboard.push([{ text: 'Показать фильтры', switch_inline_query_current_chat: '' }]);
+    
     // Переходим к рациональной реакции
     const message = await this.sendMessage(
-      'А теперь постарайся написать рациональную реакцию',
+      'А теперь постарайся написать <b>рациональную реакцию</b>',
       replyToMessageId,
       {
         reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Показать пример', callback_data: `deep_filters_example_rational_${channelMessageId}` }],
-            [{ text: '🎴 Показать фильтры', switch_inline_query_current_chat: '' }]
-          ]
+          inline_keyboard: keyboard
         }
       }
     );

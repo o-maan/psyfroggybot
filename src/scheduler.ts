@@ -2208,9 +2208,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           'Получен ответ на первое задание (глубокий сценарий)'
         );
 
-        // Импортируем обработчик глубокой работы
-        const { DeepWorkHandler } = await import('./deep-work-handler');
-        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        // Импортируем функцию получения обработчика глубокой работы
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         
         // Анализируем ответ и выбираем технику
         await deepHandler.analyzeUserResponse(channelMessageId, messageText, userId, messageId);
@@ -2220,15 +2220,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       
       // Обработка глубоких состояний
       if (session.currentStep === 'deep_waiting_thoughts') {
-        const { DeepWorkHandler } = await import('./deep-work-handler');
-        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
       
       if (session.currentStep === 'deep_waiting_distortions') {
-        const { DeepWorkHandler } = await import('./deep-work-handler');
-        const deepHandler = new DeepWorkHandler(this.bot, replyToChatId);
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleDistortionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
