@@ -77,25 +77,73 @@ export async function trackIncomingMessage(ctx: Context, next: () => Promise<voi
   }
   
   // Отслеживаем входящие сообщения
-  if (ctx.message && 'text' in ctx.message && ctx.from && !ctx.from.is_bot) {
+  if (ctx.message && ctx.from && !ctx.from.is_bot) {
     const messageId = ctx.message.message_id;
     const userId = ctx.from.id;
-    const messageText = ctx.message.text;
     const replyToMessageId = ctx.message.reply_to_message?.message_id;
     const messageThreadId = (ctx.message as any).message_thread_id;
     
-    try {
-      // Отслеживаем сообщение
-      const context = await trackUserMessage(
-        userId,
-        messageId,
-        messageText,
-        replyToMessageId,
-        messageThreadId
-      );
+    // Определяем тип сообщения и контент
+    let messageContent = '';
+    let messageType = 'unknown';
+    
+    if ('text' in ctx.message) {
+      messageContent = ctx.message.text;
+      messageType = 'text';
+    } else if ('photo' in ctx.message) {
+      const largestPhoto = ctx.message.photo[ctx.message.photo.length - 1];
+      messageContent = `[Фото: ${largestPhoto.file_id}]`;
+      if (ctx.message.caption) {
+        messageContent += ` ${ctx.message.caption}`;
+      }
+      messageType = 'photo';
       
-      // Сохраняем контекст для использования в следующих обработчиках
-      (ctx as any).dialogContext = context;
+      // Логируем подробности фото в debug режиме
+      if (process.env.NODE_ENV !== 'production') {
+        schedulerLogger.debug({
+          userId,
+          messageId,
+          photoCount: ctx.message.photo.length,
+          photos: ctx.message.photo.map(p => ({
+            file_id: p.file_id,
+            file_unique_id: p.file_unique_id,
+            width: p.width,
+            height: p.height,
+            file_size: p.file_size
+          })),
+          caption: ctx.message.caption,
+          largestPhotoFileId: largestPhoto.file_id
+        }, '📸 Получено фото от пользователя');
+      }
+    } else if ('document' in ctx.message) {
+      messageContent = `[Документ: ${ctx.message.document.file_name || ctx.message.document.file_id}]`;
+      messageType = 'document';
+    } else if ('video' in ctx.message) {
+      messageContent = `[Видео: ${ctx.message.video.file_id}]`;
+      messageType = 'video';
+    } else if ('voice' in ctx.message) {
+      messageContent = `[Голосовое: ${ctx.message.voice.duration}с]`;
+      messageType = 'voice';
+    } else if ('sticker' in ctx.message) {
+      messageContent = `[Стикер: ${ctx.message.sticker.emoji || ctx.message.sticker.file_id}]`;
+      messageType = 'sticker';
+    }
+    
+    try {
+      // Отслеживаем сообщение только если есть контент
+      if (messageContent) {
+        const context = await trackUserMessage(
+          userId,
+          messageId,
+          messageContent,
+          replyToMessageId,
+          messageThreadId
+        );
+        
+        // Сохраняем контекст для использования в следующих обработчиках
+        (ctx as any).dialogContext = context;
+        (ctx as any).messageContentType = messageType;
+      }
       
     } catch (error) {
       schedulerLogger.error({ error, messageId, userId }, 'Ошибка отслеживания входящего сообщения');
@@ -147,9 +195,32 @@ export function wrapTelegramApi(bot: any) {
   
   // Оборачиваем sendPhoto
   bot.telegram.sendPhoto = async function(chatId: number, photo: any, options?: any) {
+    // Логируем отправку фото в debug режиме
+    if (process.env.NODE_ENV !== 'production') {
+      schedulerLogger.debug({
+        chatId,
+        photoType: typeof photo,
+        photoId: typeof photo === 'string' ? photo : 'Buffer/Stream',
+        caption: options?.caption,
+        reply_to_message_id: options?.reply_to_message_id,
+        reply_parameters: options?.reply_parameters,
+        message_thread_id: options?.message_thread_id
+      }, '📤 Отправка фото');
+    }
+    
     const result = await originalSendPhoto(chatId, photo, options);
     
     try {
+      // Логируем результат отправки
+      if (process.env.NODE_ENV !== 'production') {
+        schedulerLogger.debug({
+          messageId: result.message_id,
+          chatId: result.chat.id,
+          photoFileId: result.photo?.[result.photo.length - 1]?.file_id,
+          caption: result.caption
+        }, '✅ Фото успешно отправлено');
+      }
+      
       // Фото обычно отправляется как основной пост
       await trackBotMessage(
         result.message_id,
