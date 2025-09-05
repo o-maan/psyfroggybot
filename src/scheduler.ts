@@ -2173,7 +2173,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         
         // Кнопка "Таблица эмоций"
         const emotionsTableKeyboard = {
-          inline_keyboard: [[{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }]],
+          inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
         };
 
         // Отправляем второе сообщение с кнопкой

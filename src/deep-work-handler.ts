@@ -19,6 +19,31 @@ function removeThinkTags(text: string): string {
   return text;
 }
 
+// Примеры для разбора по схеме
+const SCHEMA_EXAMPLES = [
+  {
+    trigger: 'Получил отказ после собеседования',
+    thoughts: '"Я никогда не найду работу"',
+    emotions: 'Разочарование, безнадежность, злость на себя',
+    behavior: 'Перестал откликаться на вакансии, лег и смотрю сериалы',
+    correction: 'Это опыт, я не могу подходить всем. Попросить фидбек, улучшить резюме, продолжить поиски'
+  },
+  {
+    trigger: 'Партнер не помыл посуду, хотя обещал',
+    thoughts: '"Ему плевать на меня и на все, что я говорю"',
+    emotions: 'Обида, злость, разочарование. Ком в горле',
+    behavior: 'Хлопнула дверью, ушла в другую комнату, игнорирую',
+    correction: 'Спокойно поговорить, объяснить свои чувства. Возможно, он просто забыл'
+  },
+  {
+    trigger: 'Коллега не ответил на важное сообщение',
+    thoughts: '"Он игнорирует меня специально. Я ему не важен"',
+    emotions: 'Обида, злость, тревога. Сжалось в груди',
+    behavior: 'Написал резкое сообщение с претензиями',
+    correction: 'Подождать ответа, уточнить спокойно. Возможно, он просто занят'
+  }
+];
+
 // Примеры для фильтров восприятия
 const PERCEPT_FILTERS_EXAMPLES = [
   {
@@ -41,6 +66,7 @@ const PERCEPT_FILTERS_EXAMPLES = [
 export class DeepWorkHandler {
   private bot: Telegraf;
   private exampleCounters: Map<string, number> = new Map();
+  private schemaExampleCounters: Map<string, number> = new Map();
   private chatId: number; // ID чата откуда пришло сообщение (как replyToChatId в упрощенном сценарии)
 
   constructor(bot: Telegraf, chatId: number) {
@@ -58,6 +84,17 @@ export class DeepWorkHandler {
       return '';
     }
     return count > 0 ? 'Показать еще пример' : 'Показать пример';
+  }
+  
+  // Получить текст кнопки для примеров схемы
+  private getSchemaExampleButtonText(channelMessageId: number): string {
+    const key = `schema_examples_${channelMessageId}`;
+    const count = this.schemaExampleCounters.get(key) || 0;
+    // После 3 примеров кнопка не показывается
+    if (count >= 3) {
+      return '';
+    }
+    return count > 0 ? 'Еще пример' : 'Пример';
   }
   
   // Универсальный метод отправки сообщений (как в упрощенном сценарии)
@@ -97,6 +134,39 @@ export class DeepWorkHandler {
         replyToMessageId,
         hasReplyId: !!replyToMessageId
       }, 'analyzeUserResponse вызван с параметрами');
+      
+      // Проверка секретных слов для админов
+      const adminIds = [
+        Number(process.env.ADMIN_CHAT_ID),
+        Number(process.env.MAIN_USER_ID || process.env.REMINDER_USER_ID),
+        Number(process.env.TEST_USER_ID)
+      ].filter(id => !isNaN(id));
+      
+      const isAdmin = adminIds.includes(userId);
+      const textLower = userText.trim().toLowerCase();
+      
+      // Если админ использует секретное слово
+      if (isAdmin) {
+        let forcedTechnique: string | null = null;
+        
+        if (textLower.startsWith('схема')) {
+          forcedTechnique = 'schema';
+          botLogger.info({ userId, channelMessageId }, '🔑 Админ использовал секретное слово "схема"');
+        } else if (textLower.startsWith('фильтры')) {
+          forcedTechnique = 'percept_filters';
+          botLogger.info({ userId, channelMessageId }, '🔑 Админ использовал секретное слово "фильтры"');
+        }
+        
+        if (forcedTechnique) {
+          // Если выбрана техника "разбор по схеме" - генерируем слова поддержки заранее
+          if (forcedTechnique === 'schema') {
+            await this.generateAndSaveSupportWords(channelMessageId, userText, userId);
+          }
+          // Сразу переходим к выбранной технике
+          await this.startTechnique(channelMessageId, forcedTechnique, userId, replyToMessageId);
+          return;
+        }
+      }
       
       // Отправляем сообщение о подборе техники
       waitingMessage = await this.sendMessage(
@@ -340,7 +410,24 @@ export class DeepWorkHandler {
   async showThoughtsExample(channelMessageId: number, userId: number, replyToMessageId?: number) {
     // Используем общий ключ для всех типов примеров
     const key = `examples_${channelMessageId}`;
-    const count = this.exampleCounters.get(key) || 0;
+    let count = this.exampleCounters.get(key) || 0;
+    
+    // Если счетчик пустой, пробуем загрузить из БД
+    if (count === 0) {
+      const post = getInteractivePost(channelMessageId);
+      if (post?.message_data?.filters_example_count !== undefined) {
+        count = post.message_data.filters_example_count;
+        this.exampleCounters.set(key, count);
+      }
+    }
+    
+    botLogger.debug({ 
+      channelMessageId, 
+      count, 
+      key,
+      hasCounter: this.exampleCounters.has(key),
+      handlerId: this.chatId
+    }, 'showThoughtsExample: текущий счетчик');
 
     // Если уже показали финальное сообщение - ничего не делаем
     if (count >= 5) {
@@ -371,7 +458,9 @@ export class DeepWorkHandler {
         );
         
         // Увеличиваем счетчик для перехода к следующему сообщению
-        this.exampleCounters.set(key, count + 1);
+        const newCount = count + 1;
+        this.exampleCounters.set(key, newCount);
+        await this.saveFiltersExampleCount(channelMessageId, newCount);
       } else if (count === 4) {
         // 5-е нажатие - показываем финальное сообщение и устанавливаем счетчик в 5
         await this.bot.telegram.sendMessage(this.chatId,
@@ -380,11 +469,12 @@ export class DeepWorkHandler {
         );
         // Устанавливаем счетчик в 5, чтобы кнопки стали неактивными
         this.exampleCounters.set(key, 5);
+        await this.saveFiltersExampleCount(channelMessageId, 5);
       }
     } else {
       // Показываем пример
       const example = PERCEPT_FILTERS_EXAMPLES[count];
-      const text = `<b>Мысли:</b> ${example.thoughts}\n\n<b>Искажения:</b> ${example.distortions}\n\n<b>Рациональная реакция:</b> ${example.rational}`;
+      const text = `<b>🧠 Мысли:</b> ${example.thoughts}\n\n<b>😵‍💫 Искажения:</b> ${example.distortions}\n\n<b>💡 Рациональная реакция:</b> ${example.rational}`;
       
       // Определяем какую кнопку показывать под примером
       const nextCount = count + 1;
@@ -411,7 +501,9 @@ export class DeepWorkHandler {
         reply_markup: keyboard
       });
       
-      this.exampleCounters.set(key, count + 1);
+      const newCount = count + 1;
+      this.exampleCounters.set(key, newCount);
+      await this.saveFiltersExampleCount(channelMessageId, newCount);
     }
   }
   
@@ -535,7 +627,7 @@ export class DeepWorkHandler {
         await this.generateAndSaveSupportWords(channelMessageId, userContext, userId);
       }
       
-      const text = 'Давай разложим все на свои места';
+      const text = 'Давай разложим все на свои места 📂';
       
       const keyboard = {
         inline_keyboard: [[
@@ -556,18 +648,22 @@ export class DeepWorkHandler {
 
   // Обработчик кнопки "Вперед" для разбора по схеме
   async handleSchemaStart(channelMessageId: number, userId: number, replyToMessageId?: number) {
-    const exampleButton = {
-      inline_keyboard: [[
-        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
-      ]]
-    };
+    const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+    const messageOptions: any = {};
+    
+    // Добавляем кнопку только если есть доступные примеры
+    if (buttonText) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+    }
     
     const message = await this.sendMessage(
       '<b>Что в данном случае было 💣 триггером?</b>\n<i>Что именно из всей ситуации спровоцировало твою реакцию?</i>',
       replyToMessageId,
-      {
-        reply_markup: exampleButton
-      }
+      messageOptions
     );
 
     updateInteractivePostState(channelMessageId, 'schema_waiting_trigger');
@@ -575,18 +671,21 @@ export class DeepWorkHandler {
 
   // Обработка ответа на триггер
   async handleTriggerResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
-    const exampleButton = {
-      inline_keyboard: [[
-        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
-      ]]
-    };
+    const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+    const messageOptions: any = {};
+    
+    if (buttonText) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+    }
     
     const message = await this.sendMessage(
       '<b>Какие мысли 💭 возникли?</b>\n<i>Что подумал о себе/человеке/ситуации? Какие выводы ты сделал?</i>',
       replyToMessageId,
-      {
-        reply_markup: exampleButton
-      }
+      messageOptions
     );
 
     updateInteractivePostState(channelMessageId, 'schema_waiting_thoughts');
@@ -594,18 +693,20 @@ export class DeepWorkHandler {
 
   // Обработка ответа на мысли
   async handleSchemaThoughtsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
-    const keyboard = {
-      inline_keyboard: [
-        [{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }],
-        [{ text: 'Пример', callback_data: `schema_example_${channelMessageId}` }]
-      ]
-    };
+    const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+    const keyboard = [
+      [{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }]
+    ];
+    
+    if (buttonText) {
+      keyboard.push([{ text: buttonText, callback_data: `schema_example_${channelMessageId}` }]);
+    }
     
     const message = await this.sendMessage(
       '<b>Какие эмоции 🥺 ты испытал?</b>\n<i>Что почувствовал? Как отреагировало твое тело?</i>',
       replyToMessageId,
       {
-        reply_markup: keyboard
+        reply_markup: { inline_keyboard: keyboard }
       }
     );
 
@@ -640,13 +741,44 @@ export class DeepWorkHandler {
   // Генерация и сохранение слов поддержки заранее
   async generateAndSaveSupportWords(channelMessageId: number, userSituation: string, userId: number) {
     try {
-      const supportPrompt = `Ты психолог. Человек рассказал про сложную ситуацию: "${userSituation}". Скоро он опишет свои эмоции по этой ситуации. Напиши краткие слова поддержки (одна-две фразы до 70 символов) с одним эмодзи в конце. Будь теплым и понимающим.`;
+      const supportPrompt = `Ты психолог. Человек рассказал про сложную ситуацию и сейчас будет описывать свои эмоции. Напиши краткие слова поддержки (до 70 символов) с одним эмодзи в конце. 
+
+ВАЖНО: НЕ указывай количество символов в скобках или любую другую техническую информацию! Просто напиши фразу поддержки. Будь человечным! Пиши как будто мы ведем теплую беседу.
+
+Примеры хороших фраз поддержки:
+- Спасибо, что поделился 💚
+- Понимаю тебя 🤗
+- Обнимаю, я рядом 🫂
+- Спасибо за доверие 🌿
+- Это действительно непросто 💛
+- Твои чувства важны 💙
+- Слышу тебя 🤍
+- Ты не один в этом 🌱
+- Благодарю за откровенность 🌸
+- Это требует смелости 💪
+- Принимаю твои чувства 🌊
+- Ты молодец, что проговариваешь 🌟
+- Понимаю, как тебе сейчас 🤲
+- Эти эмоции имеют право быть 🌈
+- Ценю твою искренность 💝
+- Ты справляешься 🌺
+- Это нормально так чувствовать 🕊️
+- Горжусь твоей открытостью ✨
+
+Напиши одну короткую подобную фразу поддержки с эмодзи, не повторяя примеры дословно. Будь искренним и теплым. ТОЛЬКО фраза, без кавычек, без скобок, без технической информации.`;
       
       let supportText = 'Понимаю тебя 💚'; // Дефолтный текст
       try {
         const generatedSupport = await generateMessage(supportPrompt);
         if (generatedSupport !== 'HF_JSON_ERROR') {
-          const cleanedSupport = removeThinkTags(generatedSupport).trim();
+          let cleanedSupport = removeThinkTags(generatedSupport).trim();
+          // Удаляем любые технические пометки в скобках
+          cleanedSupport = cleanedSupport.replace(/\s*\([^)]*символ[^)]*\)/gi, ''); // удаляем все скобки со словом "символ"
+          cleanedSupport = cleanedSupport.replace(/\s*\(\d+[^)]*\)/g, ''); // удаляем любые скобки с числами
+          cleanedSupport = cleanedSupport.replace(/\s*\([^)]*\)/g, ''); // удаляем вообще любые скобки
+          // Удаляем кавычки в начале и конце, если есть
+          cleanedSupport = cleanedSupport.replace(/^["']|["']$/g, '').trim();
+          
           if (cleanedSupport.length <= 80) {
             supportText = cleanedSupport;
           }
@@ -694,18 +826,21 @@ export class DeepWorkHandler {
         supportText = `<i>${post.message_data.schema_support.text}</i>`;
       }
 
-      const exampleButton = {
-        inline_keyboard: [[
-          { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
-        ]]
-      };
+      const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+      const messageOptions: any = {};
+      
+      if (buttonText) {
+        messageOptions.reply_markup = {
+          inline_keyboard: [[
+            { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+          ]]
+        };
+      }
       
       const message = await this.sendMessage(
         supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
         replyToMessageId,
-        {
-          reply_markup: exampleButton
-        }
+        messageOptions
       );
 
       updateInteractivePostState(channelMessageId, 'schema_waiting_behavior');
@@ -717,18 +852,21 @@ export class DeepWorkHandler {
 
   // Обработка ответа на поведение
   async handleSchemaBehaviorResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
-    const exampleButton = {
-      inline_keyboard: [[
-        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
-      ]]
-    };
+    const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+    const messageOptions: any = {};
+    
+    if (buttonText) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+    }
     
     const message = await this.sendMessage(
       '<b>А теперь подумай, как можно скорректировать 🛠 твою реакцию?</b>\n<i>Как более рационально поступить/отреагировать/что сделать?</i>',
       replyToMessageId,
-      {
-        reply_markup: exampleButton
-      }
+      messageOptions
     );
 
     updateInteractivePostState(channelMessageId, 'schema_waiting_correction');
@@ -738,7 +876,7 @@ export class DeepWorkHandler {
   async handleSchemaCorrectionResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
     const keyboard = {
       inline_keyboard: [[
-        { text: 'Только вперед 🔥', callback_data: `schema_continue_${channelMessageId}` }
+        { text: 'Го 🔥', callback_data: `schema_continue_${channelMessageId}` }
       ]]
     };
     
@@ -758,15 +896,134 @@ export class DeepWorkHandler {
 
   // Показ примера для разбора по схеме
   async showSchemaExample(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    const key = `schema_examples_${channelMessageId}`;
+    let count = this.schemaExampleCounters.get(key) || 0;
+    
+    // Если счетчик пустой, пробуем загрузить из БД
+    if (count === 0) {
+      const post = getInteractivePost(channelMessageId);
+      if (post?.message_data?.schema_example_count !== undefined) {
+        count = post.message_data.schema_example_count;
+        this.schemaExampleCounters.set(key, count);
+      }
+    }
+    
+    botLogger.debug({ 
+      channelMessageId, 
+      count, 
+      key,
+      hasCounter: this.schemaExampleCounters.has(key),
+      handlerId: this.chatId
+    }, 'showSchemaExample: текущий счетчик');
+    
+    // Если уже показали все примеры
+    if (count >= 5) {
+      return; // Молча выходим
+    }
+    
+    if (count === 3) {
+      // Первое сообщение после 3 примеров
+      await this.sendMessage(
+        'Больше примеров нет - уверен, ты справишься!',
+        replyToMessageId
+      );
+      const newCount = count + 1;
+      this.schemaExampleCounters.set(key, newCount);
+      await this.saveSchemaExampleCount(channelMessageId, newCount);
+      return;
+    }
+    
+    if (count === 4) {
+      // Второе сообщение
+      await this.sendMessage(
+        'Ну, правда, больше нет примеров 😁',
+        replyToMessageId
+      );
+      this.schemaExampleCounters.set(key, 5);
+      await this.saveSchemaExampleCount(channelMessageId, 5);
+      return;
+    }
+    
+    // Показываем пример
+    const example = SCHEMA_EXAMPLES[count];
     const exampleText = 
       '<b>Пример разбора:</b>\n\n' +
-      '<b>💣 Триггер:</b> Коллега не ответил на важное сообщение\n\n' +
-      '<b>💭 Мысли:</b> "Он игнорирует меня специально. Я ему не важен"\n\n' +
-      '<b>🥺 Эмоции:</b> Обида, злость, тревога. Сжалось в груди\n\n' +
-      '<b>💃 Поведение:</b> Написал резкое сообщение с претензиями\n\n' +
-      '<b>🛠 Коррекция:</b> Подождать ответа, уточнить спокойно. Возможно, он просто занят';
+      `<b>💣 Триггер:</b> ${example.trigger}\n\n` +
+      `<b>💭 Мысли:</b> ${example.thoughts}\n\n` +
+      `<b>🥺 Эмоции:</b> ${example.emotions}\n\n` +
+      `<b>💃 Поведение:</b> ${example.behavior}\n\n` +
+      `<b>🛠 Коррекция:</b> ${example.correction}`;
     
-    await this.sendMessage(exampleText, replyToMessageId);
+    // Определяем какую кнопку показывать под примером
+    const nextCount = count + 1;
+    const messageOptions: any = {};
+    
+    // Добавляем кнопку "Еще пример" для первых двух примеров (счетчик 0 и 1)
+    // Для третьего примера (счетчик 2) кнопка не добавляется
+    if (nextCount < 3) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: 'Еще пример', callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+    }
+    
+    await this.sendMessage(exampleText, replyToMessageId, messageOptions);
+    const newCount = count + 1;
+    this.schemaExampleCounters.set(key, newCount);
+    
+    // Сохраняем счетчик в БД
+    await this.saveSchemaExampleCount(channelMessageId, newCount);
+  }
+
+  // Сохранение счетчика примеров фильтров в БД
+  private async saveFiltersExampleCount(channelMessageId: number, count: number) {
+    try {
+      const post = getInteractivePost(channelMessageId);
+      if (post) {
+        const updatedMessageData = {
+          ...post.message_data,
+          filters_example_count: count
+        };
+        
+        const { db } = await import('./db');
+        const update = db.query(`
+          UPDATE interactive_posts
+          SET message_data = ?
+          WHERE channel_message_id = ?
+        `);
+        update.run(JSON.stringify(updatedMessageData), channelMessageId);
+        
+        botLogger.debug({ channelMessageId, count }, 'Счетчик примеров фильтров сохранен в БД');
+      }
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка сохранения счетчика примеров фильтров');
+    }
+  }
+
+  // Сохранение счетчика примеров схемы в БД
+  private async saveSchemaExampleCount(channelMessageId: number, count: number) {
+    try {
+      const post = getInteractivePost(channelMessageId);
+      if (post) {
+        const updatedMessageData = {
+          ...post.message_data,
+          schema_example_count: count
+        };
+        
+        const { db } = await import('./db');
+        const update = db.query(`
+          UPDATE interactive_posts
+          SET message_data = ?
+          WHERE channel_message_id = ?
+        `);
+        update.run(JSON.stringify(updatedMessageData), channelMessageId);
+        
+        botLogger.debug({ channelMessageId, count }, 'Счетчик примеров схемы сохранен в БД');
+      }
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка сохранения счетчика примеров');
+    }
   }
 
   // Показ фильтров восприятия

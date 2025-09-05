@@ -228,12 +228,29 @@ export async function handleSchemaExample(ctx: BotContext, bot: Telegraf) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
-
-    await ctx.answerCbQuery('💡 Показываю пример');
-
-    const messageId = ctx.callbackQuery.message?.message_id;
+    
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const handler = getDeepWorkHandler(bot, chatId);
+    
+    // Проверяем счетчик примеров
+    const key = `schema_examples_${channelMessageId}`;
+    const count = (handler as any).schemaExampleCounters?.get(key) || 0;
+    
+    // Выбираем текст для callback
+    let callbackText = 'Показываю пример';
+    if (count === 3) {
+      callbackText = 'Закончились примеры';
+    } else if (count === 4) {
+      callbackText = 'Неть примеров';
+    } else if (count >= 5) {
+      // Кнопки больше не реагируют
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    await ctx.answerCbQuery(callbackText);
+
+    const messageId = ctx.callbackQuery.message?.message_id;
     await handler.showSchemaExample(channelMessageId, userId!, messageId);
 
   } catch (error) {
