@@ -88,6 +88,8 @@ export class DeepWorkHandler {
 
   // Анализ ответа пользователя и выбор техники
   async analyzeUserResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number): Promise<void> {
+    let waitingMessage: any;
+    
     try {
       botLogger.info({
         channelMessageId,
@@ -95,6 +97,12 @@ export class DeepWorkHandler {
         replyToMessageId,
         hasReplyId: !!replyToMessageId
       }, 'analyzeUserResponse вызван с параметрами');
+      
+      // Отправляем сообщение о подборе техники
+      waitingMessage = await this.sendMessage(
+        'Подбираю технику.. 🧐',
+        replyToMessageId
+      );
       
       // Загружаем промпт для анализа
       const analyzePrompt = readFileSync('assets/prompts/analyze_situations.md', 'utf-8');
@@ -115,26 +123,55 @@ export class DeepWorkHandler {
         situationsCount: analysis.situations_count,
         technique: analysis.recommended_technique.type
       }, 'Анализ ситуаций завершен');
+      
+      // Удаляем сообщение о подборе техники
+      try {
+        await this.bot.telegram.deleteMessage(this.chatId, waitingMessage.message_id);
+      } catch (deleteError) {
+        botLogger.debug({ error: deleteError }, 'Не удалось удалить сообщение о подборе техники');
+      }
 
       // Если ситуаций несколько - спрашиваем какую разберем
       if (analysis.situations_count > 1) {
+        // Сохраняем рекомендованную технику для использования после выбора ситуации
+        await this.saveRecommendedTechnique(channelMessageId, analysis.recommended_technique.type);
         await this.askWhichSituation(channelMessageId, analysis.situations, userId, replyToMessageId);
       } else {
+        // Если выбрана техника "разбор по схеме" - генерируем слова поддержки заранее
+        if (analysis.recommended_technique.type === 'schema' || analysis.recommended_technique.type === 'abc') {
+          await this.generateAndSaveSupportWords(channelMessageId, userText, userId);
+        }
         // Сразу переходим к технике
         await this.startTechnique(channelMessageId, analysis.recommended_technique.type, userId, replyToMessageId);
       }
       
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка анализа ответа пользователя');
-      // Fallback - используем фильтры восприятия
+      
+      // Пытаемся удалить сообщение о подборе техники, если оно было создано
+      if (waitingMessage) {
+        try {
+          await this.bot.telegram.deleteMessage(this.chatId, waitingMessage.message_id);
+        } catch (deleteError) {
+          botLogger.debug({ error: deleteError }, 'Не удалось удалить сообщение о подборе техники при ошибке');
+        }
+      }
+      
+      // Fallback - используем разбор по схеме (более простая техника, не требует LLM для выбора)
       try {
-        await this.startTechnique(channelMessageId, 'percept_filters', userId, replyToMessageId);
+        botLogger.info({ channelMessageId }, 'LLM недоступен, используем разбор по схеме как fallback');
+        
+        // Генерируем слова поддержки для схемы
+        await this.generateAndSaveSupportWords(channelMessageId, userText, userId);
+        
+        // Запускаем разбор по схеме
+        await this.startTechnique(channelMessageId, 'schema', userId, replyToMessageId);
       } catch (fallbackError) {
         botLogger.error({ 
           error: fallbackError, 
           channelMessageId,
           originalError: error 
-        }, 'Ошибка при попытке fallback на фильтры восприятия');
+        }, 'Ошибка при попытке fallback на разбор по схеме');
         // Отправляем простое fallback сообщение
         try {
           await this.sendMessage(
@@ -187,9 +224,8 @@ export class DeepWorkHandler {
   async startTechnique(channelMessageId: number, techniqueType: string, userId: number, replyToMessageId?: number) {
     if (techniqueType === 'percept_filters') {
       await this.startPerceptFilters(channelMessageId, userId, replyToMessageId);
-    } else if (techniqueType === 'abc') {
-      // TODO: реализовать ABC технику
-      await this.sendMessage('ABC техника в разработке', replyToMessageId);
+    } else if (techniqueType === 'schema' || techniqueType === 'abc') {
+      await this.startSchemaAnalysis(channelMessageId, userId, replyToMessageId);
     }
   }
 
@@ -484,6 +520,253 @@ export class DeepWorkHandler {
       botLogger.error({ error, channelMessageId }, 'Ошибка перехода к плюшкам');
       throw error;
     }
+  }
+
+  // Начинаем разбор по схеме
+  private async startSchemaAnalysis(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    try {
+      // Генерируем слова поддержки заранее для схемы
+      const post = getInteractivePost(channelMessageId);
+      if (post && !post.message_data?.schema_support?.text) {
+        // Используем последнее сообщение пользователя для контекста
+        const { getLastUserMessage } = await import('./db');
+        const lastUserMessage = getLastUserMessage(userId);
+        const userContext = lastUserMessage?.message_text || 'переживания и эмоции';
+        await this.generateAndSaveSupportWords(channelMessageId, userContext, userId);
+      }
+      
+      const text = 'Давай разложим все на свои места';
+      
+      const keyboard = {
+        inline_keyboard: [[
+          { text: '🚀 Вперед', callback_data: `schema_start_${channelMessageId}` }
+        ]]
+      };
+      
+      const message = await this.sendMessage(text, replyToMessageId, {
+        reply_markup: keyboard
+      });
+
+      updateInteractivePostState(channelMessageId, 'schema_waiting_start');
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка начала разбора по схеме');
+      throw error;
+    }
+  }
+
+  // Обработчик кнопки "Вперед" для разбора по схеме
+  async handleSchemaStart(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    const exampleButton = {
+      inline_keyboard: [[
+        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
+      ]]
+    };
+    
+    const message = await this.sendMessage(
+      '<b>Что в данном случае было 💣 триггером?</b>\n<i>Что именно из всей ситуации спровоцировало твою реакцию?</i>',
+      replyToMessageId,
+      {
+        reply_markup: exampleButton
+      }
+    );
+
+    updateInteractivePostState(channelMessageId, 'schema_waiting_trigger');
+  }
+
+  // Обработка ответа на триггер
+  async handleTriggerResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const exampleButton = {
+      inline_keyboard: [[
+        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
+      ]]
+    };
+    
+    const message = await this.sendMessage(
+      '<b>Какие мысли 💭 возникли?</b>\n<i>Что подумал о себе/человеке/ситуации? Какие выводы ты сделал?</i>',
+      replyToMessageId,
+      {
+        reply_markup: exampleButton
+      }
+    );
+
+    updateInteractivePostState(channelMessageId, 'schema_waiting_thoughts');
+  }
+
+  // Обработка ответа на мысли
+  async handleSchemaThoughtsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }],
+        [{ text: 'Пример', callback_data: `schema_example_${channelMessageId}` }]
+      ]
+    };
+    
+    const message = await this.sendMessage(
+      '<b>Какие эмоции 🥺 ты испытал?</b>\n<i>Что почувствовал? Как отреагировало твое тело?</i>',
+      replyToMessageId,
+      {
+        reply_markup: keyboard
+      }
+    );
+
+    updateInteractivePostState(channelMessageId, 'schema_waiting_emotions');
+  }
+
+  // Сохранение рекомендованной техники в БД
+  private async saveRecommendedTechnique(channelMessageId: number, techniqueType: string) {
+    try {
+      const post = getInteractivePost(channelMessageId);
+      if (post) {
+        const updatedMessageData = {
+          ...post.message_data,
+          recommended_technique: techniqueType
+        };
+        
+        const { db } = await import('./db');
+        const update = db.query(`
+          UPDATE interactive_posts
+          SET message_data = ?
+          WHERE channel_message_id = ?
+        `);
+        update.run(JSON.stringify(updatedMessageData), channelMessageId);
+        
+        botLogger.info({ channelMessageId, techniqueType }, 'Рекомендованная техника сохранена');
+      }
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка сохранения рекомендованной техники');
+    }
+  }
+
+  // Генерация и сохранение слов поддержки заранее
+  async generateAndSaveSupportWords(channelMessageId: number, userSituation: string, userId: number) {
+    try {
+      const supportPrompt = `Ты психолог. Человек рассказал про сложную ситуацию: "${userSituation}". Скоро он опишет свои эмоции по этой ситуации. Напиши краткие слова поддержки (одна-две фразы до 70 символов) с одним эмодзи в конце. Будь теплым и понимающим.`;
+      
+      let supportText = 'Понимаю тебя 💚'; // Дефолтный текст
+      try {
+        const generatedSupport = await generateMessage(supportPrompt);
+        if (generatedSupport !== 'HF_JSON_ERROR') {
+          const cleanedSupport = removeThinkTags(generatedSupport).trim();
+          if (cleanedSupport.length <= 80) {
+            supportText = cleanedSupport;
+          }
+        }
+      } catch (error) {
+        botLogger.error({ error }, 'Ошибка генерации слов поддержки');
+      }
+
+      // Получаем текущий пост
+      const post = getInteractivePost(channelMessageId);
+      if (post) {
+        // Обновляем message_data с словами поддержки
+        const updatedMessageData = {
+          ...post.message_data,
+          schema_support: {
+            text: supportText,
+            generated_at: new Date().toISOString()
+          }
+        };
+        
+        // Обновляем в БД
+        const { db } = await import('./db');
+        const update = db.query(`
+          UPDATE interactive_posts
+          SET message_data = ?
+          WHERE channel_message_id = ?
+        `);
+        update.run(JSON.stringify(updatedMessageData), channelMessageId);
+        
+        botLogger.info({ channelMessageId, supportText }, 'Слова поддержки сгенерированы и сохранены');
+      }
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка сохранения слов поддержки');
+    }
+  }
+
+  // Обработка ответа на эмоции с использованием предварительно сгенерированных слов поддержки
+  async handleSchemaEmotionsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    try {
+      // Получаем предварительно сгенерированные слова поддержки
+      const post = getInteractivePost(channelMessageId);
+      let supportText = '<i>Понимаю тебя 💚</i>'; // Дефолтный текст
+      
+      if (post?.message_data?.schema_support?.text) {
+        supportText = `<i>${post.message_data.schema_support.text}</i>`;
+      }
+
+      const exampleButton = {
+        inline_keyboard: [[
+          { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+      
+      const message = await this.sendMessage(
+        supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
+        replyToMessageId,
+        {
+          reply_markup: exampleButton
+        }
+      );
+
+      updateInteractivePostState(channelMessageId, 'schema_waiting_behavior');
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка обработки эмоций');
+      throw error;
+    }
+  }
+
+  // Обработка ответа на поведение
+  async handleSchemaBehaviorResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const exampleButton = {
+      inline_keyboard: [[
+        { text: 'Пример', callback_data: `schema_example_${channelMessageId}` }
+      ]]
+    };
+    
+    const message = await this.sendMessage(
+      '<b>А теперь подумай, как можно скорректировать 🛠 твою реакцию?</b>\n<i>Как более рационально поступить/отреагировать/что сделать?</i>',
+      replyToMessageId,
+      {
+        reply_markup: exampleButton
+      }
+    );
+
+    updateInteractivePostState(channelMessageId, 'schema_waiting_correction');
+  }
+
+  // Обработка ответа на коррекцию поведения
+  async handleSchemaCorrectionResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    const keyboard = {
+      inline_keyboard: [[
+        { text: 'Только вперед 🔥', callback_data: `schema_continue_${channelMessageId}` }
+      ]]
+    };
+    
+    const message = await this.sendMessage(
+      '<i>Ты проделал огромную работу! 🎉</i>\n\n' +
+      'Осталось всего пару шагов 👣\n' +
+      '<i>P.S. Не переживай, самая сложная часть позади\n' +
+      'Перейдем к более приятной 😉</i>',
+      replyToMessageId,
+      {
+        reply_markup: keyboard
+      }
+    );
+
+    updateInteractivePostState(channelMessageId, 'schema_waiting_continue');
+  }
+
+  // Показ примера для разбора по схеме
+  async showSchemaExample(channelMessageId: number, userId: number, replyToMessageId?: number) {
+    const exampleText = 
+      '<b>Пример разбора:</b>\n\n' +
+      '<b>💣 Триггер:</b> Коллега не ответил на важное сообщение\n\n' +
+      '<b>💭 Мысли:</b> "Он игнорирует меня специально. Я ему не важен"\n\n' +
+      '<b>🥺 Эмоции:</b> Обида, злость, тревога. Сжалось в груди\n\n' +
+      '<b>💃 Поведение:</b> Написал резкое сообщение с претензиями\n\n' +
+      '<b>🛠 Коррекция:</b> Подождать ответа, уточнить спокойно. Возможно, он просто занят';
+    
+    await this.sendMessage(exampleText, replyToMessageId);
   }
 
   // Показ фильтров восприятия

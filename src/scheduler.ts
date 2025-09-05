@@ -2319,6 +2319,42 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         return;
       }
       
+      // Обработка состояний разбора по схеме
+      if (session.currentStep === 'schema_waiting_trigger') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleTriggerResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'schema_waiting_thoughts') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleSchemaThoughtsResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'schema_waiting_emotions') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleSchemaEmotionsResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'schema_waiting_behavior') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleSchemaBehaviorResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
+      if (session.currentStep === 'schema_waiting_correction') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleSchemaCorrectionResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
       if (session.currentStep === 'waiting_negative') {
         // Пользователь ответил на первое задание
         schedulerLogger.info(

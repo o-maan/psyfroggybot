@@ -20,7 +20,10 @@ import {
   handleDeepFiltersExampleDistortions,
   handleDeepFiltersExampleRational,
   handleDeepContinueToTreats,
-  handleShowFilters
+  handleShowFilters,
+  handleSchemaStart,
+  handleSchemaExample,
+  handleSchemaContinue
 } from './deep_work_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
@@ -56,6 +59,11 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/deep_filters_example_rational_(\d+)/, ctx => handleDeepFiltersExampleRational(ctx, bot));
   bot.action(/deep_continue_to_treats_(\d+)/, ctx => handleDeepContinueToTreats(ctx, bot));
   bot.action(/show_filters_(\d+)/, ctx => handleShowFilters(ctx, bot));
+  
+  // Обработчики разбора по схеме
+  bot.action(/schema_start_(\d+)/, ctx => handleSchemaStart(ctx, bot));
+  bot.action(/schema_example_(\d+)/, ctx => handleSchemaExample(ctx, bot));
+  bot.action(/schema_continue_(\d+)/, ctx => handleSchemaContinue(ctx, bot));
 }
 
 // Export individual handlers for backwards compatibility

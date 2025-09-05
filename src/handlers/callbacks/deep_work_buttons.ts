@@ -33,10 +33,25 @@ export async function handleDeepSituationChoice(ctx: BotContext, bot: Telegraf) 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const handler = getDeepWorkHandler(bot, chatId);
     
-    // Пока используем фильтры восприятия по умолчанию
-    // TODO: сохранять выбранную ситуацию и определять технику
+    // Получаем рекомендованную технику из БД
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const techniqueType = post?.message_data?.recommended_technique || 'percept_filters';
+    
+    botLogger.info({
+      channelMessageId,
+      techniqueType,
+      hasRecommendation: !!post?.message_data?.recommended_technique
+    }, 'Используем технику для выбранной ситуации');
+    
+    // Если выбрана техника "разбор по схеме" - генерируем слова поддержки
+    if (techniqueType === 'schema' || techniqueType === 'abc') {
+      // Используем текст ситуации для контекста (можно улучшить, сохранив текст ситуации)
+      await handler.generateAndSaveSupportWords(channelMessageId, 'выбранная ситуация', userId!);
+    }
+    
     const messageId = ctx.callbackQuery.message?.message_id;
-    await handler.startTechnique(channelMessageId, 'percept_filters', userId!, messageId);
+    await handler.startTechnique(channelMessageId, techniqueType, userId!, messageId);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка выбора ситуации');
@@ -181,5 +196,71 @@ export async function handleShowFilters(ctx: any, bot: Telegraf) {
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа фильтров');
+  }
+}
+
+// Обработчик начала разбора по схеме
+export async function handleSchemaStart(ctx: BotContext, bot: Telegraf) {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+
+    await ctx.answerCbQuery('🚀 Поехали!');
+
+    botLogger.info({
+      action: 'schema_start',
+      channelMessageId,
+      userId
+    }, 'Начало разбора по схеме');
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    await handler.handleSchemaStart(channelMessageId, userId!, messageId);
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка начала разбора по схеме');
+  }
+}
+
+// Обработчик показа примера для разбора по схеме
+export async function handleSchemaExample(ctx: BotContext, bot: Telegraf) {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+
+    await ctx.answerCbQuery('💡 Показываю пример');
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    await handler.showSchemaExample(channelMessageId, userId!, messageId);
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера для схемы');
+  }
+}
+
+// Обработчик продолжения после разбора по схеме
+export async function handleSchemaContinue(ctx: BotContext, bot: Telegraf) {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+
+    await ctx.answerCbQuery('🤗 Переходим к плюшкам!');
+
+    botLogger.info({
+      action: 'schema_continue',
+      channelMessageId,
+      userId
+    }, 'Переход к плюшкам после разбора по схеме');
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    await handler.continueToPluskas(channelMessageId, userId!, messageId);
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам из схемы');
   }
 }
