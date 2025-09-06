@@ -44,6 +44,8 @@ export class Scheduler {
   private users: Set<number> = new Set();
   private imageFiles: string[] = [];
   public readonly CHANNEL_ID = this.getChannelId();
+  // ID видео с дыхательной практикой
+  private readonly PRACTICE_VIDEO_ID = 'BQACAgIAAxkBAAIHiWi7gI54mWxy173IbTomY9MQTU7QAAIdgAACqU_YSajypMDh_PIUNgQ';
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
@@ -2363,7 +2365,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           reply_markup: practiceKeyboard,
         };
 
-        const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
+        // Отправляем видео с дыхательной практикой
+        const task3Message = await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+          caption: finalMessage,
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId,
+          },
+          reply_markup: practiceKeyboard,
+        });
 
         // Сохраняем сообщение
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
@@ -2592,7 +2602,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Используем только reply_to_message_id который уже установлен выше
         
         try {
-          const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
+          // Отправляем видео с дыхательной практикой
+          const task3Message = await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+            caption: finalMessage,
+            parse_mode: 'HTML',
+            reply_parameters: {
+              message_id: messageId,
+            },
+            reply_markup: practiceKeyboard,
+          });
 
           // Сохраняем сообщение
           saveMessage(userId, finalMessage, new Date().toISOString(), 0);
@@ -2614,7 +2632,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           try {
             const fallbackFinalText = 'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
             
-            await this.bot.telegram.sendMessage(replyToChatId, fallbackFinalText, {
+            // В fallback тоже отправляем видео
+            await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+              caption: fallbackFinalText,
               parse_mode: 'HTML',
               reply_parameters: { message_id: messageId },
             });
@@ -2912,11 +2932,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       } else if (currentStep === 'waiting_positive') {
         // Отправляем третье задание
         let finalMessage = 'У нас остался последний шаг\n\n';
-        if (post.relaxation_type === 'body') {
-          finalMessage += '3. <b>Расслабление тела</b>\nОт Ирины 👉🏻 clck.ru/3LmcNv 👈🏻 или свое';
-        } else {
-          finalMessage += '3. <b>Дыхательная практика</b>';
-        }
+        // Всегда отправляем дыхательную практику с видео
+        finalMessage += '3. <b>Дыхательная практика</b>\n\n';
+        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         const practiceKeyboard = {
           inline_keyboard: [
@@ -2933,7 +2951,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Для комментариев к постам из канала не используем message_thread_id
         // Сообщение будет отправлено как обычное сообщение в группу
 
-        await this.bot.telegram.sendMessage(chatId, finalMessage, sendOptions);
+        // Отправляем видео с дыхательной практикой
+        await this.bot.telegram.sendVideo(chatId, this.PRACTICE_VIDEO_ID, {
+          caption: finalMessage,
+          ...sendOptions
+        });
 
         updateTaskStatus(channelMessageId, 2, true);
 
