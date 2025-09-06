@@ -24,12 +24,42 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     );
 
     // Получаем данные поста из БД
-    const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML } = await import('../../db');
-    const post = getInteractivePost(channelMessageId);
+    const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML, saveInteractivePost } = await import('../../db');
+    let post = getInteractivePost(channelMessageId);
 
     if (!post) {
-      botLogger.error({ channelMessageId }, 'Пост не найден в БД');
-      return;
+      botLogger.warn({ channelMessageId }, 'Пост не найден в БД, используем fallback');
+      
+      // Fallback: создаем минимальную запись если её нет
+      try {
+        const defaultMessageData = {
+          positive_part: { additional_text: null }, // Без дополнительного текста для плюшек
+          feels_and_emotions: { additional_text: null }
+        };
+        
+        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing');
+        post = getInteractivePost(channelMessageId);
+        
+        if (!post) {
+          // Если всё равно не удалось - отправляем минимальный вариант напрямую
+          const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+          await bot.telegram.sendMessage(chatId!, fallbackText, {
+            parse_mode: 'HTML',
+            reply_parameters: { message_id: messageId! },
+          });
+          botLogger.error({ channelMessageId }, 'Критическая ошибка: не удалось создать пост в БД');
+          return;
+        }
+      } catch (fallbackError) {
+        botLogger.error({ error: fallbackError }, 'Ошибка создания fallback записи');
+        // Отправляем хотя бы минимальный текст
+        const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+        await bot.telegram.sendMessage(chatId!, fallbackText, {
+          parse_mode: 'HTML',
+          reply_parameters: { message_id: messageId! },
+        });
+        return;
+      }
     }
 
     // Отмечаем первое задание как пропущенное

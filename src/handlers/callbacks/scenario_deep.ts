@@ -29,11 +29,32 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
     );
 
     // Получаем данные поста из БД
-    const { getInteractivePost } = await import('../../db');
-    const post = getInteractivePost(channelMessageId);
+    const { getInteractivePost, saveInteractivePost } = await import('../../db');
+    let post = getInteractivePost(channelMessageId);
+    
     if (!post) {
-      botLogger.error({ channelMessageId }, 'Пост не найден в БД');
-      return;
+      botLogger.warn({ channelMessageId, userId }, 'Пост не найден в БД, создаем fallback запись');
+      
+      // Fallback: создаем минимальную запись в БД
+      try {
+        // Используем дефолтные данные для глубокого сценария
+        const defaultMessageData = {
+          encouragement: { text: 'Привет! 🌱 Давай поработаем с нашими переживаниями' },
+          negative_part: { additional_text: null },
+          positive_part: { additional_text: null },
+          feels_and_emotions: { additional_text: null }
+        };
+        
+        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing');
+        botLogger.info({ channelMessageId }, '💾 Fallback запись создана');
+        
+        // Получаем созданную запись
+        post = getInteractivePost(channelMessageId);
+      } catch (fallbackError) {
+        botLogger.error({ error: fallbackError }, 'Ошибка создания fallback записи');
+        await ctx.answerCbQuery('❌ Произошла ошибка. Попробуйте позже.');
+        return;
+      }
     }
 
     // Первый этап - отправляем текст без кнопок

@@ -25,7 +25,34 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
     const post = getInteractivePost(channelMessageId);
 
     if (!post) {
-      botLogger.error({ channelMessageId }, 'Пост не найден в БД для practice_done');
+      botLogger.error({ channelMessageId }, 'Пост не найден в БД для practice_done, используем fallback');
+      
+      // Fallback: отправляем минимальное поздравление и оценку дня
+      try {
+        const fallbackText = 'Отлично! 🌟\n\n<b>Оцени свой день</b>';
+        
+        const ratingKeyboard = {
+          inline_keyboard: [[
+            { text: '😭', callback_data: `day_rating_${channelMessageId}_1` },
+            { text: '😩', callback_data: `day_rating_${channelMessageId}_2` },
+            { text: '🫤', callback_data: `day_rating_${channelMessageId}_3` },
+            { text: '😊', callback_data: `day_rating_${channelMessageId}_4` },
+            { text: '🤩', callback_data: `day_rating_${channelMessageId}_5` }
+          ]]
+        };
+        
+        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: ctx.callbackQuery.message!.message_id,
+          },
+          reply_markup: ratingKeyboard
+        });
+        
+        botLogger.info({ channelMessageId }, 'Отправлен fallback для practice_done');
+      } catch (fallbackError) {
+        botLogger.error({ error: fallbackError }, 'Ошибка отправки fallback для practice_done');
+      }
       return;
     }
 
@@ -46,11 +73,27 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
     ];
     const congratsMessage = fallbacks[Math.floor(Math.random() * fallbacks.length)];
 
-    await ctx.telegram.sendMessage(ctx.chat!.id, congratsMessage, {
+    // Слова поддержки уже сгенерированы при создании поста
+    
+    // Добавляем вопрос об оценке дня с кнопками
+    const ratingMessage = congratsMessage + '\n\n<b>Оцени свой день</b>';
+    
+    const ratingKeyboard = {
+      inline_keyboard: [[
+        { text: '😭', callback_data: `day_rating_${channelMessageId}_1` },
+        { text: '😩', callback_data: `day_rating_${channelMessageId}_2` },
+        { text: '🫤', callback_data: `day_rating_${channelMessageId}_3` },
+        { text: '😊', callback_data: `day_rating_${channelMessageId}_4` },
+        { text: '🤩', callback_data: `day_rating_${channelMessageId}_5` }
+      ]]
+    };
+    
+    await ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, {
       parse_mode: 'HTML',
       reply_parameters: {
         message_id: ctx.callbackQuery.message!.message_id,
       },
+      reply_markup: ratingKeyboard
     });
 
     // Добавляем реакцию трофея к посту в канале

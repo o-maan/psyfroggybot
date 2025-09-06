@@ -64,6 +64,12 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/schema_start_(\d+)/, ctx => handleSchemaStart(ctx, bot));
   bot.action(/schema_example_(\d+)/, ctx => handleSchemaExample(ctx, bot));
   bot.action(/schema_continue_(\d+)/, ctx => handleSchemaContinue(ctx, bot));
+  
+  // Обработчик оценки дня
+  bot.action(/day_rating_(\d+)_(\d+)/, async ctx => {
+    const { handleDayRating } = await import('./day_rating');
+    await handleDayRating(ctx);
+  });
 }
 
 // Export individual handlers for backwards compatibility

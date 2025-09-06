@@ -658,6 +658,7 @@ export const updateInteractivePostState = (
     user_task1_message_id?: number;
     user_schema_message_id?: number;
     user_task2_message_id?: number;
+    practice_reminder_sent?: boolean;
   }
 ) => {
   let setClause = 'current_state = ?, last_interaction_at = datetime("now")';

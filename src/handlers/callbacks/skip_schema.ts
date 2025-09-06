@@ -22,7 +22,21 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
     const post = getInteractivePost(channelMessageId);
 
     if (!post) {
-      botLogger.warn({ channelMessageId }, 'Пост не найден для skip_schema');
+      botLogger.warn({ channelMessageId }, 'Пост не найден для skip_schema, используем fallback');
+      
+      // Fallback: отправляем минимальные плюшки
+      try {
+        const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: ctx.callbackQuery.message!.message_id,
+          },
+        });
+        botLogger.info({ channelMessageId }, 'Fallback плюшки отправлены после пропуска схемы');
+      } catch (fallbackError) {
+        botLogger.error({ error: fallbackError }, 'Ошибка отправки fallback для skip_schema');
+      }
       return;
     }
 

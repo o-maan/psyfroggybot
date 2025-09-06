@@ -1073,6 +1073,46 @@ export class Scheduler {
 
       // Добавляем текст "Переходи в комментарии и продолжим 😉"
       const captionWithComment = firstPart + '\n\nПереходи в комментарии и продолжим 😉';
+      
+      // Генерируем слова поддержки для оценок дня ДО отправки
+      schedulerLogger.info({ chatId }, '🎯 Генерируем слова поддержки для оценок дня');
+      const { generateDayRatingSupportWords, getDefaultSupportWords } = await import('./utils/support-words');
+      
+      let supportWords;
+      try {
+        supportWords = await generateDayRatingSupportWords();
+      } catch (error) {
+        schedulerLogger.error({ error }, 'Ошибка генерации слов поддержки, используем дефолтные');
+        supportWords = getDefaultSupportWords();
+      }
+      
+      // Определяем пользователя для поста из env, с учетом режима бота
+      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+      
+      // Добавляем слова поддержки в message_data
+      const messageDataWithSupport = {
+        ...json,
+        day_rating_support: supportWords
+      };
+      
+      // СНАЧАЛА сохраняем в БД (используем временный ID)
+      const tempMessageId = Date.now(); // Временный ID на основе timestamp
+      
+      const { saveInteractivePost } = await import('./db');
+      try {
+        saveInteractivePost(tempMessageId, postUserId, messageDataWithSupport, relaxationType);
+        schedulerLogger.info({ tempMessageId, chatId }, '💾 Пост предварительно сохранен в БД с временным ID');
+      } catch (dbError) {
+        schedulerLogger.error({ error: dbError, chatId }, '❌ Критическая ошибка: не удалось сохранить пост в БД');
+        // Если не удалось сохранить в БД - НЕ отправляем в Telegram
+        // Уведомляем админа о критической ошибке
+        const adminChatId = this.getAdminChatId();
+        if (adminChatId) {
+          await this.bot.telegram.sendMessage(adminChatId, `❌ Критическая ошибка при отправке поста пользователю ${chatId}: не удалось сохранить в БД\n\nОшибка: ${(dbError as Error).message}`)
+            .catch(err => schedulerLogger.error({ error: err }, 'Не удалось отправить уведомление админу'));
+        }
+        return;
+      }
 
       // Отправляем основной пост БЕЗ кнопок
       let sentMessage;
@@ -1120,6 +1160,31 @@ export class Scheduler {
       }
 
       const messageId = sentMessage.message_id;
+      
+      // Обновляем временный ID на реальный после успешной отправки
+      try {
+        const db = await import('./db');
+        const updateQuery = db.db.query(`
+          UPDATE interactive_posts 
+          SET channel_message_id = ? 
+          WHERE channel_message_id = ?
+        `);
+        updateQuery.run(messageId, tempMessageId);
+        schedulerLogger.info({ tempMessageId, messageId, chatId }, '✅ ID поста обновлен на реальный после отправки');
+      } catch (updateError) {
+        schedulerLogger.error({ error: updateError, tempMessageId, messageId }, '❌ Ошибка обновления ID поста');
+        // Создаем fallback запись с правильным ID
+        try {
+          const { saveInteractivePost } = await import('./db');
+          saveInteractivePost(messageId, postUserId, messageDataWithSupport, relaxationType);
+          // Удаляем временную запись
+          const deleteQuery = db.db.query('DELETE FROM interactive_posts WHERE channel_message_id = ?');
+          deleteQuery.run(tempMessageId);
+          schedulerLogger.info({ messageId }, '✅ Создана fallback запись с правильным ID');
+        } catch (fallbackError) {
+          schedulerLogger.error({ error: fallbackError }, '❌ Критическая ошибка: не удалось создать fallback запись');
+        }
+      }
 
       // Готовим выбор сценария для отправки в комментарии
       const scenarioChoiceText = '<b>Как сегодня хочешь поработать?</b>';
@@ -1152,15 +1217,9 @@ export class Scheduler {
         '✅ Процесс отправки выбора сценария запущен асинхронно'
       );
 
-      // Сохраняем сообщение в БД
+      // Сохраняем сообщение в истории
       const startTime = new Date().toISOString();
       saveMessage(chatId, captionWithComment, startTime);
-
-      // Сохраняем интерактивный пост в БД для надежности
-      const { saveInteractivePost } = await import('./db');
-      // Определяем пользователя для поста из env, с учетом режима бота
-      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
-      saveInteractivePost(messageId, postUserId, json, relaxationType);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
@@ -2386,17 +2445,46 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           },
         };
 
-        const schemaMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
-        saveMessage(userId, responseText, new Date().toISOString(), 0);
+        try {
+          const schemaMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
+          saveMessage(userId, responseText, new Date().toISOString(), 0);
 
-        // Сохраняем ID сообщения со схемой
-        updateInteractivePostState(channelMessageId, 'waiting_schema', {
-          bot_schema_message_id: schemaMessage.message_id,
-        });
+          // Сохраняем ID сообщения со схемой
+          updateInteractivePostState(channelMessageId, 'waiting_schema', {
+            bot_schema_message_id: schemaMessage.message_id,
+          });
 
-        // Обновляем состояние сессии - ждем разбор по схеме
-        session.currentStep = 'waiting_schema';
-        return true;
+          // Обновляем состояние сессии - ждем разбор по схеме
+          session.currentStep = 'waiting_schema';
+          return true;
+        } catch (schemaError) {
+          schedulerLogger.error({ error: schemaError }, 'Ошибка отправки схемы, отправляем fallback');
+          
+          // Fallback: пропускаем схему и сразу отправляем плюшки
+          try {
+            // Отмечаем первое задание как выполненное
+            updateTaskStatus(channelMessageId, 1, true);
+            
+            // Отправляем минимальные плюшки
+            const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+            
+            const fallbackMessage = await this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+              parse_mode: 'HTML',
+              reply_parameters: { message_id: messageId },
+            });
+            
+            // Обновляем состояние
+            updateInteractivePostState(channelMessageId, 'waiting_task2', {
+              bot_task2_message_id: fallbackMessage.message_id,
+            });
+            
+            session.currentStep = 'waiting_positive';
+            return true;
+          } catch (fallbackError2) {
+            schedulerLogger.error({ error: fallbackError2 }, 'Критическая ошибка: не удалось отправить даже fallback');
+            return false;
+          }
+        }
       } else if (session.currentStep === 'waiting_schema') {
         // Пользователь ответил на схему разбора
         schedulerLogger.info(
@@ -2428,17 +2516,40 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           },
         };
 
-        const task2Message = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
-        saveMessage(userId, responseText, new Date().toISOString(), 0);
+        try {
+          const task2Message = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
+          saveMessage(userId, responseText, new Date().toISOString(), 0);
 
-        // Сохраняем ID сообщения с плюшками
-        updateInteractivePostState(channelMessageId, 'waiting_task2', {
-          bot_task2_message_id: task2Message.message_id,
-        });
+          // Сохраняем ID сообщения с плюшками
+          updateInteractivePostState(channelMessageId, 'waiting_task2', {
+            bot_task2_message_id: task2Message.message_id,
+          });
 
-        // Обновляем состояние - теперь ждем плюшки
-        session.currentStep = 'waiting_positive';
-        return true;
+          // Обновляем состояние - теперь ждем плюшки
+          session.currentStep = 'waiting_positive';
+          return true;
+        } catch (plushkiError) {
+          schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек, отправляем минимальный fallback');
+          
+          // Fallback: отправляем минимальные плюшки без доп. текста
+          try {
+            const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+            const fallbackMessage = await this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+              parse_mode: 'HTML',
+              reply_parameters: { message_id: messageId },
+            });
+            
+            updateInteractivePostState(channelMessageId, 'waiting_task2', {
+              bot_task2_message_id: fallbackMessage.message_id,
+            });
+            
+            session.currentStep = 'waiting_positive';
+            return true;
+          } catch (criticalError) {
+            schedulerLogger.error({ error: criticalError }, 'Критическая ошибка: не удалось отправить даже fallback плюшек');
+            return false;
+          }
+        }
       } else if (session.currentStep === 'waiting_positive' || session.currentStep === 'waiting_task2') {
         // Ответ на плюшки - отправляем финальную часть
         schedulerLogger.info(
@@ -2455,7 +2566,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         updateTaskStatus(channelMessageId, 2, true);
 
         let finalMessage = 'У нас остался последний шаг\n\n';
-        finalMessage += '3. <b>Дыхательная практика</b>';
+        finalMessage += '3. <b>Дыхательная практика</b>\n\n';
+        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         // Добавляем кнопки к заданию 3
         // Передаем channelMessageId в callback_data для надежности
@@ -2478,27 +2590,74 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
+        
+        try {
+          const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
 
-        const task3Message = await this.bot.telegram.sendMessage(replyToChatId, finalMessage, finalOptions);
+          // Сохраняем сообщение
+          saveMessage(userId, finalMessage, new Date().toISOString(), 0);
 
-        // Сохраняем сообщение
-        saveMessage(userId, finalMessage, new Date().toISOString(), 0);
+          // Обновляем состояние в БД
+          const { updateInteractivePostState } = await import('./db');
+          updateInteractivePostState(channelMessageId, 'waiting_practice', {
+            bot_task3_message_id: task3Message.message_id,
+            user_task2_message_id: messageId,
+          });
 
-        // Обновляем состояние в БД
-        const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_practice', {
-          bot_task3_message_id: task3Message.message_id,
-          user_task2_message_id: messageId,
-        });
-
-        // Обновляем состояние сессии
-        session.currentStep = 'waiting_practice';
-        return true;
+          // Обновляем состояние сессии
+          session.currentStep = 'waiting_practice';
+          return true;
+        } catch (practiceError) {
+          schedulerLogger.error({ error: practiceError }, 'Ошибка отправки финального задания, отправляем fallback');
+          
+          // Fallback: отправляем минимальное сообщение без кнопок
+          try {
+            const fallbackFinalText = 'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
+            
+            await this.bot.telegram.sendMessage(replyToChatId, fallbackFinalText, {
+              parse_mode: 'HTML',
+              reply_parameters: { message_id: messageId },
+            });
+            
+            // Обновляем состояние сессии все равно
+            session.currentStep = 'waiting_practice';
+            return true;
+          } catch (criticalError) {
+            schedulerLogger.error({ error: criticalError }, 'Критическая ошибка: не удалось отправить даже fallback финального задания');
+            return false;
+          }
+        }
       } else if (session.currentStep === 'waiting_practice') {
         // Пользователь написал что-то после получения задания с кнопками
-        // Просто игнорируем это сообщение, пусть нажимает кнопки
-        schedulerLogger.debug({ userId }, 'Игнорируем сообщение - ждем нажатия кнопки');
-        return true; // Но все равно возвращаем true, чтобы не обрабатывать как обычное сообщение
+        schedulerLogger.info({ userId, messageText: messageText.substring(0, 50) }, 'Получен текст вместо нажатия кнопки практики');
+        
+        // Проверяем, отправляли ли мы уже напоминание
+        const { updateInteractivePostState } = await import('./db');
+        const { getInteractivePost } = await import('./db');
+        const post = getInteractivePost(channelMessageId);
+        
+        if (!post?.practice_reminder_sent) {
+          // Отправляем напоминание только один раз
+          try {
+            await this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
+              reply_parameters: { message_id: messageId },
+            });
+            
+            // Отмечаем, что напоминание отправлено
+            updateInteractivePostState(channelMessageId, 'waiting_practice', {
+              practice_reminder_sent: true,
+            });
+            
+            schedulerLogger.info({ channelMessageId }, 'Отправлено напоминание о необходимости нажать кнопку');
+          } catch (error) {
+            schedulerLogger.error({ error }, 'Ошибка отправки напоминания о практике');
+          }
+        } else {
+          // Напоминание уже было отправлено, просто игнорируем
+          schedulerLogger.debug({ userId }, 'Игнорируем повторное сообщение - напоминание уже было отправлено');
+        }
+        
+        return true; // Всегда возвращаем true, чтобы не обрабатывать как обычное сообщение
       }
 
       return true; // Обработано в интерактивном режиме
