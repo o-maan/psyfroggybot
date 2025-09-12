@@ -2484,7 +2484,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             });
             
             // Обновляем состояние
-            updateInteractivePostState(channelMessageId, 'waiting_task2', {
+            updateInteractivePostState(channelMessageId, 'waiting_positive', {
               bot_task2_message_id: fallbackMessage.message_id,
             });
             
@@ -2508,7 +2508,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Сохраняем ID ответа на схему и обновляем состояние
         const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_task2', {
+        updateInteractivePostState(channelMessageId, 'waiting_positive', {
           user_schema_message_id: messageId,
         });
 
@@ -2531,7 +2531,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           saveMessage(userId, responseText, new Date().toISOString(), 0);
 
           // Сохраняем ID сообщения с плюшками
-          updateInteractivePostState(channelMessageId, 'waiting_task2', {
+          updateInteractivePostState(channelMessageId, 'waiting_positive', {
             bot_task2_message_id: task2Message.message_id,
           });
 
@@ -2549,7 +2549,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               reply_parameters: { message_id: messageId },
             });
             
-            updateInteractivePostState(channelMessageId, 'waiting_task2', {
+            updateInteractivePostState(channelMessageId, 'waiting_positive', {
               bot_task2_message_id: fallbackMessage.message_id,
             });
             
@@ -2560,7 +2560,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             return false;
           }
         }
-      } else if (session.currentStep === 'waiting_positive' || session.currentStep === 'waiting_task2') {
+      } else if (session.currentStep === 'waiting_positive') {
         // Ответ на плюшки - отправляем финальную часть
         schedulerLogger.info(
           {
@@ -2568,25 +2568,64 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             currentStep: session.currentStep,
             channelMessageId,
             messageText: messageText.substring(0, 50),
+            replyToChatId,
+            messageId,
+            activePost: {
+              task1: activePost?.task1_completed,
+              task2: activePost?.task2_completed,
+              task3: activePost?.task3_completed,
+              current_state: activePost?.current_state
+            }
           },
           '📝 Получен ответ на плюшки, отправляем задание 3'
         );
 
         // Отмечаем второе задание как выполненное
         updateTaskStatus(channelMessageId, 2, true);
+        
+        schedulerLogger.debug(
+          {
+            channelMessageId,
+            step: 'after_task2_update'
+          },
+          '✅ Второе задание отмечено как выполненное'
+        );
 
         let finalMessage = 'У нас остался последний шаг\n\n';
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
         finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         // Добавляем кнопки к заданию 3
-        // Передаем channelMessageId в callback_data для надежности
-        const channelMsgId = session.channelMessageId || 0;
+        // Используем channelMessageId напрямую, как в глубоком сценарии
+        if (!channelMessageId || channelMessageId === 0) {
+          schedulerLogger.error(
+            {
+              channelMessageId,
+              sessionData: session,
+              activePost: activePost ? { id: activePost.channel_message_id } : null
+            },
+            '❌ channelMessageId отсутствует или равен 0!'
+          );
+          // Пытаемся восстановить из activePost
+          if (activePost && activePost.channel_message_id) {
+            channelMessageId = activePost.channel_message_id;
+          }
+        }
+        
+        schedulerLogger.debug(
+          {
+            sessionChannelMessageId: session.channelMessageId,
+            channelMessageId: channelMessageId,
+            finalChannelId: channelMessageId,
+            step: 'prepare_practice_keyboard'
+          },
+          '🔢 Подготовка ID для кнопок практики'
+        );
 
         const practiceKeyboard = {
           inline_keyboard: [
-            [{ text: '✅ Сделал', callback_data: `pract_done_${channelMsgId}` }],
-            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMsgId}` }],
+            [{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }],
+            [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMessageId}` }],
           ],
         };
 
@@ -2601,6 +2640,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
         
+        schedulerLogger.debug(
+          {
+            channelMessageId,
+            replyToChatId,
+            messageId,
+            practiceVideoId: this.PRACTICE_VIDEO_ID,
+            keyboardData: practiceKeyboard,
+            step: 'before_video_send'
+          },
+          '🎬 Готовимся отправить видео с практикой'
+        );
+        
         try {
           // Отправляем видео с дыхательной практикой
           const task3Message = await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
@@ -2611,6 +2662,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             },
             reply_markup: practiceKeyboard,
           });
+          
+          schedulerLogger.info(
+            {
+              channelMessageId,
+              task3MessageId: task3Message.message_id,
+              step: 'video_sent_success'
+            },
+            '✅ Видео с практикой успешно отправлено'
+          );
 
           // Сохраняем сообщение
           saveMessage(userId, finalMessage, new Date().toISOString(), 0);
@@ -2626,7 +2686,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           session.currentStep = 'waiting_practice';
           return true;
         } catch (practiceError) {
-          schedulerLogger.error({ error: practiceError }, 'Ошибка отправки финального задания, отправляем fallback');
+          schedulerLogger.error(
+            { 
+              error: practiceError,
+              errorMessage: (practiceError as Error).message,
+              errorStack: (practiceError as Error).stack,
+              errorDetails: JSON.stringify(practiceError),
+              channelMessageId,
+              replyToChatId,
+              messageId,
+              videoId: this.PRACTICE_VIDEO_ID,
+              isTestBot: this.isTestBot(),
+              step: 'video_send_error'
+            }, 
+            'Ошибка отправки финального задания, отправляем fallback'
+          );
           
           // Fallback: отправляем минимальное сообщение без кнопок
           try {

@@ -298,7 +298,7 @@ function determineStateFromPost(post: any): string {
   if (!post.task1_completed) {
     return 'waiting_task1';
   } else if (!post.task2_completed) {
-    return 'waiting_task2';
+    return 'waiting_positive';
   } else if (!post.task3_completed) {
     return 'waiting_task3';
   }

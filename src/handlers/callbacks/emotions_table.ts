@@ -27,8 +27,17 @@ export async function handleEmotionsTable(ctx: BotContext) {
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const replyToMessageId = ctx.callbackQuery.message?.message_id;
     
+    // Формируем текст для картинки
+    const captionText = '<b>💡 Если пока сложно - используй основные эмоции:</b> ' +
+                       '<i>радость, страх, злость, грусть, интерес, удивление, отвращение, стыд, вина</i>\n\n' +
+                       'А затем, с помощью таблицы, старайся находить больше слов, которые могут описать то, что ты испытываешь\n' +
+                       '<i>С каждым разом будет получаться все лучше 🙃</i>';
+    
     // Отправляем через telegram API с reply_to_message_id для работы в комментариях
-    const sendOptions: any = {};
+    const sendOptions: any = {
+      caption: captionText,
+      parse_mode: 'HTML'
+    };
     if (replyToMessageId) {
       sendOptions.reply_to_message_id = replyToMessageId;
     }

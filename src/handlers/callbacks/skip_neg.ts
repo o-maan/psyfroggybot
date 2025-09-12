@@ -79,11 +79,19 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     });
 
     // Обновляем текущее состояние поста, чтобы НЕ отправлять схему после пропуска
-    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+    // Используем 'waiting_positive' для совместимости с основной логикой
+    updateInteractivePostState(channelMessageId, 'waiting_positive', {
       bot_task2_message_id: plushkiMessage.message_id,
     });
 
-    botLogger.info({ channelMessageId }, '✅ Плюшки отправлены после пропуска');
+    botLogger.info(
+      { 
+        channelMessageId,
+        newState: 'waiting_positive',
+        task2MessageId: plushkiMessage.message_id
+      }, 
+      '✅ Плюшки отправлены после пропуска, состояние обновлено'
+    );
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки кнопки пропуска');
   }

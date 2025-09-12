@@ -41,7 +41,7 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
     }
 
     // Обновляем состояние - пропускаем схему и переходим к плюшкам
-    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+    updateInteractivePostState(channelMessageId, 'waiting_positive', {
       user_schema_message_id: ctx.callbackQuery.message?.message_id,
     });
 
@@ -73,7 +73,7 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
     });
 
     // Сохраняем ID сообщения с плюшками
-    updateInteractivePostState(channelMessageId, 'waiting_task2', {
+    updateInteractivePostState(channelMessageId, 'waiting_positive', {
       bot_task2_message_id: task2Message.message_id,
     });
 
