@@ -8,12 +8,12 @@ import { Scheduler } from './scheduler';
 import { wrapTelegramApi } from './message-handler';
 
 // Импортируем функции регистрации
-import { registerMiddleware } from './middleware';
-import { registerUserCommands } from './commands/user';
 import { registerAdminCommands } from './commands/admin';
+import { registerUserCommands } from './commands/user';
 import { registerCallbackHandlers } from './handlers/callbacks';
-import { registerMessageHandlers } from './handlers/messages';
 import { registerInlineHandlers } from './handlers/inline';
+import { registerMessageHandlers } from './handlers/messages';
+import { registerMiddleware } from './middleware';
 
 // Импортируем серверы
 import { createOAuthServer } from './servers/oauth';

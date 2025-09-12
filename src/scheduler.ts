@@ -1120,10 +1120,11 @@ export class Scheduler {
         await this.checkUsersResponses();
       }, checkDelayMinutes * 60 * 1000);
 
-      // Убираем сохранение и напоминание - это теперь делается в sendDailyMessagesToAll
-      // const sentTime = new Date().toISOString();
-      // saveMessage(chatId, message, sentTime);
-      // this.setReminder(chatId, sentTime);
+      // Включаем напоминание через 1.5 часа (для тестового бота тоже)
+      const sentTime = new Date().toISOString();
+      saveMessage(chatId, message, sentTime);
+      this.setReminder(chatId, sentTime);
+      schedulerLogger.info({ chatId }, '⏰ Напоминание через 1.5 часа установлено (команда /test)');
     } catch (e) {
       const error = e as Error;
       schedulerLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка отправки сообщения');
@@ -1370,6 +1371,10 @@ export class Scheduler {
         'Основной пост отправлен в канал'
       );
 
+      // Устанавливаем напоминание через 1.5 часа для пользователя
+      const sentTime = postSentTime.toISOString();
+      this.setReminder(chatId, sentTime);
+      schedulerLogger.info({ chatId, sentTime }, '⏰ Напоминание через 1.5 часа установлено');
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);

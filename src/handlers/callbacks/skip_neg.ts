@@ -108,6 +108,13 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       bot_task2_message_id: plushkiMessage.message_id,
     });
 
+    // Устанавливаем/перезапускаем таймер напоминания о незавершенной работе
+    const scheduler = (bot as any).scheduler;
+    if (scheduler && userId) {
+      scheduler.setIncompleteWorkReminder(userId, channelMessageId);
+      botLogger.debug({ userId, channelMessageId }, '⏰ Таймер напоминания перезапущен после пропуска задания');
+    }
+
     botLogger.info(
       { 
         channelMessageId,
