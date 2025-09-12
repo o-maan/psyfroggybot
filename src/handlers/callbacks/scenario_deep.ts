@@ -74,6 +74,14 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
       bot_task1_message_id: firstTaskMessage.message_id,
     });
 
+    // Устанавливаем начальный таймер напоминания о незавершенной работе (30 мин)
+    // Таймер будет перезапускаться при каждом ответе пользователя
+    const scheduler = (bot as any).scheduler;
+    if (scheduler && post?.user_id) {
+      scheduler.setIncompleteWorkReminder(post.user_id, channelMessageId);
+      botLogger.info({ userId: post.user_id, channelMessageId }, '⏰ Установлен начальный таймер напоминания (30 мин)');
+    }
+
     botLogger.info({ channelMessageId }, '✅ Первое задание глубокой работы отправлено');
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки выбора глубокой работы');

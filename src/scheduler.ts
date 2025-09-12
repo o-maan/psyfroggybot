@@ -87,6 +87,120 @@ export class Scheduler {
     return this.calendarService;
   }
 
+  // Универсальный метод отправки сообщений с повторными попытками при сетевых ошибках
+  private async sendWithRetry(
+    sendFunction: () => Promise<any>,
+    context: { 
+      chatId?: number; 
+      messageType: string;
+      retryData?: any; // Дополнительные данные для сложных операций
+      maxAttempts?: number; // Возможность задать кастомное количество попыток
+      intervalMs?: number; // Возможность задать кастомный интервал
+      onSuccess?: (result: any) => Promise<void>; // Коллбэк после успешной отправки
+    }
+  ): Promise<any> {
+    const maxAttempts = context.maxAttempts || 111; // По умолчанию 111 попыток для интерактивных сообщений
+    const intervalMs = context.intervalMs || 60000; // По умолчанию 1 минута
+    let attempt = 1;
+
+    // Цикл попыток
+    while (attempt <= maxAttempts) {
+      try {
+        schedulerLogger.info(
+          { 
+            ...context,
+            attempt,
+            maxAttempts,
+            intervalMs
+          },
+          `🔄 Попытка отправки ${attempt}/${maxAttempts}`
+        );
+        
+        // Пытаемся отправить
+        const result = await sendFunction();
+        
+        // Успешно отправлено!
+        schedulerLogger.info(
+          { 
+            ...context,
+            attempt,
+            totalAttempts: maxAttempts
+          },
+          `✅ Сообщение успешно отправлено с попытки ${attempt}/${maxAttempts}`
+        );
+        
+        // Выполняем коллбэк после успешной отправки, если он есть
+        if (context.onSuccess) {
+          try {
+            await context.onSuccess(result);
+          } catch (callbackError) {
+            schedulerLogger.error(
+              { 
+                error: callbackError,
+                ...context
+              },
+              'Ошибка в коллбэке после успешной отправки'
+            );
+          }
+        }
+        
+        return result;
+        
+      } catch (error) {
+        const err = error as Error;
+        
+        // Проверяем, является ли это сетевой ошибкой
+        if (err.message.includes('502') || err.message.includes('Bad Gateway') || 
+            err.message.includes('Network') || err.message.includes('Timeout') ||
+            err.message.includes('ETELEGRAM') || err.message.includes('ECONNRESET') ||
+            err.message.includes('ETIMEDOUT') || err.message.includes('ENOTFOUND')) {
+          
+          schedulerLogger.warn(
+            { 
+              ...context,
+              error: err.message,
+              attempt,
+              maxAttempts,
+              nextDelayMs: intervalMs
+            },
+            `⚠️ Сетевая ошибка, попытка ${attempt}/${maxAttempts}`
+          );
+          
+          // Если есть еще попытки - ждем и пробуем снова
+          if (attempt < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+            attempt++;
+            continue;
+          } else {
+            // Исчерпаны все попытки
+            schedulerLogger.error(
+              { 
+                ...context,
+                totalAttempts: maxAttempts
+              },
+              '❌ Исчерпаны все попытки отправки сообщения'
+            );
+            throw new Error(`Исчерпаны все ${maxAttempts} попыток отправки сообщения: ${err.message}`);
+          }
+        }
+        
+        // Не сетевая ошибка - пробрасываем сразу
+        schedulerLogger.error(
+          { 
+            ...context,
+            error: err.message,
+            attempt
+          },
+          'Не сетевая ошибка, прекращаем попытки'
+        );
+        throw error;
+      }
+    }
+    
+    // Не должны сюда попасть, но на всякий случай
+    throw new Error(`Исчерпаны все ${maxAttempts} попыток отправки сообщения`);
+  }
+
   // Получить интерактивную сессию пользователя
   public getInteractiveSession(userId: number) {
     return this.interactiveSessions.get(userId);
@@ -1116,112 +1230,122 @@ export class Scheduler {
         return;
       }
 
-      // Отправляем основной пост БЕЗ кнопок
+      // Отправляем основной пост БЕЗ кнопок с механизмом повторных попыток
       let sentMessage;
-      if (imageBuffer) {
-        // Отправляем сгенерированное изображение
-        sentMessage = await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imageBuffer },
-          {
-            caption: captionWithComment,
-            parse_mode: 'HTML',
-          }
-        );
-        const postSentTime = new Date();
-        schedulerLogger.info(
-          {
-            chatId,
-            messageLength: captionWithComment.length,
-            imageSize: imageBuffer.length,
-            messageId: sentMessage.message_id,
-            sentAt: postSentTime.toISOString(),
-            timestamp: postSentTime.getTime(),
-          },
-          'Основной пост с изображением отправлен в канал'
-        );
-      } else {
-        // Fallback: используем старую систему ротации
-        const imagePath = this.getNextImage(chatId);
-        sentMessage = await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imagePath },
-          {
-            caption: captionWithComment,
-            parse_mode: 'HTML',
-          }
-        );
-        schedulerLogger.info(
-          {
-            chatId,
-            messageLength: captionWithComment.length,
-            imagePath,
-          },
-          'Основной пост с изображением из ротации отправлен в канал (fallback)'
-        );
-      }
-
-      const messageId = sentMessage.message_id;
       
-      // Обновляем временный ID на реальный после успешной отправки
-      try {
-        const db = await import('./db');
-        const updateQuery = db.db.query(`
-          UPDATE interactive_posts 
-          SET channel_message_id = ? 
-          WHERE channel_message_id = ?
-        `);
-        updateQuery.run(messageId, tempMessageId);
-        schedulerLogger.info({ tempMessageId, messageId, chatId }, '✅ ID поста обновлен на реальный после отправки');
-      } catch (updateError) {
-        schedulerLogger.error({ error: updateError, tempMessageId, messageId }, '❌ Ошибка обновления ID поста');
-        // Создаем fallback запись с правильным ID
-        try {
-          const { saveInteractivePost } = await import('./db');
-          saveInteractivePost(messageId, postUserId, messageDataWithSupport, relaxationType);
-          // Удаляем временную запись
-          const deleteQuery = db.db.query('DELETE FROM interactive_posts WHERE channel_message_id = ?');
-          deleteQuery.run(tempMessageId);
-          schedulerLogger.info({ messageId }, '✅ Создана fallback запись с правильным ID');
-        } catch (fallbackError) {
-          schedulerLogger.error({ error: fallbackError }, '❌ Критическая ошибка: не удалось создать fallback запись');
-        }
-      }
-
-      // Готовим выбор сценария для отправки в комментарии
-      const scenarioChoiceText = '<b>Как сегодня хочешь поработать?</b>';
-      
-      const scenarioChoiceKeyboard = {
-        inline_keyboard: [
-          [{ text: 'Упрощенный сценарий 🧩', callback_data: `scenario_simplified_${messageId}` }],
-          [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${messageId}` }]
-        ],
+      // Подготавливаем данные для повторных попыток
+      const retryData = {
+        chatId,
+        tempMessageId,
+        messageDataWithSupport,
+        captionWithComment,
+        postUserId,
+        relaxationType,
+        generatedImageBuffer: imageBuffer
       };
-
-      // Получаем ID группы обсуждений
-      const CHAT_ID = this.getChatId();
-
-      if (!CHAT_ID) {
-        schedulerLogger.error('❌ CHAT_ID не настроен в .env - не можем отправить первое задание в группу обсуждений');
-        return;
-      }
-
-      // Отправляем выбор сценария асинхронно после появления пересланного сообщения
-      this.sendFirstTaskAsync(messageId, scenarioChoiceText, scenarioChoiceKeyboard, 'scenario_choice', chatId, CHAT_ID);
-
+      
+      // Функция отправки для использования в sendWithRetry
+      const sendPhotoFunction = async () => {
+        if (imageBuffer) {
+          // Отправляем сгенерированное изображение
+          return await this.bot.telegram.sendPhoto(
+            this.CHANNEL_ID,
+            { source: imageBuffer },
+            {
+              caption: captionWithComment,
+              parse_mode: 'HTML',
+            }
+          );
+        } else {
+          // Fallback: используем старую систему ротации
+          const imagePath = this.getNextImage(chatId);
+          const imageFile = readFileSync(imagePath);
+          return await this.bot.telegram.sendPhoto(
+            this.CHANNEL_ID,
+            { source: imageFile },
+            {
+              caption: captionWithComment,
+              parse_mode: 'HTML',
+            }
+          );
+        }
+      };
+      
+      // Коллбэк после успешной отправки
+      const onSuccessCallback = async (result: any) => {
+        const messageId = result.message_id;
+        
+        // Обновляем временный ID на реальный после успешной отправки
+        try {
+          const db = await import('./db');
+          const updateQuery = db.db.query(`
+            UPDATE interactive_posts 
+            SET channel_message_id = ? 
+            WHERE channel_message_id = ?
+          `);
+          updateQuery.run(messageId, tempMessageId);
+          schedulerLogger.info({ tempMessageId, messageId, chatId }, '✅ ID поста обновлен на реальный после отправки');
+        } catch (updateError) {
+          schedulerLogger.error({ error: updateError, tempMessageId, messageId }, '❌ Ошибка обновления ID поста');
+          // Создаем fallback запись с правильным ID
+          try {
+            const { saveInteractivePost } = await import('./db');
+            saveInteractivePost(messageId, postUserId, messageDataWithSupport, relaxationType);
+            // Удаляем временную запись
+            const db = await import('./db');
+            const deleteQuery = db.db.query('DELETE FROM interactive_posts WHERE channel_message_id = ?');
+            deleteQuery.run(tempMessageId);
+            schedulerLogger.info({ messageId }, '✅ Создана fallback запись с правильным ID');
+          } catch (fallbackError) {
+            schedulerLogger.error({ error: fallbackError }, '❌ Критическая ошибка: не удалось создать fallback запись');
+          }
+        }
+        
+        // Готовим выбор сценария для отправки в комментарии
+        const scenarioChoiceText = '<b>Как сегодня хочешь поработать?</b>';
+        const scenarioChoiceKeyboard = {
+          inline_keyboard: [
+            [{ text: 'Упрощенный сценарий 🧩', callback_data: `scenario_simplified_${messageId}` }],
+            [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${messageId}` }]
+          ],
+        };
+        
+        // Получаем ID группы обсуждений
+        const CHAT_ID = this.getChatId();
+        if (CHAT_ID) {
+          // Отправляем выбор сценария асинхронно после появления пересланного сообщения
+          this.sendFirstTaskAsync(messageId, scenarioChoiceText, scenarioChoiceKeyboard, 'scenario_choice', chatId, CHAT_ID);
+        }
+        
+        // Сохраняем сообщение в истории
+        const { saveMessage } = await import('./db');
+        const startTime = new Date().toISOString();
+        saveMessage(chatId, captionWithComment, startTime);
+      };
+      
+      // Отправляем с повторными попытками
+      sentMessage = await this.sendWithRetry(sendPhotoFunction, {
+        chatId,
+        messageType: 'interactive_daily_message',
+        retryData,
+        maxAttempts: 111, // 111 попыток для интерактивных сообщений
+        intervalMs: 60000, // 1 минута между попытками
+        onSuccess: onSuccessCallback
+      });
+      
+      const postSentTime = new Date();
       schedulerLogger.info(
         {
-          channelMessageId: messageId,
-          channelId: this.CHANNEL_ID,
-          chatId: CHAT_ID,
-          type: 'scenario_choice',
+          chatId,
+          messageLength: captionWithComment.length,
+          messageId: sentMessage.message_id,
+          sentAt: postSentTime.toISOString(),
+          timestamp: postSentTime.getTime(),
+          hasGeneratedImage: !!imageBuffer
         },
-        '✅ Процесс отправки выбора сценария запущен асинхронно'
+        'Основной пост отправлен в канал'
       );
 
-      // Сохраняем сообщение в истории
-      const startTime = new Date().toISOString();
-      saveMessage(chatId, captionWithComment, startTime);
 
       // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
       const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
@@ -1249,8 +1373,12 @@ export class Scheduler {
         { error: error.message, stack: error.stack, chatId },
         'Ошибка отправки интерактивного сообщения'
       );
+      
+      // Пробрасываем ошибку для обработки в команде
+      throw error;
     }
   }
+
 
   // Асинхронная отправка первого задания как комментария к посту
   private async sendFirstTaskAsync(
@@ -1326,7 +1454,15 @@ export class Scheduler {
         // В Telegram для комментариев используется reply_to_message_id
         messageOptions.reply_to_message_id = forwardedMessageId;
 
-        const firstTaskMessage = await this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions);
+        const firstTaskMessage = await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions),
+          {
+            chatId: originalChatId,
+            messageType: 'first_task_with_thread',
+            maxAttempts: 10,
+            intervalMs: 5000
+          }
+        );
 
         schedulerLogger.info(
           {
@@ -1353,7 +1489,15 @@ export class Scheduler {
           '⚠️ Таймаут ожидания пересланного сообщения, отправляем в группу с пометкой'
         );
 
-        const firstTaskMessage = await this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions);
+        const firstTaskMessage = await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions),
+          {
+            chatId: originalChatId,
+            messageType: 'first_task_no_thread',
+            maxAttempts: 10,
+            intervalMs: 5000
+          }
+        );
 
         schedulerLogger.info(
           {
@@ -1404,7 +1548,15 @@ export class Scheduler {
     const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600); // 10 часов по умолчанию
 
     if (!this.users || this.users.size === 0) {
-      await this.bot.telegram.sendMessage(adminChatId, '❗️Нет пользователей для рассылки. Отправляю сообщение себе.');
+      await this.sendWithRetry(
+        () => this.bot.telegram.sendMessage(adminChatId, '❗️Нет пользователей для рассылки. Отправляю сообщение себе.'),
+        {
+          chatId: adminChatId,
+          messageType: 'admin_no_users_warning',
+          maxAttempts: 5,
+          intervalMs: 3000
+        }
+      );
       await this.sendDailyMessage(adminChatId);
       schedulerLogger.warn('Нет пользователей для рассылки, отправляем админу');
       return;
@@ -1462,7 +1614,15 @@ export class Scheduler {
 ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}` : ''}`;
 
     try {
-      await this.bot.telegram.sendMessage(adminChatId, reportMessage);
+      await this.sendWithRetry(
+        () => this.bot.telegram.sendMessage(adminChatId, reportMessage),
+        {
+          chatId: adminChatId,
+          messageType: 'admin_daily_report',
+          maxAttempts: 5,
+          intervalMs: 3000
+        }
+      );
     } catch (adminError) {
       botLogger.error(adminError as Error, 'Отчет админу');
     }
@@ -1532,7 +1692,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         // Отправляем напоминание в личку пользователю
-        await this.bot.telegram.sendMessage(chatId, reminderText);
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(chatId, reminderText),
+          {
+            chatId,
+            messageType: 'daily_reminder',
+            maxAttempts: 5,
+            intervalMs: 3000
+          }
+        );
 
         schedulerLogger.info({ chatId }, '📨 Напоминание отправлено пользователю');
       }
@@ -1548,6 +1716,82 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       clearTimeout(timeout);
       this.reminderTimeouts.delete(chatId);
     }
+  }
+
+  // Установить напоминание о незавершенной работе (через 30 минут или 1 минуту для тестового бота)
+  async setIncompleteWorkReminder(chatId: number, channelMessageId: number) {
+    // Проверяем, что chatId положительный (личный чат пользователя)
+    if (chatId <= 0) {
+      schedulerLogger.debug({ chatId }, 'Пропускаем напоминание о незавершенной работе для группы/канала');
+      return;
+    }
+
+    // Проверяем, не получал ли пользователь уже задание с практикой в этом посте
+    const { getInteractivePost } = await import('./db');
+    const post = getInteractivePost(channelMessageId);
+    
+    if (post && post.task3_completed) {
+      schedulerLogger.debug(
+        { chatId, channelMessageId }, 
+        'Пользователь уже получал задание с практикой в этом посте - напоминание не нужно'
+      );
+      return;
+    }
+
+    // Для тестового бота используем 1 минуту, для основного - 30 минут
+    const delayMinutes = this.isTestBot() ? 1 : 30;
+    const delayMs = delayMinutes * 60 * 1000;
+
+    schedulerLogger.debug(
+      { 
+        chatId, 
+        channelMessageId, 
+        delayMinutes,
+        isTestBot: this.isTestBot() 
+      }, 
+      `⏰ Устанавливаем напоминание о незавершенной работе через ${delayMinutes} мин`
+    );
+
+    const timeout = setTimeout(async () => {
+      try {
+        // Проверяем текущее состояние поста
+        const { getInteractivePost } = await import('./db');
+        const post = getInteractivePost(channelMessageId);
+        
+        if (!post) {
+          schedulerLogger.debug({ channelMessageId }, 'Пост не найден, пропускаем напоминание');
+          return;
+        }
+
+        // Проверяем, не дошел ли пользователь до дыхательной практики
+        const currentState = post.current_state;
+        const practiceStates = ['waiting_practice', 'deep_waiting_practice', 'finished'];
+        
+        if (practiceStates.includes(currentState)) {
+          schedulerLogger.debug({ channelMessageId, currentState }, 'Пользователь уже дошел до практики, напоминание не нужно');
+          return;
+        }
+
+        // Отправляем напоминание
+        const reminderText = '🐸 Вижу, что лягуха не получила ответы на все задания. Давай доделаем - возвращайся 🤗';
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(chatId, reminderText),
+          {
+            chatId,
+            messageType: 'incomplete_work_reminder',
+            maxAttempts: 5,
+            intervalMs: 3000
+          }
+        );
+
+        schedulerLogger.info({ chatId, channelMessageId }, '📨 Напоминание о незавершенной работе отправлено');
+      } catch (error) {
+        schedulerLogger.error({ error: (error as Error).message, chatId }, 'Ошибка отправки напоминания о незавершенной работе');
+      }
+    }, delayMs);
+
+    // Сохраняем таймаут для возможной отмены
+    this.reminderTimeouts.set(chatId, timeout);
   }
 
   // Добавить разовую отправку сообщения
@@ -1637,13 +1881,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           try {
             const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
             if (adminChatId) {
-              await this.bot.telegram.sendMessage(
-                adminChatId,
-                `🚨 КРИТИЧЕСКАЯ ОШИБКА в автоматической рассылке!\n\n` +
-                  `⏰ Время: ${startTimeMoscow}\n` +
-                  `❌ Ошибка: ${error}\n` +
-                  `⏱️ Длительность: ${duration}ms\n\n` +
-                  `Проверьте логи сервера для подробностей.`
+              await this.sendWithRetry(
+                () => this.bot.telegram.sendMessage(
+                  adminChatId,
+                  `🚨 КРИТИЧЕСКАЯ ОШИБКА в автоматической рассылке!\n\n` +
+                    `⏰ Время: ${startTimeMoscow}\n` +
+                    `❌ Ошибка: ${error}\n` +
+                    `⏱️ Длительность: ${duration}ms\n\n` +
+                    `Проверьте логи сервера для подробностей.`
+                ),
+                {
+                  chatId: adminChatId,
+                  messageType: 'admin_critical_error',
+                  maxAttempts: 5,
+                  intervalMs: 3000
+                }
               );
             }
           } catch (notifyError) {
@@ -1689,7 +1941,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           try {
             const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
             if (adminChatId) {
-              await this.bot.telegram.sendMessage(adminChatId, `🚨 ОШИБКА в утренней проверке!\n\n❌ Ошибка: ${error}`);
+              await this.sendWithRetry(
+                () => this.bot.telegram.sendMessage(adminChatId, `🚨 ОШИБКА в утренней проверке!\n\n❌ Ошибка: ${error}`),
+                {
+                  chatId: adminChatId,
+                  messageType: 'admin_morning_error',
+                  maxAttempts: 5,
+                  intervalMs: 3000
+                }
+              );
             }
           } catch (notifyError) {
             logger.error('Уведомление админа об ошибке morning check', notifyError as Error);
@@ -1890,7 +2150,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         `${error ? `\n❌ Ошибка: ${error}` : ''}`;
 
       try {
-        await this.bot.telegram.sendMessage(adminChatId, reportMessage, { parse_mode: 'HTML' });
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(adminChatId, reportMessage, { parse_mode: 'HTML' }),
+          {
+            chatId: adminChatId,
+            messageType: 'admin_morning_report',
+            maxAttempts: 5,
+            intervalMs: 3000
+          }
+        );
       } catch (adminError) {
         schedulerLogger.error(adminError as Error, 'Ошибка отправки отчета админу');
       }
@@ -1927,28 +2195,38 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         schedulerLogger.error({ error: imageError, userId }, 'Ошибка генерации злого изображения');
       }
 
-      // Отправляем в канал
-      if (imageBuffer) {
-        await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imageBuffer },
-          {
-            caption: finalText,
-            parse_mode: 'HTML',
+      // Отправляем в канал с повторными попытками
+      await this.sendWithRetry(
+        async () => {
+          if (imageBuffer) {
+            return await this.bot.telegram.sendPhoto(
+              this.CHANNEL_ID,
+              { source: imageBuffer },
+              {
+                caption: finalText,
+                parse_mode: 'HTML',
+              }
+            );
+          } else {
+            // Fallback: используем обычное изображение из ротации
+            const imagePath = this.getNextImage(userId);
+            return await this.bot.telegram.sendPhoto(
+              this.CHANNEL_ID,
+              { source: imagePath },
+              {
+                caption: finalText,
+                parse_mode: 'HTML',
+              }
+            );
           }
-        );
-      } else {
-        // Fallback: используем обычное изображение из ротации
-        const imagePath = this.getNextImage(userId);
-        await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
-          { source: imagePath },
-          {
-            caption: finalText,
-            parse_mode: 'HTML',
-          }
-        );
-      }
+        },
+        {
+          chatId: userId,
+          messageType: 'angry_post',
+          maxAttempts: 20,
+          intervalMs: 10000
+        }
+      );
 
       schedulerLogger.info({ userId }, '😠 Злой пост отправлен в канал');
 
@@ -2215,6 +2493,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       'Обработка интерактивного ответа пользователя'
     );
 
+    // Перезапускаем таймер напоминания при каждом ответе пользователя
+    // Отменяем предыдущий таймер если есть
+    this.clearReminder(userId);
+    
+    // Устанавливаем новый таймер от текущего момента
+    await this.setIncompleteWorkReminder(userId, channelMessageId);
+    const delayMinutes = this.isTestBot() ? 1 : 30;
+    schedulerLogger.debug({ userId, channelMessageId, delayMinutes }, `⏰ Таймер напоминания перезапущен (${delayMinutes} мин от последней активности)`);
+
     // Импортируем функцию обновления статуса
     const { updateTaskStatus } = await import('./db');
 
@@ -2248,20 +2535,29 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         };
 
         // Отправляем второе сообщение с кнопкой
-        const secondTaskMessage = await this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
-          parse_mode: 'HTML',
-          reply_markup: emotionsTableKeyboard,
-          reply_parameters: {
-            message_id: messageId,
-          },
-        });
-
-        // Обновляем состояние - теперь ждем выбранную ситуацию
-        const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'deep_waiting_negative', {
-          bot_task2_message_id: secondTaskMessage.message_id,
-          user_task1_message_id: messageId,
-        });
+        const secondTaskMessage = await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
+            parse_mode: 'HTML',
+            reply_markup: emotionsTableKeyboard,
+            reply_parameters: {
+              message_id: messageId,
+            },
+          }),
+          {
+            chatId: userId,
+            messageType: 'deep_second_task',
+            maxAttempts: 10,
+            intervalMs: 5000,
+            onSuccess: async (result) => {
+              // Обновляем состояние - теперь ждем выбранную ситуацию
+              const { updateInteractivePostState } = await import('./db');
+              updateInteractivePostState(channelMessageId, 'deep_waiting_negative', {
+                bot_task2_message_id: result.message_id,
+                user_task1_message_id: messageId,
+              });
+            }
+          }
+        );
 
         return;
       }
@@ -2325,16 +2621,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         };
         
-        await this.bot.telegram.sendMessage(replyToChatId, 
-          '<i>🎉 Отлично! Сложная часть позади!\n' +
-          'Можно выдохнуть 😌</i>\n\n' +
-          'Перейдем к более приятной 🤗',
-          sendOptionsWithButton
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(replyToChatId, 
+            '<i>🎉 Отлично! Сложная часть позади!\n' +
+            'Можно выдохнуть 😌</i>\n\n' +
+            'Перейдем к более приятной 🤗',
+            sendOptionsWithButton
+          ),
+          {
+            chatId: userId,
+            messageType: 'deep_rational_complete',
+            maxAttempts: 10,
+            intervalMs: 5000,
+            onSuccess: async () => {
+              const { updateInteractivePostState, updateTaskStatus } = await import('./db');
+              updateInteractivePostState(channelMessageId, 'deep_waiting_continue_to_treats');
+              updateTaskStatus(channelMessageId, 1, true);
+            }
+          }
         );
-        
-        const { updateInteractivePostState, updateTaskStatus } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'deep_waiting_continue_to_treats');
-        updateTaskStatus(channelMessageId, 1, true);
         
         return;
       }
@@ -2376,14 +2681,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         };
 
         // Отправляем видео с дыхательной практикой
-        const task3Message = await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
-          caption: finalMessage,
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
-          reply_markup: practiceKeyboard,
-        });
+        const task3Message = await this.sendWithRetry(
+          () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+            caption: finalMessage,
+            parse_mode: 'HTML',
+            reply_parameters: {
+              message_id: messageId,
+            },
+            reply_markup: practiceKeyboard,
+          }),
+          {
+            chatId: userId,
+            messageType: 'deep_practice_video',
+            maxAttempts: 20,
+            intervalMs: 10000,
+            onSuccess: async (result) => {
+              // Логика перенесена после вызова
+            }
+          }
+        );
 
         // Сохраняем сообщение
         saveMessage(userId, finalMessage, new Date().toISOString(), 0);
@@ -2394,6 +2710,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           bot_task3_message_id: task3Message.message_id,
           user_task2_message_id: messageId,
         });
+
+        // Отмечаем что задание 3 было отправлено (практика)
+        updateTaskStatus(channelMessageId, 3, true);
+
+        // Отменяем напоминание о незавершенной работе, так как пользователь дошел до практики
+        this.clearReminder(userId);
+        schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание о незавершенной работе отменено - пользователь дошел до практики (глубокий сценарий)');
 
         return;
       }
@@ -2470,14 +2793,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         };
 
         try {
-          const emotionsMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
-          saveMessage(userId, responseText, new Date().toISOString(), 0);
-
-          // Сохраняем ID сообщения с вопросом про эмоции
-          // Используем существующее поле bot_schema_message_id вместо создания нового
-          updateInteractivePostState(channelMessageId, 'waiting_emotions', {
-            bot_schema_message_id: emotionsMessage.message_id,
-          });
+          const emotionsMessage = await this.sendWithRetry(
+            () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+            {
+              chatId: userId,
+              messageType: 'emotions_question',
+              maxAttempts: 10, // Для обычных сообщений используем меньше попыток
+              intervalMs: 5000, // И меньший интервал
+              onSuccess: async (result) => {
+                saveMessage(userId, responseText, new Date().toISOString(), 0);
+                
+                // Сохраняем ID сообщения с вопросом про эмоции
+                updateInteractivePostState(channelMessageId, 'waiting_emotions', {
+                  bot_schema_message_id: result.message_id,
+                });
+              }
+            }
+          );
 
           // Обновляем состояние сессии - ждем описание эмоций
           session.currentStep = 'waiting_emotions';
@@ -2493,13 +2825,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             // Отправляем плюшки с новым текстом
             const fallbackText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
             
-            const fallbackMessage = await this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId },
-              reply_markup: {
-                inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-              },
-            });
+            const fallbackMessage = await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+                parse_mode: 'HTML',
+                reply_parameters: { message_id: messageId },
+                reply_markup: {
+                  inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+                },
+              }),
+              {
+                chatId: userId,
+                messageType: 'emotions_fallback',
+                maxAttempts: 5,
+                intervalMs: 3000
+              }
+            );
             
             // Обновляем состояние
             updateInteractivePostState(channelMessageId, 'waiting_positive', {
@@ -2548,13 +2888,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         };
 
         try {
-          const task2Message = await this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions);
-          saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+          const task2Message = await this.sendWithRetry(
+            () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+            {
+              chatId: userId,
+              messageType: 'plushki_task',
+              maxAttempts: 10,
+              intervalMs: 5000,
+              onSuccess: async (result) => {
+                saveMessage(userId, plushkiText, new Date().toISOString(), 0);
 
-          // Сохраняем ID сообщения с плюшками
-          updateInteractivePostState(channelMessageId, 'waiting_positive', {
-            bot_task2_message_id: task2Message.message_id,
-          });
+                // Сохраняем ID сообщения с плюшками
+                updateInteractivePostState(channelMessageId, 'waiting_positive', {
+                  bot_task2_message_id: result.message_id,
+                });
+              }
+            }
+          );
 
           // Обновляем состояние - теперь ждем плюшки
           session.currentStep = 'waiting_positive';
@@ -2595,13 +2945,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         };
 
         try {
-          const task2Message = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
-          saveMessage(userId, responseText, new Date().toISOString(), 0);
+          const task2Message = await this.sendWithRetry(
+            () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+            {
+              chatId: userId,
+              messageType: 'plushki_after_schema',
+              maxAttempts: 10,
+              intervalMs: 5000,
+              onSuccess: async (result) => {
+                saveMessage(userId, responseText, new Date().toISOString(), 0);
 
-          // Сохраняем ID сообщения с плюшками
-          updateInteractivePostState(channelMessageId, 'waiting_positive', {
-            bot_task2_message_id: task2Message.message_id,
-          });
+                // Сохраняем ID сообщения с плюшками
+                updateInteractivePostState(channelMessageId, 'waiting_positive', {
+                  bot_task2_message_id: result.message_id,
+                });
+              }
+            }
+          );
 
           // Обновляем состояние - теперь ждем плюшки
           session.currentStep = 'waiting_positive';
@@ -2612,10 +2972,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Fallback: отправляем минимальные плюшки без доп. текста
           try {
             const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-            const fallbackMessage = await this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId },
-            });
+            const fallbackMessage = await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+                parse_mode: 'HTML',
+                reply_parameters: { message_id: messageId },
+              }),
+              {
+                chatId: userId,
+                messageType: 'plushki_fallback',
+                maxAttempts: 5,
+                intervalMs: 3000
+              }
+            );
             
             updateInteractivePostState(channelMessageId, 'waiting_positive', {
               bot_task2_message_id: fallbackMessage.message_id,
@@ -2721,34 +3089,50 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
         
         try {
-          // Отправляем видео с дыхательной практикой
-          const task3Message = await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
-            caption: finalMessage,
-            parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
-            reply_markup: practiceKeyboard,
-          });
-          
-          schedulerLogger.info(
+          // Отправляем видео с дыхательной практикой с повторными попытками
+          const task3Message = await this.sendWithRetry(
+            () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+              caption: finalMessage,
+              parse_mode: 'HTML',
+              reply_parameters: {
+                message_id: messageId,
+              },
+              reply_markup: practiceKeyboard,
+            }),
             {
-              channelMessageId,
-              task3MessageId: task3Message.message_id,
-              step: 'video_sent_success'
-            },
-            '✅ Видео с практикой успешно отправлено'
+              chatId: userId,
+              messageType: 'practice_video',
+              maxAttempts: 20, // Для видео больше попыток
+              intervalMs: 10000, // 10 секунд между попытками
+              onSuccess: async (result) => {
+                schedulerLogger.info(
+                  {
+                    channelMessageId,
+                    task3MessageId: result.message_id,
+                    step: 'video_sent_success'
+                  },
+                  '✅ Видео с практикой успешно отправлено'
+                );
+
+                // Сохраняем сообщение
+                saveMessage(userId, finalMessage, new Date().toISOString(), 0);
+
+                // Обновляем состояние в БД
+                const { updateInteractivePostState } = await import('./db');
+                updateInteractivePostState(channelMessageId, 'waiting_practice', {
+                  bot_task3_message_id: result.message_id,
+                  user_task2_message_id: messageId,
+                });
+
+                // Отмечаем что задание 3 было отправлено (практика)
+                updateTaskStatus(channelMessageId, 3, true);
+
+                // Отменяем напоминание о незавершенной работе
+                this.clearReminder(userId);
+                schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание о незавершенной работе отменено - пользователь дошел до практики');
+              }
+            }
           );
-
-          // Сохраняем сообщение
-          saveMessage(userId, finalMessage, new Date().toISOString(), 0);
-
-          // Обновляем состояние в БД
-          const { updateInteractivePostState } = await import('./db');
-          updateInteractivePostState(channelMessageId, 'waiting_practice', {
-            bot_task3_message_id: task3Message.message_id,
-            user_task2_message_id: messageId,
-          });
 
           // Обновляем состояние сессии
           session.currentStep = 'waiting_practice';
@@ -2774,12 +3158,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           try {
             const fallbackFinalText = 'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
             
-            // В fallback тоже отправляем видео
-            await this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
-              caption: fallbackFinalText,
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId },
-            });
+            // В fallback тоже отправляем видео с повторными попытками
+            await this.sendWithRetry(
+              () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+                caption: fallbackFinalText,
+                parse_mode: 'HTML',
+                reply_parameters: { message_id: messageId },
+              }),
+              {
+                chatId: userId,
+                messageType: 'practice_video_fallback',
+                maxAttempts: 5,
+                intervalMs: 3000
+              }
+            );
             
             // Обновляем состояние сессии все равно
             session.currentStep = 'waiting_practice';
@@ -2801,9 +3193,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         if (!post?.practice_reminder_sent) {
           // Отправляем напоминание только один раз
           try {
-            await this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
-              reply_parameters: { message_id: messageId },
-            });
+            await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
+                reply_parameters: { message_id: messageId },
+              }),
+              {
+                chatId: userId,
+                messageType: 'practice_reminder',
+                maxAttempts: 5,
+                intervalMs: 3000
+              }
+            );
             
             // Отмечаем, что напоминание отправлено
             updateInteractivePostState(channelMessageId, 'waiting_practice', {
@@ -3058,7 +3458,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           sendOptions.reply_to_message_id = threadId;
         }
 
-        await this.bot.telegram.sendMessage(chatId, responseText, sendOptions);
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendMessage(chatId, responseText, sendOptions),
+          {
+            chatId: userId,
+            messageType: 'pending_schema_response',
+            maxAttempts: 10,
+            intervalMs: 5000
+          }
+        );
 
         // НЕ обновляем статус, так как пользователь еще не ответил на схему
 
@@ -3094,10 +3502,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Сообщение будет отправлено как обычное сообщение в группу
 
         // Отправляем видео с дыхательной практикой
-        await this.bot.telegram.sendVideo(chatId, this.PRACTICE_VIDEO_ID, {
-          caption: finalMessage,
-          ...sendOptions
-        });
+        await this.sendWithRetry(
+          () => this.bot.telegram.sendVideo(chatId, this.PRACTICE_VIDEO_ID, {
+            caption: finalMessage,
+            ...sendOptions
+          }),
+          {
+            chatId: userId,
+            messageType: 'pending_practice_video',
+            maxAttempts: 20,
+            intervalMs: 10000
+          }
+        );
 
         updateTaskStatus(channelMessageId, 2, true);
 
