@@ -57,8 +57,8 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
       }
     }
 
-    // Генерируем текст первого задания (как было в scheduler.ts)
-    const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)';
+    // Генерируем текст первого задания
+    const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b>\n\nОпиши все, что тебя волнует';
     let firstTaskFullText = firstTaskText;
     if (post.message_data?.negative_part?.additional_text) {
       firstTaskFullText += `\n<blockquote>${escapeHTML(post.message_data.negative_part.additional_text)}</blockquote>`;

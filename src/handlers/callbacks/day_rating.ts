@@ -12,9 +12,9 @@ export async function handleDayRating(ctx: BotContext) {
 
     // Эмодзи для callback ответа
     const emojis = {
-      1: '😭',
-      2: '😩', 
-      3: '🫤',
+      1: '😩',
+      2: '😔', 
+      3: '😐',
       4: '😊',
       5: '🤩'
     };

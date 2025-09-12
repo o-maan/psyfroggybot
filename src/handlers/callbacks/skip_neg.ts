@@ -65,16 +65,19 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     // Отмечаем первое задание как пропущенное
     updateTaskStatus(channelMessageId, 1, true);
 
-    // Отправляем плюшки (второе задание)
-    let plushkiText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+    // Отправляем плюшки с новым текстом для упрощенного сценария
+    let plushkiText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
     if (post.message_data?.positive_part?.additional_text) {
-      plushkiText += `\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
+      plushkiText += `\n\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
 
     const plushkiMessage = await bot.telegram.sendMessage(chatId!, plushkiText, {
       parse_mode: 'HTML',
       reply_parameters: {
         message_id: messageId!,
+      },
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
       },
     });
 

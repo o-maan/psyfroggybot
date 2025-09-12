@@ -12,6 +12,8 @@ import { handleSkipSchema } from './skip_schema';
 import { handleScenarioSimplified } from './scenario_simplified';
 import { handleScenarioDeep } from './scenario_deep';
 import { handleEmotionsTable } from './emotions_table';
+import { handleSkipEmotions } from './skip_emotions';
+import { handleHelpEmotions } from './help_emotions';
 import { 
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -39,6 +41,8 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/pract_delay_(\d+)/, handlePractDelay);
   bot.action(/practice_postpone_(\d+)/, ctx => handlePracticePostpone(ctx, scheduler));
   bot.action(/skip_schema_(\d+)/, ctx => handleSkipSchema(ctx, scheduler));
+  bot.action(/skip_emotions_(\d+)/, ctx => handleSkipEmotions(ctx, scheduler));
+  bot.action(/help_emotions_(\d+)/, handleHelpEmotions);
   
   // Обработчик для неактивной кнопки
   bot.action('disabled', async (ctx) => {

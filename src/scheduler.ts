@@ -1960,12 +1960,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   }
 
   // Построение второй части сообщения
-  public buildSecondPart(json: any): string {
-    let message = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-    if (json.positive_part?.additional_text) {
-      message += `\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
+  public buildSecondPart(json: any, isSimplified: boolean = false): string {
+    if (isSimplified) {
+      // Для упрощенного сценария используем новый текст
+      let message = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+      if (json.positive_part?.additional_text) {
+        message += `\n\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
+      }
+      return message;
+    } else {
+      // Для обычного сценария оставляем старый текст
+      let message = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+      if (json.positive_part?.additional_text) {
+        message += `\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
+      }
+      return message;
     }
-    return message;
   }
 
   // Анализ ответа пользователя
@@ -2435,15 +2445,16 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           'Получен ответ на первое задание'
         );
 
+        // Импортируем функции из БД
+        const { updateInteractivePostState, updateTaskStatus } = await import('./db');
+        
         // Сохраняем ID сообщения пользователя и обновляем состояние
-        const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_schema', {
+        updateInteractivePostState(channelMessageId, 'waiting_emotions', {
           user_task1_message_id: messageId,
         });
 
-        // Отправляем схему разбора ситуации
-        const responseText = `Давай <b>разложим</b> минимум одну ситуацию <b>по схеме</b>:
-🗓 Триггер - Мысли - Эмоции - Ощущения в теле - Поведение или импульс к действию`;
+        // Спрашиваем про эмоции
+        const responseText = `<b>Какие эмоции это у тебя вызвало?</b>`;
 
         const sendOptions: any = {
           parse_mode: 'HTML',
@@ -2451,36 +2462,43 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             message_id: messageId,
           },
           reply_markup: {
-            inline_keyboard: [[{ text: 'Пропустить', callback_data: `skip_schema_${channelMessageId}` }]],
+            inline_keyboard: [
+              [{ text: 'Помоги с эмоциями', callback_data: `help_emotions_${channelMessageId}` }],
+              [{ text: 'Уже описал', callback_data: `skip_emotions_${channelMessageId}` }]
+            ],
           },
         };
 
         try {
-          const schemaMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
+          const emotionsMessage = await this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions);
           saveMessage(userId, responseText, new Date().toISOString(), 0);
 
-          // Сохраняем ID сообщения со схемой
-          updateInteractivePostState(channelMessageId, 'waiting_schema', {
-            bot_schema_message_id: schemaMessage.message_id,
+          // Сохраняем ID сообщения с вопросом про эмоции
+          // Используем существующее поле bot_schema_message_id вместо создания нового
+          updateInteractivePostState(channelMessageId, 'waiting_emotions', {
+            bot_schema_message_id: emotionsMessage.message_id,
           });
 
-          // Обновляем состояние сессии - ждем разбор по схеме
-          session.currentStep = 'waiting_schema';
+          // Обновляем состояние сессии - ждем описание эмоций
+          session.currentStep = 'waiting_emotions';
           return true;
-        } catch (schemaError) {
-          schedulerLogger.error({ error: schemaError }, 'Ошибка отправки схемы, отправляем fallback');
+        } catch (emotionsError) {
+          schedulerLogger.error({ error: emotionsError }, 'Ошибка отправки вопроса про эмоции, отправляем fallback');
           
-          // Fallback: пропускаем схему и сразу отправляем плюшки
+          // Fallback: пропускаем вопрос про эмоции и сразу отправляем плюшки
           try {
             // Отмечаем первое задание как выполненное
             updateTaskStatus(channelMessageId, 1, true);
             
-            // Отправляем минимальные плюшки
-            const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+            // Отправляем плюшки с новым текстом
+            const fallbackText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
             
             const fallbackMessage = await this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
               parse_mode: 'HTML',
               reply_parameters: { message_id: messageId },
+              reply_markup: {
+                inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+              },
             });
             
             // Обновляем состояние
@@ -2494,6 +2512,56 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             schedulerLogger.error({ error: fallbackError2 }, 'Критическая ошибка: не удалось отправить даже fallback');
             return false;
           }
+        }
+      } else if (session.currentStep === 'waiting_emotions') {
+        // Пользователь ответил на вопрос про эмоции
+        schedulerLogger.info(
+          {
+            userId,
+            channelMessageId,
+            messageText: messageText.substring(0, 50),
+          },
+          'Получен ответ на вопрос про эмоции'
+        );
+
+        // Отмечаем первое задание как выполненное
+        updateTaskStatus(channelMessageId, 1, true);
+
+        // Сохраняем ID ответа пользователя
+        const { updateInteractivePostState } = await import('./db');
+        updateInteractivePostState(channelMessageId, 'waiting_positive', {
+          user_schema_message_id: messageId,
+        });
+
+        // Отправляем плюшки с новым текстом
+        const supportText = this.getRandomSupportText();
+        const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+
+        const sendOptions: any = {
+          parse_mode: 'HTML',
+          reply_parameters: {
+            message_id: messageId,
+          },
+          reply_markup: {
+            inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+          },
+        };
+
+        try {
+          const task2Message = await this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions);
+          saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+
+          // Сохраняем ID сообщения с плюшками
+          updateInteractivePostState(channelMessageId, 'waiting_positive', {
+            bot_task2_message_id: task2Message.message_id,
+          });
+
+          // Обновляем состояние - теперь ждем плюшки
+          session.currentStep = 'waiting_positive';
+          return true;
+        } catch (plushkiError) {
+          schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек');
+          return false;
         }
       } else if (session.currentStep === 'waiting_schema') {
         // Пользователь ответил на схему разбора
@@ -2515,9 +2583,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Теперь отмечаем первое задание как выполненное
         updateTaskStatus(channelMessageId, 1, true);
 
-        // Отправляем слова поддержки + плюшки
+        // Отправляем слова поддержки + плюшки (в упрощенном сценарии схемы нет)
         const supportText = this.getRandomSupportText();
-        const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData)}`;
+        const responseText = `<i>${supportText}</i>\n\n${this.buildSecondPart(session.messageData, true)}`;
 
         const sendOptions: any = {
           parse_mode: 'HTML',

@@ -677,7 +677,7 @@ export class DeepWorkHandler {
   async handleSchemaThoughtsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
     const buttonText = this.getSchemaExampleButtonText(channelMessageId);
     const keyboard = [
-      [{ text: 'Помоги с эмоциями', callback_data: `emotions_table_${channelMessageId}` }]
+      [{ text: 'Помоги с эмоциями', callback_data: `help_emotions_${channelMessageId}` }]
     ];
     
     if (buttonText) {

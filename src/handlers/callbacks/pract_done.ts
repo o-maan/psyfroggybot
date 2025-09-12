@@ -33,9 +33,9 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
         
         const ratingKeyboard = {
           inline_keyboard: [[
-            { text: '😭', callback_data: `day_rating_${channelMessageId}_1` },
-            { text: '😩', callback_data: `day_rating_${channelMessageId}_2` },
-            { text: '🫤', callback_data: `day_rating_${channelMessageId}_3` },
+            { text: '😩', callback_data: `day_rating_${channelMessageId}_1` },
+            { text: '😔', callback_data: `day_rating_${channelMessageId}_2` },
+            { text: '😐', callback_data: `day_rating_${channelMessageId}_3` },
             { text: '😊', callback_data: `day_rating_${channelMessageId}_4` },
             { text: '🤩', callback_data: `day_rating_${channelMessageId}_5` }
           ]]
@@ -80,9 +80,9 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
     
     const ratingKeyboard = {
       inline_keyboard: [[
-        { text: '😭', callback_data: `day_rating_${channelMessageId}_1` },
-        { text: '😩', callback_data: `day_rating_${channelMessageId}_2` },
-        { text: '🫤', callback_data: `day_rating_${channelMessageId}_3` },
+        { text: '😩', callback_data: `day_rating_${channelMessageId}_1` },
+        { text: '😔', callback_data: `day_rating_${channelMessageId}_2` },
+        { text: '😐', callback_data: `day_rating_${channelMessageId}_3` },
         { text: '😊', callback_data: `day_rating_${channelMessageId}_4` },
         { text: '🤩', callback_data: `day_rating_${channelMessageId}_5` }
       ]]
