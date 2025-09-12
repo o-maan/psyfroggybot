@@ -1,6 +1,7 @@
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
 import { readFileSync } from 'fs';
+import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопки "Помоги с эмоциями"
 export async function handleHelpEmotions(ctx: BotContext) {
@@ -42,10 +43,14 @@ export async function handleHelpEmotions(ctx: BotContext) {
       sendOptions.reply_to_message_id = replyToMessageId;
     }
     
-    await ctx.telegram.sendPhoto(
-      chatId,
-      { source: emotionsTableImage },
-      sendOptions
+    await callbackSendWithRetry(
+      ctx,
+      () => ctx.telegram.sendPhoto(
+        chatId,
+        { source: emotionsTableImage },
+        sendOptions
+      ),
+      'help_emotions_photo'
     );
 
   } catch (error) {
@@ -70,7 +75,12 @@ export async function handleHelpEmotions(ctx: BotContext) {
         };
       }
       
-      await ctx.telegram.sendMessage(chatId, fallbackText, sendOptions);
+      await callbackSendWithRetry(
+        ctx,
+        () => ctx.telegram.sendMessage(chatId, fallbackText, sendOptions),
+        'help_emotions_fallback',
+        { maxAttempts: 5, intervalMs: 3000 }
+      );
       
     } catch (fallbackError) {
       botLogger.error({ fallbackError }, 'Ошибка отправки fallback сообщения для помощи с эмоциями');

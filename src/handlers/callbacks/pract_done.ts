@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
+import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопки "Сделал" для практики - новый формат
 export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
@@ -41,13 +42,18 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
           ]]
         };
         
-        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: ctx.callbackQuery.message!.message_id,
-          },
-          reply_markup: ratingKeyboard
-        });
+        await callbackSendWithRetry(
+          ctx,
+          () => ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
+            parse_mode: 'HTML',
+            reply_parameters: {
+              message_id: ctx.callbackQuery.message!.message_id,
+            },
+            reply_markup: ratingKeyboard
+          }),
+          'pract_done_fallback',
+          { maxAttempts: 5, intervalMs: 3000 }
+        );
         
         botLogger.info({ channelMessageId }, 'Отправлен fallback для practice_done');
       } catch (fallbackError) {
@@ -88,13 +94,17 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
       ]]
     };
     
-    await ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: ctx.callbackQuery.message!.message_id,
-      },
-      reply_markup: ratingKeyboard
-    });
+    await callbackSendWithRetry(
+      ctx,
+      () => ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.callbackQuery.message!.message_id,
+        },
+        reply_markup: ratingKeyboard
+      }),
+      'pract_done_rating'
+    );
 
     // Добавляем реакцию трофея к посту в канале
     if (!post.trophy_set) {

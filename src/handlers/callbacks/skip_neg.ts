@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
+import { scenarioSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик для кнопки пропуска первого задания - новый формат
 export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
@@ -43,10 +44,17 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
         if (!post) {
           // Если всё равно не удалось - отправляем минимальный вариант напрямую
           const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-          await bot.telegram.sendMessage(chatId!, fallbackText, {
-            parse_mode: 'HTML',
-            reply_parameters: { message_id: messageId! },
-          });
+          await scenarioSendWithRetry(
+            bot,
+            chatId!,
+            userId!,
+            () => bot.telegram.sendMessage(chatId!, fallbackText, {
+              parse_mode: 'HTML',
+              reply_parameters: { message_id: messageId! },
+            }),
+            'skip_neg_fallback',
+            { maxAttempts: 5, intervalMs: 3000 }
+          );
           botLogger.error({ channelMessageId }, 'Критическая ошибка: не удалось создать пост в БД');
           return;
         }
@@ -54,10 +62,17 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
         botLogger.error({ error: fallbackError }, 'Ошибка создания fallback записи');
         // Отправляем хотя бы минимальный текст
         const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-        await bot.telegram.sendMessage(chatId!, fallbackText, {
-          parse_mode: 'HTML',
-          reply_parameters: { message_id: messageId! },
-        });
+        await scenarioSendWithRetry(
+          bot,
+          chatId!,
+          userId!,
+          () => bot.telegram.sendMessage(chatId!, fallbackText, {
+            parse_mode: 'HTML',
+            reply_parameters: { message_id: messageId! },
+          }),
+          'skip_neg_fallback2',
+          { maxAttempts: 3, intervalMs: 2000 }
+        );
         return;
       }
     }
@@ -71,15 +86,21 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       plushkiText += `\n\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
 
-    const plushkiMessage = await bot.telegram.sendMessage(chatId!, plushkiText, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: messageId!,
-      },
-      reply_markup: {
-        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-      },
-    });
+    const plushkiMessage = await scenarioSendWithRetry(
+      bot,
+      chatId!,
+      userId!,
+      () => bot.telegram.sendMessage(chatId!, plushkiText, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: messageId!,
+        },
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+        },
+      }),
+      'skip_neg_plushki'
+    );
 
     // Обновляем текущее состояние поста, чтобы НЕ отправлять схему после пропуска
     // Используем 'waiting_positive' для совместимости с основной логикой

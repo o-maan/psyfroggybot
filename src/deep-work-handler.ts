@@ -9,6 +9,7 @@ import {
   saveMessage,
   updateTaskStatus
 } from './db';
+import { sendWithRetry } from './utils/telegram-retry';
 
 // Функция для удаления тегов <think>
 function removeThinkTags(text: string): string {
@@ -97,13 +98,14 @@ export class DeepWorkHandler {
     return count > 0 ? 'Еще пример' : 'Пример';
   }
   
-  // Универсальный метод отправки сообщений (как в упрощенном сценарии)
+  // Универсальный метод отправки сообщений с retry
   private async sendMessage(
     text: string, 
     replyToMessageId?: number,
     options: {
       parse_mode?: string;
       reply_markup?: any;
+      messageType?: string; // для логирования
     } = {}
   ) {
     const sendOptions: any = {
@@ -118,8 +120,18 @@ export class DeepWorkHandler {
       };
     }
     
-    // Отправляем в тот же чат откуда пришло сообщение (как replyToChatId в упрощенном)
-    return await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
+    // Используем sendWithRetry для всех отправок
+    return await sendWithRetry(
+      () => this.bot.telegram.sendMessage(this.chatId, text, sendOptions),
+      {
+        chatId: this.chatId,
+        messageType: options.messageType || 'deep_work_message'
+      },
+      {
+        maxAttempts: 10,
+        intervalMs: 5000
+      }
+    );
   }
   
 
@@ -325,7 +337,17 @@ export class DeepWorkHandler {
         sendOptions.reply_to_message_id = replyToMessageId;
       }
       
-      const message = await this.bot.telegram.sendPhoto(this.chatId, { source: imageBuffer }, sendOptions);
+      const message = await sendWithRetry(
+        () => this.bot.telegram.sendPhoto(this.chatId, { source: imageBuffer }, sendOptions),
+        {
+          chatId: this.chatId,
+          messageType: 'deep_percept_filters_photo'
+        },
+        {
+          maxAttempts: 10,
+          intervalMs: 5000
+        }
+      );
 
       updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
     } catch (error) {
@@ -351,7 +373,17 @@ export class DeepWorkHandler {
           };
         }
         
-        await this.bot.telegram.sendMessage(this.chatId, fallbackText, fallbackOptions);
+        await sendWithRetry(
+          () => this.bot.telegram.sendMessage(this.chatId, fallbackText, fallbackOptions),
+          {
+            chatId: this.chatId,
+            messageType: 'deep_percept_filters_fallback'
+          },
+          {
+            maxAttempts: 5,
+            intervalMs: 3000
+          }
+        );
         updateInteractivePostState(channelMessageId, 'deep_waiting_filters_start');
         
       } catch (fallbackError) {
@@ -434,9 +466,19 @@ export class DeepWorkHandler {
       
       // 4-е нажатие - показываем первое финальное сообщение
       if (count === 3) {
-        await this.bot.telegram.sendMessage(this.chatId,
-          'Больше примеров можешь посмотреть в карточках <b>Фильтры восприятия</b>',
-          sendOptions
+        await sendWithRetry(
+          () => this.bot.telegram.sendMessage(this.chatId,
+            'Больше примеров можешь посмотреть в карточках <b>Фильтры восприятия</b>',
+            sendOptions
+          ),
+          {
+            chatId: this.chatId,
+            messageType: 'deep_filters_more_examples'
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000
+          }
         );
         
         // Увеличиваем счетчик для перехода к следующему сообщению
@@ -445,9 +487,19 @@ export class DeepWorkHandler {
         await this.saveFiltersExampleCount(channelMessageId, newCount);
       } else if (count === 4) {
         // 5-е нажатие - показываем финальное сообщение и устанавливаем счетчик в 5
-        await this.bot.telegram.sendMessage(this.chatId,
-          'Примеры смотри выше или открывай фильтры восприятия',
-          sendOptions
+        await sendWithRetry(
+          () => this.bot.telegram.sendMessage(this.chatId,
+            'Примеры смотри выше или открывай фильтры восприятия',
+            sendOptions
+          ),
+          {
+            chatId: this.chatId,
+            messageType: 'deep_filters_final_message'
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000
+          }
         );
         // Устанавливаем счетчик в 5, чтобы кнопки стали неактивными
         this.exampleCounters.set(key, 5);
@@ -1095,10 +1147,30 @@ export class DeepWorkHandler {
       }
 
       // Отправляем первую группу
-      await this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions);
+      await sendWithRetry(
+        () => this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions),
+        {
+          chatId: this.chatId,
+          messageType: 'deep_filters_media_group_1'
+        },
+        {
+          maxAttempts: 10,
+          intervalMs: 5000
+        }
+      );
 
       // Отправляем вторую группу
-      await this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions);
+      await sendWithRetry(
+        () => this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions),
+        {
+          chatId: this.chatId,
+          messageType: 'deep_filters_media_group_2'
+        },
+        {
+          maxAttempts: 10,
+          intervalMs: 5000
+        }
+      );
 
       botLogger.info({ channelMessageId, userId }, 'Фильтры восприятия отправлены');
       

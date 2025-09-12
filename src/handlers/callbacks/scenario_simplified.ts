@@ -1,6 +1,7 @@
 import type { BotContext } from '../../types';
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
+import { scenarioSendWithRetry } from '../../utils/telegram-retry';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
@@ -79,13 +80,19 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
     };
 
     // Отправляем первое задание
-    const firstTaskMessage = await bot.telegram.sendMessage(chatId!, firstTaskFullText, {
-      parse_mode: 'HTML',
-      reply_markup: firstTaskKeyboard,
-      reply_parameters: {
-        message_id: messageId!,
-      },
-    });
+    const firstTaskMessage = await scenarioSendWithRetry(
+      bot,
+      chatId!,
+      userId!,
+      () => bot.telegram.sendMessage(chatId!, firstTaskFullText, {
+        parse_mode: 'HTML',
+        reply_markup: firstTaskKeyboard,
+        reply_parameters: {
+          message_id: messageId!,
+        },
+      }),
+      'simplified_first_task'
+    );
 
     // Обновляем состояние поста
     const { updateInteractivePostState } = await import('../../db');

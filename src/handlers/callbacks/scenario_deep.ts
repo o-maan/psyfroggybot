@@ -1,6 +1,7 @@
 import type { BotContext } from '../../types';
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
+import { scenarioSendWithRetry } from '../../utils/telegram-retry';
 
 // Функция экранирования для HTML (Telegram) 
 function escapeHTML(text: string): string {
@@ -61,12 +62,18 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
     const firstTaskText = 'Вот это настрой! 🔥\n\n1. <b>Что тебя волнует?</b>\nПеречисли неприятные ситуации и события, которые тебя беспокоят';
 
     // Отправляем первое сообщение БЕЗ кнопок
-    const firstTaskMessage = await bot.telegram.sendMessage(chatId!, firstTaskText, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: messageId!,
-      },
-    });
+    const firstTaskMessage = await scenarioSendWithRetry(
+      bot,
+      chatId!,
+      userId!,
+      () => bot.telegram.sendMessage(chatId!, firstTaskText, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: messageId!,
+        },
+      }),
+      'deep_first_task'
+    );
 
     // Обновляем состояние поста для глубокой работы - ждем перечисления ситуаций
     const { updateInteractivePostState } = await import('../../db');

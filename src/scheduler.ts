@@ -106,12 +106,19 @@ export class Scheduler {
     // Цикл попыток
     while (attempt <= maxAttempts) {
       try {
+        // Создаем копию context без retryData для логирования
+        const { retryData, ...contextForLogging } = context;
+        
         schedulerLogger.info(
           { 
-            ...context,
+            ...contextForLogging,
             attempt,
             maxAttempts,
-            intervalMs
+            intervalMs,
+            // Если есть retryData с изображением, логируем только размер
+            ...(retryData?.generatedImageBuffer ? {
+              imageBufferSize: retryData.generatedImageBuffer.length
+            } : {})
           },
           `🔄 Попытка отправки ${attempt}/${maxAttempts}`
         );
@@ -120,11 +127,16 @@ export class Scheduler {
         const result = await sendFunction();
         
         // Успешно отправлено!
+        // Используем contextForLogging без retryData
         schedulerLogger.info(
           { 
-            ...context,
+            ...contextForLogging,
             attempt,
-            totalAttempts: maxAttempts
+            totalAttempts: maxAttempts,
+            // Если есть retryData с изображением, логируем только размер
+            ...(retryData?.generatedImageBuffer ? {
+              imageBufferSize: retryData.generatedImageBuffer.length
+            } : {})
           },
           `✅ Сообщение успешно отправлено с попытки ${attempt}/${maxAttempts}`
         );
@@ -157,11 +169,15 @@ export class Scheduler {
           
           schedulerLogger.warn(
             { 
-              ...context,
+              ...contextForLogging,
               error: err.message,
               attempt,
               maxAttempts,
-              nextDelayMs: intervalMs
+              nextDelayMs: intervalMs,
+              // Если есть retryData с изображением, логируем только размер
+              ...(retryData?.generatedImageBuffer ? {
+                imageBufferSize: retryData.generatedImageBuffer.length
+              } : {})
             },
             `⚠️ Сетевая ошибка, попытка ${attempt}/${maxAttempts}`
           );
@@ -175,8 +191,12 @@ export class Scheduler {
             // Исчерпаны все попытки
             schedulerLogger.error(
               { 
-                ...context,
-                totalAttempts: maxAttempts
+                ...contextForLogging,
+                totalAttempts: maxAttempts,
+                // Если есть retryData с изображением, логируем только размер
+                ...(retryData?.generatedImageBuffer ? {
+                  imageBufferSize: retryData.generatedImageBuffer.length
+                } : {})
               },
               '❌ Исчерпаны все попытки отправки сообщения'
             );
@@ -187,9 +207,13 @@ export class Scheduler {
         // Не сетевая ошибка - пробрасываем сразу
         schedulerLogger.error(
           { 
-            ...context,
+            ...contextForLogging,
             error: err.message,
-            attempt
+            attempt,
+            // Если есть retryData с изображением, логируем только размер
+            ...(retryData?.generatedImageBuffer ? {
+              imageBufferSize: retryData.generatedImageBuffer.length
+            } : {})
           },
           'Не сетевая ошибка, прекращаем попытки'
         );
@@ -2721,6 +2745,46 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         return;
       }
       
+      // Обработка состояния deep_waiting_practice
+      if (session.currentStep === 'deep_waiting_practice') {
+        // Пользователь написал что-то после получения задания с практикой (глубокий сценарий)
+        schedulerLogger.info({ userId, messageText: messageText.substring(0, 50) }, 'Получен текст вместо нажатия кнопки практики (глубокий сценарий)');
+        
+        // Проверяем, отправляли ли мы уже напоминание
+        const { updateInteractivePostState } = await import('./db');
+        const { getInteractivePost } = await import('./db');
+        const post = getInteractivePost(channelMessageId);
+        
+        if (!post?.practice_reminder_sent) {
+          // Отправляем напоминание только один раз
+          try {
+            await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(userId, 'Отличная работа! 🌟 Теперь выполни дыхательную практику и нажми "Сделал" после ее завершения'),
+              {
+                chatId: userId,
+                messageType: 'deep_practice_reminder',
+                maxAttempts: 5,
+                intervalMs: 3000
+              }
+            );
+            
+            // Отмечаем, что напоминание отправлено
+            updateInteractivePostState(channelMessageId, 'deep_waiting_practice', {
+              practice_reminder_sent: true,
+            });
+            
+            schedulerLogger.info({ channelMessageId }, 'Отправлено напоминание о необходимости нажать кнопку (глубокий сценарий)');
+          } catch (error) {
+            schedulerLogger.error({ error }, 'Ошибка отправки напоминания о практике (глубокий сценарий)');
+          }
+        } else {
+          // Напоминание уже было отправлено, просто игнорируем
+          schedulerLogger.debug({ userId }, 'Игнорируем повторное сообщение - напоминание уже было отправлено (глубокий сценарий)');
+        }
+        
+        return true; // Всегда возвращаем true, чтобы не обрабатывать как обычное сообщение
+      }
+      
       // Обработка состояний разбора по схеме
       if (session.currentStep === 'schema_waiting_trigger') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
@@ -3194,9 +3258,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Отправляем напоминание только один раз
           try {
             await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
-                reply_parameters: { message_id: messageId },
-              }),
+              () => this.bot.telegram.sendMessage(userId, 'Выполни практику и нажми "Сделал" после ее завершения'),
               {
                 chatId: userId,
                 messageType: 'practice_reminder',

@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
+import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопки "Уже описал" для пропуска дополнительного вопроса про эмоции
 export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) {
@@ -41,15 +42,19 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
     const supportText = scheduler.getRandomSupportText();
     const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
 
-    const task2Message = await ctx.telegram.sendMessage(ctx.chat!.id, plushkiText, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: ctx.callbackQuery.message!.message_id,
-      },
-      reply_markup: {
-        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-      },
-    });
+    const task2Message = await callbackSendWithRetry(
+      ctx,
+      () => ctx.telegram.sendMessage(ctx.chat!.id, plushkiText, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.callbackQuery.message!.message_id,
+        },
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+        },
+      }),
+      'skip_emotions_plushki'
+    );
 
     // Сохраняем ID сообщения с плюшками
     updateInteractivePostState(channelMessageId, 'waiting_positive', {

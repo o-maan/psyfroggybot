@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import { getDayRatingSupportWord } from '../../utils/support-words';
+import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопок оценки дня
 export async function handleDayRating(ctx: BotContext) {
@@ -38,12 +39,17 @@ export async function handleDayRating(ctx: BotContext) {
     const fullText = supportText + '\nЖду тебя завтра';
 
     // Отправляем слова поддержки
-    await ctx.telegram.sendMessage(ctx.chat!.id, fullText, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: ctx.callbackQuery.message!.message_id,
-      },
-    });
+    await callbackSendWithRetry(
+      ctx,
+      () => ctx.telegram.sendMessage(ctx.chat!.id, fullText, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.callbackQuery.message!.message_id,
+        },
+      }),
+      'day_rating_support',
+      { maxAttempts: 5, intervalMs: 3000 }
+    );
 
     // Сохраняем оценку в БД
     const { db } = await import('../../db');
