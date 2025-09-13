@@ -77,5 +77,6 @@
     "**/.git": true,
     "**/*.db": true,
     "**/bun.lock": true
-  }
+  },
+  "cSpell.words": ["knexfile", "psyfroggybot"]
 }

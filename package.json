@@ -11,7 +11,14 @@
     "lint": "tsc --noEmit --skipLibCheck",
     "logs": "ssh www-data@104.248.84.190 '. .profile && cd /var/www/psy_froggy_bot && pm2 logs --nostream psy_froggy_bot'",
     "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "n8n:start": "bash ./scripts/start-n8n.sh",
+    "n8n:stop": "docker stop psyfroggybot-n8n",
+    "n8n:logs": "docker logs -f psyfroggybot-n8n",
+    "n8n:reset": "docker-compose down -v && rm -rf n8n_data/* && bun run n8n:start",
+    "n8n:shell": "docker exec -it psyfroggybot-n8n sh",
+    "n8n:test": "./test-n8n.ts",
+    "n8n": "bun run n8n:stop 2>/dev/null || true && bun run n8n:start && n8n-workflows/deploy-workflow.sh"
   },
   "dependencies": {
     "@huggingface/inference": "^3.14.0",
