@@ -46,6 +46,8 @@ export class Scheduler {
   public readonly CHANNEL_ID = this.getChannelId();
   // Путь к видео с дыхательной практикой
   private readonly PRACTICE_VIDEO_PATH = 'assets/videos/Квадрат дыхания.MOV';
+  // Путь к превью для видео
+  private readonly PRACTICE_VIDEO_THUMBNAIL_PATH = 'assets/videos/breathing-practice-thumbnail.jpg';
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
@@ -2725,12 +2727,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Отправляем видео с дыхательной практикой
         const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
+        const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+        
         const task3Message = await this.sendWithRetry(
           () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
             caption: finalMessage,
             parse_mode: 'HTML',
             reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
             reply_markup: practiceKeyboard,
+            thumbnail: { source: thumbnailBuffer },
           }),
           {
             chatId: userId,
@@ -3175,12 +3180,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         try {
           // Отправляем видео с дыхательной практикой с повторными попытками
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
+          const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+          
           const task3Message = await this.sendWithRetry(
             () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
               caption: finalMessage,
               parse_mode: 'HTML',
               reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
               reply_markup: practiceKeyboard,
+              thumbnail: { source: thumbnailBuffer },
             }),
             {
               chatId: userId,
@@ -3243,11 +3251,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             
             // В fallback тоже отправляем видео с повторными попытками
             const fallbackVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
+            const fallbackThumbnail = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+            
             await this.sendWithRetry(
               () => this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, {
                 caption: fallbackFinalText,
                 parse_mode: 'HTML',
                 reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
+                thumbnail: { source: fallbackThumbnail },
               }),
               {
                 chatId: userId,
@@ -3278,7 +3289,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Отправляем напоминание только один раз
           try {
             await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(userId, 'Выполни практику и нажми "Сделал" после ее завершения'),
+              () => this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
+                reply_parameters: {
+                  message_id: messageId
+                }
+              }),
               {
                 chatId: userId,
                 messageType: 'practice_reminder',
@@ -3585,11 +3600,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Отправляем видео с дыхательной практикой
         const practiceVideoBuffer = readFileSync(this.PRACTICE_VIDEO_PATH);
+        const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+        
         // Для видео используем reply_to_message_id вместо reply_parameters
         const videoOptions: any = {
           caption: finalMessage,
           parse_mode: sendOptions.parse_mode,
-          reply_markup: sendOptions.reply_markup
+          reply_markup: sendOptions.reply_markup,
+          thumbnail: { source: thumbnailBuffer }
         };
         if (sendOptions.reply_parameters?.message_id) {
           videoOptions.reply_to_message_id = sendOptions.reply_parameters.message_id;
