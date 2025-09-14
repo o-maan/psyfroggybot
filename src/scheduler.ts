@@ -44,8 +44,8 @@ export class Scheduler {
   private users: Set<number> = new Set();
   private imageFiles: string[] = [];
   public readonly CHANNEL_ID = this.getChannelId();
-  // ID видео с дыхательной практикой
-  private readonly PRACTICE_VIDEO_ID = 'BQACAgIAAxkBAAIHiWi7gI54mWxy173IbTomY9MQTU7QAAIdgAACqU_YSajypMDh_PIUNgQ';
+  // Путь к видео с дыхательной практикой
+  private readonly PRACTICE_VIDEO_PATH = 'assets/videos/Квадрат дыхания.MOV';
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
@@ -2709,14 +2709,27 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           reply_markup: practiceKeyboard,
         };
 
+        // Логируем перед отправкой видео
+        schedulerLogger.info(
+          {
+            channelMessageId,
+            replyToChatId,
+            messageId,
+            practiceVideoPath: this.PRACTICE_VIDEO_PATH,
+            step: 'before_deep_video_send',
+            isTestBot: this.isTestBot(),
+            chatId: replyToChatId
+          },
+          '🎬 [DEEP] Готовимся отправить видео с практикой'
+        );
+
         // Отправляем видео с дыхательной практикой
+        const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
         const task3Message = await this.sendWithRetry(
-          () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+          () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
             caption: finalMessage,
             parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
+            reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
             reply_markup: practiceKeyboard,
           }),
           {
@@ -3145,27 +3158,28 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
         
-        schedulerLogger.debug(
+        schedulerLogger.info(
           {
             channelMessageId,
             replyToChatId,
             messageId,
-            practiceVideoId: this.PRACTICE_VIDEO_ID,
+            practiceVideoPath: this.PRACTICE_VIDEO_PATH,
             keyboardData: practiceKeyboard,
-            step: 'before_video_send'
+            step: 'before_video_send',
+            isTestBot: this.isTestBot(),
+            chatId: replyToChatId
           },
           '🎬 Готовимся отправить видео с практикой'
         );
         
         try {
           // Отправляем видео с дыхательной практикой с повторными попытками
+          const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const task3Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+            () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
               caption: finalMessage,
               parse_mode: 'HTML',
-              reply_parameters: {
-                message_id: messageId,
-              },
+              reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
               reply_markup: practiceKeyboard,
             }),
             {
@@ -3216,7 +3230,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               channelMessageId,
               replyToChatId,
               messageId,
-              videoId: this.PRACTICE_VIDEO_ID,
+              videoPath: this.PRACTICE_VIDEO_PATH,
               isTestBot: this.isTestBot(),
               step: 'video_send_error'
             }, 
@@ -3228,11 +3242,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             const fallbackFinalText = 'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
             
             // В fallback тоже отправляем видео с повторными попытками
+            const fallbackVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
             await this.sendWithRetry(
-              () => this.bot.telegram.sendVideo(replyToChatId, this.PRACTICE_VIDEO_ID, {
+              () => this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, {
                 caption: fallbackFinalText,
                 parse_mode: 'HTML',
-                reply_parameters: { message_id: messageId },
+                reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
               }),
               {
                 chatId: userId,
@@ -3569,11 +3584,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Сообщение будет отправлено как обычное сообщение в группу
 
         // Отправляем видео с дыхательной практикой
+        const practiceVideoBuffer = readFileSync(this.PRACTICE_VIDEO_PATH);
+        // Для видео используем reply_to_message_id вместо reply_parameters
+        const videoOptions: any = {
+          caption: finalMessage,
+          parse_mode: sendOptions.parse_mode,
+          reply_markup: sendOptions.reply_markup
+        };
+        if (sendOptions.reply_parameters?.message_id) {
+          videoOptions.reply_to_message_id = sendOptions.reply_parameters.message_id;
+        }
         await this.sendWithRetry(
-          () => this.bot.telegram.sendVideo(chatId, this.PRACTICE_VIDEO_ID, {
-            caption: finalMessage,
-            ...sendOptions
-          }),
+          () => this.bot.telegram.sendVideo(chatId, { source: practiceVideoBuffer }, videoOptions),
           {
             chatId: userId,
             messageType: 'pending_practice_video',

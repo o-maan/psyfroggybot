@@ -1063,92 +1063,71 @@ export class DeepWorkHandler {
   // Показ фильтров восприятия
   async showFilters(channelMessageId: number, userId: number, replyToMessageId?: number) {
     try {
-      // Фильтры восприятия с file_id картинок
-      const FILTERS = [
-        // Первая группа (6 картинок) - картинки 2-7
-        {
-          file_id: 'AgACAgIAAxkBAAIF9Wi0ik4AAQHIlLvKfXIAAV9ZsRbvNCAAArn2MRsZmqhJLZzMKg8PIeUBAAMCAAN5AAM2BA',
-          title: 'Чтение мыслей',
-          description: 'Предполагаем, что знаем о чем думают другие'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF9mi0ik4E7-2nFVd2jxOFJ-ZikrU-AAK79jEbGZqoSXALrK3ECk06AQADAgADeQADNgQ',
-          title: 'Черно-белое мышление',
-          description: 'Видим только крайности без полутонов'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF92i0ik6EM37s378C9rn_NwVuQpO_AAK89jEbGZqoSdGUmrDZmTnYAQADAgADeQADNgQ',
-          title: 'Катастрофизация',
-          description: 'Ожидание худшего исхода событий'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF-Gi0ik6gE3_DCCiyYOEAAbZEfBOAYgACvfYxGxmaqEk_b9ajzx_t9gEAAwIAA3kAAzYE',
-          title: 'Навешивание ярлыков',
-          description: 'Присваиваем себе или другим негативные характеристики'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF-Wi0ik6K52oJUb1sMl7jmLtGagqrAAK_9jEbGZqoSaMTOzeV3bhJAQADAgADeQADNgQ',
-          title: 'Сверхобобщение',
-          description: 'Используем слова "всегда", "никогда", "все", "никто"'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF-mi0ik4BxNIBSe8o_EGt3UVc5DlkAALA9jEbGZqoSX1oJUCbeGbNAQADAgADeQADNgQ',
-          title: 'Обесценивание позитивного',
-          description: 'Игнорируем или преуменьшаем хорошее'
-        },
-        // Вторая группа (6 картинок) - картинки 8-13
-        {
-          file_id: 'AgACAgIAAxkBAAIF-2i0ik5f4f_vE8HVGhsyuSdXjF4TAALB9jEbGZqoSaSf-vW4Y8h_AQADAgADeQADNgQ',
-          title: 'Розовые очки',
-          description: 'Идеализируем ситуацию, игнорируя негативные аспекты'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF_Gi0ik6DrRIJ2oQCdcvnczn5Zxf5AALC9jEbGZqoSYwEMIOSyT4bAQADAgADeQADNgQ',
-          title: 'Эмоциональное обоснование',
-          description: 'Считаем свои чувства доказательством истины'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF_Wi0ik4syr_yJd5IEvaSap4RgjXlAALD9jEbGZqoSRhu44-4826XAQADAgADeQADNgQ',
-          title: 'Персонализация',
-          description: 'Берем на себя вину за то, что от нас не зависит'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF_mi0ik4QDysr0EUcE7ddA4G0bTOVAALE9jEbGZqoSQY3_YlELhp-AQADAgADeQADNgQ',
-          title: 'Избирательное внимание',
-          description: 'Фокусируемся только на негативе'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIF82i0ij6rJr8gvBFcERakN9mamHr_AAK69jEbGZqoSdBi8J2JaUl9AQADAgADeQADNgQ',
-          title: 'Преувеличение',
-          description: 'Раздуваем значимость негативных событий'
-        },
-        {
-          file_id: 'AgACAgIAAxkBAAIGzmi024_oBkIH9lBHRljpiIz45X1vAAJt-DEbGZqoSTtoREDebC7PAQADAgADeQADNgQ',
-          title: 'Преуменьшение',
-          description: 'Минимизируем значимость позитивных событий'
-        }
+      // Проверяем что у нас есть messageId для ответа
+      if (!replyToMessageId) {
+        botLogger.warn({
+          channelMessageId,
+          userId,
+          chatId: this.chatId
+        }, 'Нет replyToMessageId для отправки фильтров');
+      }
+
+      // Фильтры восприятия - загружаем из файлов
+      const FILTERS_FILES = [
+        // Первая группа (6 картинок)
+        '2 чтение мыслей.png',
+        '3 черно-белое мышление.png',
+        '4 катастрофизация.png',
+        '5 навешивание ярлыков.png',
+        '6 сверхобобщение.png',
+        '7 обесценивание позитивного .png',
+        // Вторая группа (6 картинок)
+        '8 розовые очки.png',
+        '9 эмоциональное обоснование.png',
+        '10 персонализация.png',
+        '11 избирательное внимание .png',
+        '12 преувеличение.png',
+        '13 преуменьшение.png'
       ];
 
       // Подготавливаем первую группу из 6 картинок
-      const firstGroup = FILTERS.slice(0, 6).map(filter => ({
-        type: 'photo' as const,
-        media: filter.file_id
-      }));
+      const firstGroup = FILTERS_FILES.slice(0, 6).map(filename => {
+        const imagePath = path.join('assets', 'images', filename);
+        const imageBuffer = readFileSync(imagePath);
+        return {
+          type: 'photo' as const,
+          media: { source: imageBuffer }
+        };
+      });
 
       // Подготавливаем вторую группу из 6 картинок
-      const secondGroup = FILTERS.slice(6, 12).map(filter => ({
-        type: 'photo' as const,
-        media: filter.file_id
-      }));
+      const secondGroup = FILTERS_FILES.slice(6, 12).map(filename => {
+        const imagePath = path.join('assets', 'images', filename);
+        const imageBuffer = readFileSync(imagePath);
+        return {
+          type: 'photo' as const,
+          media: { source: imageBuffer }
+        };
+      });
 
       const sendOptions: any = {};
       if (replyToMessageId) {
         sendOptions.reply_to_message_id = replyToMessageId;
       }
 
+      // Логируем для отладки
+      botLogger.info({
+        chatId: this.chatId,
+        replyToMessageId,
+        hasSendOptions: !!sendOptions.reply_to_message_id,
+        sendOptions: JSON.stringify(sendOptions),
+        channelMessageId,
+        userId
+      }, 'Отправка фильтров восприятия - параметры');
+
       // Отправляем первую группу
       await sendWithRetry(
-        () => this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions),
+        () => this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions as any),
         {
           chatId: this.chatId,
           messageType: 'deep_filters_media_group_1'
@@ -1161,7 +1140,7 @@ export class DeepWorkHandler {
 
       // Отправляем вторую группу
       await sendWithRetry(
-        () => this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions),
+        () => this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions as any),
         {
           chatId: this.chatId,
           messageType: 'deep_filters_media_group_2'
@@ -1172,7 +1151,7 @@ export class DeepWorkHandler {
         }
       );
 
-      botLogger.info({ channelMessageId, userId }, 'Фильтры восприятия отправлены');
+      botLogger.info({ channelMessageId, userId }, 'Фильтры восприятия отправлены из файлов');
       
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка отправки фильтров восприятия');

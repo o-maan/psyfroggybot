@@ -266,10 +266,11 @@ The app is designed for production deployment with:
 - Всегда используйте `replyToChatId` из контекста сообщения
 - Для текстовых сообщений используйте `reply_parameters`
 - **Для фото используйте `reply_to_message_id` (НЕ reply_parameters!)**
+- **Для видео используйте `reply_to_message_id` (НЕ reply_parameters!)**
 - НЕ используйте `message_thread_id` при ответах (вызовет ошибку)
 - Все обработчики должны создавать классы с `chatId` из контекста
 
-**КРИТИЧЕСКИ ВАЖНО**: sendPhoto с reply_parameters отправит фото в основную группу, а не в комментарии!
+**КРИТИЧЕСКИ ВАЖНО**: sendPhoto, sendVideo и sendMediaGroup с reply_parameters отправят медиа в основную группу, а не в комментарии!
 
 ## LLM inferring post processing
 
@@ -339,11 +340,27 @@ await bot.telegram.sendPhoto(chatId, imageBuffer, {
   caption: text,
   reply_to_message_id: replyToMessageId, // ⚠️ НЕ reply_parameters!
 });
+
+// ВИДЕО - через reply_to_message_id (НЕ reply_parameters!!!)
+await bot.telegram.sendVideo(chatId, { source: videoBuffer }, {
+  caption: text,
+  reply_to_message_id: replyToMessageId, // ⚠️ НЕ reply_parameters!
+});
+
+// МЕДИА ГРУППА - через reply_to_message_id с as any (НЕ reply_parameters!!!)
+const sendOptions: any = {};
+if (replyToMessageId) {
+  sendOptions.reply_to_message_id = replyToMessageId;
+}
+await bot.telegram.sendMediaGroup(chatId, mediaArray, sendOptions as any);
 ```
 
 ### ❌ НЕ ДЕЛАЙ ТАК:
 
 - `sendPhoto` с `reply_parameters` = фото уйдет в группу
+- `sendVideo` с `reply_parameters` = видео уйдет в группу
+- `sendMediaGroup` с `reply_parameters` = медиа группа уйдет в группу
+- `sendMediaGroup` без `as any` = может не работать
 - `message_thread_id` при ответах = ошибка
 - `getChatId()` вместо `ctx.chat.id` = неверная маршрутизация
 
