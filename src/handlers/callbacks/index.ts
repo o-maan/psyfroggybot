@@ -14,6 +14,7 @@ import { handleScenarioDeep } from './scenario_deep';
 import { handleEmotionsTable } from './emotions_table';
 import { handleSkipEmotions } from './skip_emotions';
 import { handleHelpEmotions } from './help_emotions';
+import { handleSkipPositiveEmotions } from './skip_positive_emotions';
 import { 
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -25,7 +26,8 @@ import {
   handleShowFilters,
   handleSchemaStart,
   handleSchemaExample,
-  handleSchemaContinue
+  handleSchemaContinue,
+  handleSkipNegSchema
 } from './deep_work_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
@@ -43,6 +45,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/skip_schema_(\d+)/, ctx => handleSkipSchema(ctx, scheduler));
   bot.action(/skip_emotions_(\d+)/, ctx => handleSkipEmotions(ctx, scheduler));
   bot.action(/help_emotions_(\d+)/, handleHelpEmotions);
+  bot.action(/skip_positive_emotions_(\d+)/, ctx => handleSkipPositiveEmotions(ctx, bot));
   
   // Обработчик для неактивной кнопки
   bot.action('disabled', async (ctx) => {
@@ -68,6 +71,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/schema_start_(\d+)/, ctx => handleSchemaStart(ctx, bot));
   bot.action(/schema_example_(\d+)/, ctx => handleSchemaExample(ctx, bot));
   bot.action(/schema_continue_(\d+)/, ctx => handleSchemaContinue(ctx, bot));
+  bot.action(/skip_neg_schema_(\d+)/, ctx => handleSkipNegSchema(ctx, bot));
   
   // Обработчик оценки дня
   bot.action(/day_rating_(\d+)_(\d+)/, async ctx => {

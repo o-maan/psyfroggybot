@@ -281,3 +281,63 @@ export async function handleSchemaContinue(ctx: BotContext, bot: Telegraf) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам из схемы');
   }
 }
+
+// Обработчик кнопки "В другой раз" для эмоций в схеме
+export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
+  try {
+    const channelMessageId = parseInt(ctx.match![1]);
+    const userId = ctx.from?.id;
+
+    await ctx.answerCbQuery('👍 Хорошо! Продолжаем');
+
+    botLogger.info({
+      action: 'skip_neg_schema',
+      channelMessageId,
+      userId
+    }, 'Пропуск уточнения эмоций в схеме');
+
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const chatId = ctx.callbackQuery.message?.chat?.id!;
+    const handler = getDeepWorkHandler(bot, chatId);
+    
+    // Получаем пост для слов поддержки
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    let supportText = '<i>Понимаю тебя 💚</i>';
+    
+    if (post?.message_data?.schema_support?.text) {
+      supportText = `<i>${post.message_data.schema_support.text}</i>`;
+    }
+    
+    // Отправляем слова поддержки и следующий вопрос
+    const handler2 = handler as any;
+    const buttonText = handler2.getSchemaExampleButtonText ? handler2.getSchemaExampleButtonText(channelMessageId) : '';
+    const messageOptions: any = {};
+    
+    if (buttonText) {
+      messageOptions.reply_markup = {
+        inline_keyboard: [[
+          { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+        ]]
+      };
+    }
+    
+    // Отправляем сообщение напрямую через Telegram API
+    await bot.telegram.sendMessage(
+      chatId,
+      supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
+      {
+        parse_mode: 'HTML',
+        reply_parameters: messageId ? { message_id: messageId } : undefined,
+        ...messageOptions
+      }
+    );
+
+    // Обновляем состояние
+    const { updateInteractivePostState } = await import('../../db');
+    updateInteractivePostState(channelMessageId, 'schema_waiting_behavior');
+
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message }, 'Ошибка пропуска уточнения эмоций в схеме');
+  }
+}

@@ -854,6 +854,58 @@ export class DeepWorkHandler {
   // Обработка ответа на эмоции с использованием предварительно сгенерированных слов поддержки
   async handleSchemaEmotionsResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
     try {
+      // Импортируем функцию подсчета эмоций
+      const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
+      
+      // Проверяем количество эмоций в ответе
+      const emotionAnalysis = countEmotions(userText, 'negative');
+      
+      botLogger.debug(
+        {
+          userId,
+          channelMessageId,
+          emotionsCount: emotionAnalysis.count,
+          emotions: emotionAnalysis.emotions,
+          categories: emotionAnalysis.categories
+        },
+        'Анализ эмоций в ответе пользователя (глубокий сценарий)'
+      );
+      
+      // Если меньше 3 эмоций - предлагаем дополнить
+      if (emotionAnalysis.count < 3) {
+        const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'negative');
+        
+        // Если пользователь вообще не описал эмоции - не показываем кнопку "В другой раз"
+        const keyboard = [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]];
+        if (emotionAnalysis.count > 0) {
+          // Если описал хоть какие-то эмоции - добавляем кнопку "В другой раз"
+          keyboard.push([{ text: 'В другой раз', callback_data: `skip_neg_schema_${channelMessageId}` }]);
+        }
+        
+        const sendOptions = {
+          reply_markup: {
+            inline_keyboard: keyboard,
+          },
+        };
+        
+        try {
+          await this.sendMessage(
+            helpMessage,
+            replyToMessageId,
+            sendOptions
+          );
+          
+          // Обновляем состояние - ждем дополненный ответ про эмоции
+          updateInteractivePostState(channelMessageId, 'schema_waiting_emotions_clarification');
+          return;
+        } catch (helpError) {
+          botLogger.error({ error: helpError }, 'Ошибка отправки помощи с эмоциями в глубоком сценарии, продолжаем дальше');
+          // Продолжаем дальше если ошибка
+        }
+      }
+      
+      // Если эмоций достаточно или произошла ошибка - продолжаем как обычно
+      
       // Получаем предварительно сгенерированные слова поддержки
       const post = getInteractivePost(channelMessageId);
       let supportText = '<i>Понимаю тебя 💚</i>'; // Дефолтный текст
@@ -882,6 +934,43 @@ export class DeepWorkHandler {
       updateInteractivePostState(channelMessageId, 'schema_waiting_behavior');
     } catch (error) {
       botLogger.error({ error, channelMessageId }, 'Ошибка обработки эмоций');
+      throw error;
+    }
+  }
+
+  // Обработка дополненного ответа про эмоции в схеме
+  async handleSchemaEmotionsClarificationResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+    try {
+      // Сохраняем ответ пользователя в БД
+      const { saveMessage, getUserByChatId } = await import('./db');
+      const user = getUserByChatId(userId);
+      if (user) {
+        saveMessage(userId, userText, new Date().toISOString(), user.id);
+      }
+      
+      // Если пользователь дополнил ответ про эмоции, отправляем специальные слова поддержки
+      const supportText = '<i>Я горжусь тобой! Ты делаешь важные шаги 🤗</i>';
+      
+      const buttonText = this.getSchemaExampleButtonText(channelMessageId);
+      const messageOptions: any = {};
+      
+      if (buttonText) {
+        messageOptions.reply_markup = {
+          inline_keyboard: [[
+            { text: buttonText, callback_data: `schema_example_${channelMessageId}` }
+          ]]
+        };
+      }
+      
+      const message = await this.sendMessage(
+        supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
+        replyToMessageId,
+        messageOptions
+      );
+
+      updateInteractivePostState(channelMessageId, 'schema_waiting_behavior');
+    } catch (error) {
+      botLogger.error({ error, channelMessageId }, 'Ошибка обработки дополненных эмоций');
       throw error;
     }
   }
