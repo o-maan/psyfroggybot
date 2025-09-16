@@ -21,7 +21,7 @@ export async function handleEmotionsTable(ctx: BotContext) {
     );
 
     // Отправляем изображение с таблицей эмоций
-    const emotionsTablePath = 'assets/images/emotions-table.png';
+    const emotionsTablePath = 'assets/images/ТАБЛИЦА ЭМОЦИЙ.png';
     const emotionsTableImage = readFileSync(emotionsTablePath);
     
     // Получаем chatId и messageId из контекста для правильной отправки в комментарии

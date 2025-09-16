@@ -21,7 +21,7 @@ export async function handleHelpEmotions(ctx: BotContext) {
     );
 
     // Отправляем изображение с таблицей эмоций
-    const emotionsTablePath = 'assets/images/emotions-table.png';
+    const emotionsTablePath = 'assets/images/ТАБЛИЦА ЭМОЦИЙ.png';
     const emotionsTableImage = readFileSync(emotionsTablePath);
     
     // Формируем текст для картинки

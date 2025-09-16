@@ -523,9 +523,6 @@ export class Scheduler {
 
     // 2. Плюшки для лягушки (без пустой строки перед этим пунктом)
     let plushki = `${n++}. <b>Плюшки для лягушки</b> (ситуация+эмоция)`;
-    if (json.positive_part?.additional_text) {
-      plushki += `\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
-    }
     parts.push(plushki);
 
     // 3. Чувства и эмоции
@@ -2279,16 +2276,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     if (isSimplified) {
       // Для упрощенного сценария используем новый текст
       let message = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
-      if (json.positive_part?.additional_text) {
-        message += `\n\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
-      }
       return message;
     } else {
       // Для обычного сценария оставляем старый текст
       let message = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-      if (json.positive_part?.additional_text) {
-        message += `\n<blockquote>${escapeHTML(json.positive_part.additional_text)}</blockquote>`;
-      }
       return message;
     }
   }
