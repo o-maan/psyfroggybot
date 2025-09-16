@@ -45,7 +45,7 @@ export class Scheduler {
   private imageFiles: string[] = [];
   public readonly CHANNEL_ID = this.getChannelId();
   // Путь к видео с дыхательной практикой
-  private readonly PRACTICE_VIDEO_PATH = 'assets/videos/Квадрат дыхания.MOV';
+  private readonly PRACTICE_VIDEO_PATH = 'assets/videos/breathing-practice-optimized.mp4';
   // Путь к превью для видео
   private readonly PRACTICE_VIDEO_THUMBNAIL_PATH = 'assets/videos/breathing-practice-thumbnail.jpg';
   // private readonly REMINDER_USER_ID = 5153477378; // больше не используется, теперь динамически используем chatId

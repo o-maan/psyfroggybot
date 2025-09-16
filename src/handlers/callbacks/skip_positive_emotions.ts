@@ -42,7 +42,7 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
 
     try {
       // Читаем видео файл
-      const PRACTICE_VIDEO_PATH = path.join(process.cwd(), 'assets', 'videos', 'Квадрат дыхания.MOV');
+      const PRACTICE_VIDEO_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-optimized.mp4');
       const PRACTICE_VIDEO_THUMBNAIL_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-thumbnail.jpg');
       const practiceVideo = readFileSync(PRACTICE_VIDEO_PATH);
       const thumbnailBuffer = readFileSync(PRACTICE_VIDEO_THUMBNAIL_PATH);
