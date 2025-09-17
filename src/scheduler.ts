@@ -515,9 +515,6 @@ export class Scheduler {
     const showNegative = Math.random() < 0.5;
     if (showNegative) {
       let block = `${n++}. <b>Выгрузка неприятных переживаний</b> (ситуация+эмоция)`;
-      if (json.negative_part?.additional_text) {
-        block += `\n<blockquote>${escapeHTML(json.negative_part.additional_text)}</blockquote>`;
-      }
       parts.push(block);
     }
 
@@ -3048,87 +3045,105 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Импортируем функции из БД
         const { updateInteractivePostState, updateTaskStatus } = await import('./db');
         
-        // Сохраняем ID сообщения пользователя и обновляем состояние
-        updateInteractivePostState(channelMessageId, 'waiting_emotions', {
+        // Сохраняем ID сообщения пользователя
+        updateInteractivePostState(channelMessageId, 'waiting_negative', {
           user_task1_message_id: messageId,
         });
 
-        // Спрашиваем про эмоции
-        const responseText = `<b>Какие эмоции это у тебя вызвало?</b>`;
-
-        const sendOptions: any = {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
+        // Сразу анализируем ответ на наличие эмоций
+        // Импортируем функцию подсчета эмоций
+        const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
+        
+        // Проверяем количество эмоций в ответе
+        const emotionAnalysis = countEmotions(messageText, 'negative');
+        
+        schedulerLogger.debug(
+          {
+            userId,
+            channelMessageId,
+            emotionsCount: emotionAnalysis.count,
+            emotions: emotionAnalysis.emotions,
+            categories: emotionAnalysis.categories
           },
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: 'Помоги с эмоциями', callback_data: `help_emotions_${channelMessageId}` }],
-              [{ text: 'Уже описал', callback_data: `skip_emotions_${channelMessageId}` }]
-            ],
-          },
-        };
-
-        try {
-          const emotionsMessage = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
-            {
-              chatId: userId,
-              messageType: 'emotions_question',
-              maxAttempts: 10, // Для обычных сообщений используем меньше попыток
-              intervalMs: 5000, // И меньший интервал
-              onSuccess: async (result) => {
-                saveMessage(userId, responseText, new Date().toISOString(), 0);
-                
-                // Сохраняем ID сообщения с вопросом про эмоции
-                updateInteractivePostState(channelMessageId, 'waiting_emotions', {
-                  bot_schema_message_id: result.message_id,
-                });
-              }
-            }
-          );
-
-          // Обновляем состояние сессии - ждем описание эмоций
-          session.currentStep = 'waiting_emotions';
-          return true;
-        } catch (emotionsError) {
-          schedulerLogger.error({ error: emotionsError }, 'Ошибка отправки вопроса про эмоции, отправляем fallback');
+          'Анализ эмоций в ответе пользователя'
+        );
+        
+        // Если меньше 3 эмоций - предлагаем дополнить
+        if (emotionAnalysis.count < 3) {
+          const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'negative');
           
-          // Fallback: пропускаем вопрос про эмоции и сразу отправляем плюшки
+          const sendOptions: any = {
+            parse_mode: 'HTML',
+            reply_parameters: {
+              message_id: messageId,
+            },
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
+                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }]
+              ],
+            },
+          };
+          
           try {
-            // Отмечаем первое задание как выполненное
-            updateTaskStatus(channelMessageId, 1, true);
-            
-            // Отправляем плюшки с новым текстом
-            const fallbackText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
-            
-            const fallbackMessage = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-                parse_mode: 'HTML',
-                reply_parameters: { message_id: messageId },
-                reply_markup: {
-                  inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-                },
-              }),
+            const helpMessageResult = await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
               {
                 chatId: userId,
-                messageType: 'emotions_fallback',
-                maxAttempts: 5,
-                intervalMs: 3000
+                messageType: 'emotions_help',
+                maxAttempts: 10,
+                intervalMs: 5000
               }
             );
             
-            // Обновляем состояние
-            updateInteractivePostState(channelMessageId, 'waiting_positive', {
-              bot_task2_message_id: fallbackMessage.message_id,
+            // Обновляем состояние в БД сразу после успешной отправки
+            updateInteractivePostState(channelMessageId, 'waiting_emotions_clarification', {
+              user_schema_message_id: messageId
             });
             
-            session.currentStep = 'waiting_positive';
+            // Обновляем состояние сессии
+            session.currentStep = 'waiting_emotions_clarification';
             return true;
-          } catch (fallbackError2) {
-            schedulerLogger.error({ error: fallbackError2 }, 'Критическая ошибка: не удалось отправить даже fallback');
-            return false;
+          } catch (helpError) {
+            schedulerLogger.error({ error: helpError }, 'Ошибка отправки помощи с эмоциями, продолжаем с плюшками');
+            // Продолжаем дальше если ошибка
           }
+        }
+        
+        // Если эмоций достаточно или произошла ошибка - отправляем плюшки
+        try {
+          // Отмечаем первое задание как выполненное
+          updateTaskStatus(channelMessageId, 1, true);
+          
+          // Отправляем плюшки с новым текстом
+          const fallbackText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+          
+          const fallbackMessage = await this.sendWithRetry(
+            () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+              parse_mode: 'HTML',
+              reply_parameters: { message_id: messageId },
+              reply_markup: {
+                inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+              },
+            }),
+            {
+              chatId: userId,
+              messageType: 'positive_task',
+              maxAttempts: 5,
+              intervalMs: 3000
+            }
+          );
+          
+          // Обновляем состояние
+          updateInteractivePostState(channelMessageId, 'waiting_positive', {
+            bot_task2_message_id: fallbackMessage.message_id,
+          });
+          
+          session.currentStep = 'waiting_positive';
+          return true;
+        } catch (fallbackError2) {
+          schedulerLogger.error({ error: fallbackError2 }, 'Критическая ошибка: не удалось отправить плюшки');
+          return false;
         }
       } else if (session.currentStep === 'waiting_emotions') {
         // Пользователь ответил на вопрос про эмоции
@@ -3279,8 +3294,41 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           user_emotions_clarification_message_id: messageId,
         });
 
-        // Отправляем плюшки с измененным текстом поддержки
-        const plushkiText = `<i>Теперь ты лучше понимаешь свои эмоции 🙌🏻</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+        // Отправляем плюшки с рандомным текстом поддержки
+        const emotionsSupportTexts = [
+          'Теперь ты лучше понимаешь свои эмоции 🙌🏻',
+          'Спасибо, что назвал непростые эмоции 🩶',
+          'Ты молодец, что смог это описать 🌟',
+          'Важно, что ты осознаешь свои чувства, даже когда это совсем непросто ❤️‍🩹',
+          'Хорошо, что получилось назвать эмоции ✨',
+          'Ты справился с непростой задачей 🎯',
+          'С каждым разом ты все лучше разбираешься в своих эмоциях 🎉',
+          'Ты учишься понимать себя - это ценно! Я с тобой 🫂',
+          'Ты делаешь важные шаги к пониманию себя 👣',
+          'Я горжусь тобой! Ты смог назвать эмоции 🤍',
+          'Молодец! Теперь эмоции стали понятнее 🔮',
+          'Ты проделал важную работу с чувствами 💪🏻',
+          'Ты учишься слышать себя - это важно 👂🏻',
+          'Уфф.. непростая работа проделана с неприятными эмоциями! Ты молодец ❣️',
+          'Ты становишься ближе к себе 🤲🏻',
+          'Каждая названная эмоция - это победа 🏆',
+          'Ты смог! И это очень ценно 💎',
+          'Ты справился! Это был важный шаг 👏🏻',
+          'Ты на правильном пути! Продолжай',
+          'Ты отлично справляешься! Я в тебя верю 🌱',
+          'Спасибо, что доверился и назвал свои чувства 🤍',
+          'Я вижу твои переживания. Ты смог их озвучить 🫶🏻',
+          'Это было непросто, но ты справился 💚',
+          'Твои чувства важны. Хорошо, что ты их назвал 🕊️',
+          'Понимаю, как это сложно. Ты молодец 💜',
+          'Я рядом. Ты смог назвать то, что тревожит 🤲🏻',
+          'Это требовало смелости. Ты справился 🌱',
+          'Благодарю за доверие и честность 💫',
+          'Ты проделал непростую работу с эмоциями 🌊',
+          'Я слышу тебя. Ты смог это выразить 👐🏻'
+        ];
+        const randomSupportText = emotionsSupportTexts[Math.floor(Math.random() * emotionsSupportTexts.length)];
+        const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
 
         const sendOptions: any = {
           parse_mode: 'HTML',

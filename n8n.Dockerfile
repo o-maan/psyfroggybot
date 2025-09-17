@@ -1,4 +1,4 @@
-FROM n8nio/n8n:latest
+вщслукFROM n8nio/n8n:latest
 
 # Install sqlite3 for checking workflow existence
 USER root

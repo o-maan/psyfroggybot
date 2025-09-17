@@ -3,10 +3,6 @@ import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
 
-// Функция экранирования для HTML (Telegram)
-function escapeHTML(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 // Обработчик кнопки "Упрощенный сценарий"
 export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
@@ -59,11 +55,8 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
     }
 
     // Генерируем текст первого задания
-    const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b>\n\nОпиши все, что тебя волнует';
+    const firstTaskText = '1. <b>Выгрузка неприятных переживаний</b>\n\nОпиши все, что тебя волнует и какие эмоции 🥺 ты при этом испытывал';
     let firstTaskFullText = firstTaskText;
-    if (post.message_data?.negative_part?.additional_text) {
-      firstTaskFullText += `\n<blockquote>${escapeHTML(post.message_data.negative_part.additional_text)}</blockquote>`;
-    }
 
     // Кнопка пропуска
     const skipButtonTexts = [
@@ -76,7 +69,10 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
     const skipButtonText = skipButtonTexts[Math.floor(Math.random() * skipButtonTexts.length)];
     
     const firstTaskKeyboard = {
-      inline_keyboard: [[{ text: skipButtonText, callback_data: `skip_neg_${channelMessageId}` }]],
+      inline_keyboard: [
+        [{ text: 'Помоги с эмоциями', callback_data: `help_emotions_${channelMessageId}` }],
+        [{ text: skipButtonText, callback_data: `skip_neg_${channelMessageId}` }]
+      ],
     };
 
     // Отправляем первое задание

@@ -13,7 +13,7 @@ if ! docker ps | grep -q psyfroggybot-n8n; then
   ./scripts/start-n8n.sh
 fi
 
-WORKFLOW_FILE="n8n-workflows/workflow.json"
+WORKFLOW_FILE="n8n-workflows/bot-workflow.json"
 
 if [ ! -f "$WORKFLOW_FILE" ]; then
   echo "❌ Workflow file not found: $WORKFLOW_FILE"
@@ -23,7 +23,7 @@ fi
 # Generate workflow with injected functions
 echo "🔧 Injecting functions into workflow..."
 TEMP_WORKFLOW="/tmp/workflow-generated.json"
-node n8n-workflows/inject-functions.js > "$TEMP_WORKFLOW"
+node n8n-workflows/inject-functions.cjs > "$TEMP_WORKFLOW"
 
 if [ ! -f "$TEMP_WORKFLOW" ]; then
   echo "❌ Failed to generate workflow with functions"

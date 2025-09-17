@@ -1,0 +1,1135 @@
+{
+  "name": "Psy Froggy Bot Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bot-start",
+        "options": {}
+      },
+      "name": "Start Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [208, 304],
+      "id": "webhook-start",
+      "webhookId": "89df9d65-a6c8-4acf-a952-91c5dcba20cd"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Store Initial Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [480, 304],
+      "id": "store-initial"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/register-wait",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.body.chat_id,\n  executionId: $execution.id,\n  webhookSuffix: '/step1',\n  stepName: 'waiting_for_topic',\n  message: 'Welcome to ProofPRO! 🎯\\n\\n*Step 1: Topic Selection*\\n\\nPlease provide the topic for your article:'\n} }}",
+        "options": {}
+      },
+      "name": "Register Wait Step 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [704, 304],
+      "id": "register-wait-step1"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "options": {
+          "webhookSuffix": "/step1"
+        }
+      },
+      "name": "Wait for Topic",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [928, 304],
+      "id": "wait-topic",
+      "webhookId": "wait-topic-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [288, 624],
+      "id": "process-topic"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/prompts/00_generate_names.json",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Get Name Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [512, 624],
+      "id": "get-name-prompt"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Prepare Short Name Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [736, 624],
+      "id": "prepare-name-prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"user\", \"content\": $json.prompt}] }}"
+            },
+            {
+              "name": "model",
+              "value": "meta-llama/Llama-3.2-3B-Instruct:novita"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            },
+            {
+              "name": "max_tokens",
+              "value": "={{ 4000 }}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ 0.7 }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Call LLM for Name",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [960, 624],
+      "id": "call-llm-name",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "nemWRZrSg1b3zBzb",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Parse Short Name Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1184, 624],
+      "id": "parse-name-response"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Prepare Initial Questions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1408, 624],
+      "id": "prep-init-questions"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: $json.message,\n  animation: true\n} }}",
+        "options": {}
+      },
+      "name": "Send Progress Animation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1632, 624],
+      "id": "send-progress-anim"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://host.docker.internal:3001/api/' + $node['Prepare Initial Questions'].json.prompt_file }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Get Questions Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1856, 624],
+      "id": "get-questions-prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => {\n  const promptData = $node['Get Questions Prompt'].json.prompt || {};\n  const topicData = $node['Prepare Initial Questions'].json || {};\n  \n  // Build system message\n  const systemParts = [];\n  if (promptData.system_prompt) systemParts.push(promptData.system_prompt);\n  if (promptData.task) systemParts.push('Task: ' + promptData.task);\n  if (promptData.description) systemParts.push('Description: ' + promptData.description);\n  if (promptData.current_date) systemParts.push('Current Date: ' + promptData.current_date);\n  if (promptData.date_context) systemParts.push('Date Context: ' + promptData.date_context);\n  \n  // Build user message\n  const userParts = ['/think'];\n  if (topicData.topic) userParts.push('Topic: ' + topicData.topic);\n  \n  // Add requirements\n  if (promptData.requirements && Array.isArray(promptData.requirements) && promptData.requirements.length > 0) {\n    userParts.push('');\n    userParts.push('## Requirements:');\n    userParts.push(promptData.requirements.map(r => '- ' + r).join('\\n'));\n  }\n  \n  // Add tool usage\n  if (promptData.tool_usage) {\n    userParts.push('');\n    userParts.push('## Tool Usage:');\n    if (promptData.tool_usage.description) userParts.push('Description: ' + promptData.tool_usage.description);\n    if (promptData.tool_usage.functions) userParts.push('Functions Available: ' + JSON.stringify(promptData.tool_usage.functions, null, 2));\n    if (promptData.tool_usage.rules && Array.isArray(promptData.tool_usage.rules)) {\n      userParts.push('Rules:');\n      userParts.push(promptData.tool_usage.rules.map(r => '- ' + r).join('\\n'));\n    }\n  }\n  \n  // Add output format\n  if (promptData.output_format) {\n    userParts.push('');\n    userParts.push('## Expected Output Format:');\n    userParts.push(JSON.stringify(promptData.output_format, null, 2));\n  }\n  \n  // Add ALL examples in JSON format\n  if (promptData.example_outputs && Array.isArray(promptData.example_outputs) && promptData.example_outputs.length > 0) {\n    userParts.push('');\n    userParts.push('## Example Outputs (ALL examples in JSON):');\n    userParts.push(JSON.stringify(promptData.example_outputs, null, 2));\n  }\n  \n  // Add inputs section if present\n  if (promptData.inputs) {\n    userParts.push('');\n    userParts.push('## Inputs Template:');\n    userParts.push(JSON.stringify(promptData.inputs, null, 2));\n  }\n  \n  // Add current date and date context\n  if (promptData.current_date) {\n    userParts.push('');\n    userParts.push('## Current Date: ' + promptData.current_date);\n  }\n  if (promptData.date_context) {\n    userParts.push(promptData.date_context);\n  }\n  \n  // Add input parameters\n  userParts.push('');\n  userParts.push('## Input Parameters:');\n  userParts.push('Style: ' + (topicData.style || 'investigative journalism'));\n  userParts.push('Additional Requirements: ' + (topicData.requirements || 'none'));\n  \n  // Return the complete request object\n  return {\n    model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',\n    messages: [\n      {\n        role: 'system',\n        content: systemParts.filter(Boolean).join('\\n\\n') || 'You are an investigative journalist.'\n      },\n      {\n        role: 'user',\n        content: userParts.filter(Boolean).join('\\n')\n      }\n    ],\n    temperature: 0.7,\n    max_tokens: 8000,\n    response_format: { type: \"json_object\" }\n  };\n})() }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "name": "Call LLM Initial Questions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2064, 624],
+      "id": "llm-init-questions",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "nemWRZrSg1b3zBzb",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Parse WebSearch Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 912],
+      "id": "parse-websearch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Execute WebSearch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [496, 912],
+      "id": "exec-websearch"
+    },
+    {
+      "parameters": {
+        "url": "https://api.search.brave.com/res/v1/web/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.brave_search_query }}"
+            },
+            {
+              "name": "count",
+              "value": "10"
+            },
+            {
+              "name": "freshness",
+              "value": "week"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Subscription-Token",
+              "value": "={{ $env.BRAVE_SEARCH_API_KEY }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "name": "Brave Search API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [720, 912],
+      "id": "brave-search"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [944, 912],
+      "id": "process-search"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://host.docker.internal:3001/api/' + $node['Process Search Results'].json.prompt_file }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Get Final Questions Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [256, 1168],
+      "id": "get-final-prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => {\n  const promptData = $node['Get Final Questions Prompt'].json.prompt || {};\n  const searchData = $node['Process Search Results'].json || {};\n  \n  // Build system message\n  const systemParts = [];\n  if (promptData.system_prompt) systemParts.push(promptData.system_prompt);\n  if (promptData.task) systemParts.push('Task: ' + promptData.task);\n  if (promptData.description) systemParts.push('Description: ' + promptData.description);\n  if (promptData.current_date) systemParts.push('Current Date: ' + promptData.current_date);\n  if (promptData.date_context) systemParts.push('Date Context: ' + promptData.date_context);\n  \n  // Build user message\n  const userParts = ['/think'];\n  if (searchData.topic) userParts.push('Topic: ' + searchData.topic);\n  \n  // Add search results\n  if (searchData.search_summary) {\n    userParts.push('');\n    userParts.push('## Search Results:');\n    userParts.push(searchData.search_summary);\n  }\n  \n  // Add requirements\n  if (promptData.requirements && Array.isArray(promptData.requirements) && promptData.requirements.length > 0) {\n    userParts.push('');\n    userParts.push('## Requirements:');\n    userParts.push(promptData.requirements.map(r => '- ' + r).join('\\n'));\n  }\n  \n  // Add tool usage\n  if (promptData.tool_usage) {\n    userParts.push('');\n    userParts.push('## Tool Usage:');\n    if (promptData.tool_usage.description) userParts.push('Description: ' + promptData.tool_usage.description);\n    if (promptData.tool_usage.functions) userParts.push('Functions Available: ' + JSON.stringify(promptData.tool_usage.functions, null, 2));\n    if (promptData.tool_usage.rules && Array.isArray(promptData.tool_usage.rules)) {\n      userParts.push('Rules:');\n      userParts.push(promptData.tool_usage.rules.map(r => '- ' + r).join('\\n'));\n    }\n  }\n  \n  // Add output format\n  if (promptData.output_format) {\n    userParts.push('');\n    userParts.push('## Expected Output Format:');\n    userParts.push(JSON.stringify(promptData.output_format, null, 2));\n  }\n  \n  // Add ALL examples in JSON format\n  if (promptData.example_outputs && Array.isArray(promptData.example_outputs) && promptData.example_outputs.length > 0) {\n    userParts.push('');\n    userParts.push('## Example Outputs (ALL examples in JSON):');\n    userParts.push(JSON.stringify(promptData.example_outputs, null, 2));\n  }\n  \n  // Add inputs section if present\n  if (promptData.inputs) {\n    userParts.push('');\n    userParts.push('## Inputs Template:');\n    userParts.push(JSON.stringify(promptData.inputs, null, 2));\n  }\n  \n  // Add current date and date context (moved before search context)\n  if (promptData.current_date) {\n    userParts.push('');\n    userParts.push('## Current Date: ' + promptData.current_date);\n  }\n  if (promptData.date_context) {\n    userParts.push(promptData.date_context);\n  }\n  \n  // Add search context\n  userParts.push('');\n  userParts.push('## Search Context:');\n  userParts.push('Total Results: ' + (searchData.total_results || 0));\n  if (searchData.queries && Array.isArray(searchData.queries)) {\n    userParts.push('Queries Used: ' + JSON.stringify(searchData.queries, null, 2));\n  }\n  \n  // Return the complete request object\n  return {\n    model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',\n    messages: [\n      {\n        role: 'system',\n        content: systemParts.filter(Boolean).join('\\n\\n') || 'You are an investigative journalist.'\n      },\n      {\n        role: 'user',\n        content: userParts.filter(Boolean).join('\\n')\n      }\n    ],\n    temperature: 0.7,\n    max_tokens: 8000,\n    response_format: { type: \"json_object\" }\n  };\n})() }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "name": "Call LLM Final Questions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 1168],
+      "id": "llm-final-questions",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "nemWRZrSg1b3zBzb",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Format Final Questions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [704, 1168],
+      "id": "format-questions"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: $json.message,\n  stop_animation: $json.stop_animation\n} }}",
+        "options": {}
+      },
+      "name": "Send Questions Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [928, 1168],
+      "id": "send-questions-message"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Questions Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1152, 1168],
+      "id": "process-action"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: $json.message\n} }}",
+        "options": {}
+      },
+      "name": "Send Progress Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1376, 1168],
+      "id": "send-progress"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/prompts/02_structure_creation.json",
+        "options": {}
+      },
+      "name": "Get Structure Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [256, 1424],
+      "id": "get-structure-prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => {\n  const promptData = $node['Get Structure Prompt'].json.prompt || {};\n  const questionsNode = $node['Format Final Questions'];\n  const searchNode = $node['Process Search Results'];\n  \n  // Get data from previous nodes\n  const chatId = questionsNode?.json?.chat_id || '';\n  const topic = questionsNode?.json?.topic || '';\n  const shortName = questionsNode?.json?.short_name || '';\n  const questionsData = questionsNode?.json?.questions_data || {};\n  const searchResults = searchNode?.json?.search_results || [];\n  const searchSummary = searchNode?.json?.search_summary || '';\n  \n  // Build system message\n  const systemParts = [];\n  if (promptData.system_prompt) systemParts.push(promptData.system_prompt);\n  if (promptData.task) systemParts.push('Task: ' + promptData.task);\n  if (promptData.description) systemParts.push('Description: ' + promptData.description);\n  \n  // Build user message\n  const userParts = ['/think'];\n  userParts.push('Topic: ' + topic);\n  userParts.push('Project: ' + shortName);\n  \n  // Add research questions\n  if (questionsData.research_questions && questionsData.research_questions.length > 0) {\n    userParts.push('');\n    userParts.push('## Research Questions:');\n    questionsData.research_questions.forEach((q, i) => {\n      userParts.push(`${i + 1}. ${q}`);\n    });\n  }\n  \n  // Add key angles\n  if (questionsData.key_angles && questionsData.key_angles.length > 0) {\n    userParts.push('');\n    userParts.push('## Key Research Angles:');\n    questionsData.key_angles.forEach(angle => {\n      userParts.push('• ' + angle);\n    });\n  }\n  \n  // Add required sources\n  if (questionsData.required_sources && questionsData.required_sources.length > 0) {\n    userParts.push('');\n    userParts.push('## Required Sources:');\n    questionsData.required_sources.forEach(source => {\n      userParts.push('• ' + source);\n    });\n  }\n  \n  // Add scope definition\n  if (questionsData.scope_definition) {\n    userParts.push('');\n    userParts.push('## Research Scope:');\n    if (questionsData.scope_definition.geographic_focus) {\n      userParts.push('Geographic Focus: ' + questionsData.scope_definition.geographic_focus);\n    }\n    if (questionsData.scope_definition.time_period) {\n      userParts.push('Time Period: ' + questionsData.scope_definition.time_period);\n    }\n    if (questionsData.scope_definition.depth) {\n      userParts.push('Depth: ' + questionsData.scope_definition.depth);\n    }\n  }\n  \n  // Add search results summary\n  if (searchSummary) {\n    userParts.push('');\n    userParts.push('## Available Sources from Initial Search:');\n    userParts.push(searchSummary);\n  }\n  \n  // Add instructions from prompt\n  if (promptData.instructions) {\n    userParts.push('');\n    userParts.push('## Instructions:');\n    if (promptData.instructions.primary_task) {\n      userParts.push('Primary Task: ' + promptData.instructions.primary_task);\n    }\n    if (promptData.instructions.requirements && Array.isArray(promptData.instructions.requirements)) {\n      userParts.push('');\n      userParts.push('Requirements:');\n      promptData.instructions.requirements.forEach(req => {\n        userParts.push('- ' + req);\n      });\n    }\n    if (promptData.instructions.structure_elements) {\n      userParts.push('');\n      userParts.push('Structure Elements:');\n      userParts.push(JSON.stringify(promptData.instructions.structure_elements, null, 2));\n    }\n  }\n  \n  // Add output format\n  if (promptData.output_format) {\n    userParts.push('');\n    userParts.push('## Expected Output Format:');\n    userParts.push(JSON.stringify(promptData.output_format, null, 2));\n  }\n  \n  // Add examples if present\n  if (promptData.examples && Array.isArray(promptData.examples) && promptData.examples.length > 0) {\n    userParts.push('');\n    userParts.push('## Example Structure:');\n    userParts.push(JSON.stringify(promptData.examples[0], null, 2));\n  }\n  \n  // Add character limit\n  userParts.push('');\n  userParts.push('## Target Article Length:');\n  userParts.push('Approximately 25,000 characters (comprehensive journalistic investigation)');\n  \n  // Return the complete request object for HuggingFace\n  return {\n    model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',\n    messages: [\n      {\n        role: 'system',\n        content: systemParts.filter(Boolean).join('\\n\\n') || 'You are a senior editor specializing in article structure.'\n      },\n      {\n        role: 'user',\n        content: userParts.filter(Boolean).join('\\n')\n      }\n    ],\n    temperature: 0.7,\n    max_tokens: 8000,\n    response_format: { type: \"json_object\" }\n  };\n})() }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "name": "Call LLM Structure Creation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 1424],
+      "id": "llm-structure",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "nemWRZrSg1b3zBzb",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: $json.message\n} }}",
+        "options": {}
+      },
+      "name": "Send Structure Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [928, 1424],
+      "id": "send-structure"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Format Structure Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [704, 1424],
+      "id": "format-structure"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Source Collection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1152, 1424],
+      "id": "process-sources"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '📄 Sources collected! Extracting quotes...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Sources Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1376, 1424],
+      "id": "send-sources"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Quote Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 1424],
+      "id": "process-quotes"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '🕰️ Quotes extracted! Analyzing timeline...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Quotes Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1824, 1424],
+      "id": "send-quotes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Timeline Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [256, 1632],
+      "id": "process-timeline"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '✅ Timeline analyzed! Fact checking...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Timeline Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 1632],
+      "id": "send-timeline"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Fact Checking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [704, 1632],
+      "id": "process-facts"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '✍️ Facts verified! Writing article...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Facts Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [928, 1632],
+      "id": "send-facts"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Article Writing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1152, 1632],
+      "id": "process-writing"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '🔍 Article draft ready! Final review...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Writing Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1376, 1632],
+      "id": "send-writing"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Final Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 1632],
+      "id": "process-review"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '🔗 Review complete! Verifying links...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Review Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [256, 1840],
+      "id": "send-review"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Link Verification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 1840],
+      "id": "process-links"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '🎆 Links verified! Finalizing article...'\n} }}",
+        "options": {}
+      },
+      "name": "Send Links Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [704, 1840],
+      "id": "send-links"
+    },
+    {
+      "parameters": {
+        "jsCode": "// will be injected"
+      },
+      "name": "Process Final Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [928, 1840],
+      "id": "process-final"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3001/api/send-message",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chatId: $json.chat_id,\n  message: '✅ **Article Generation Complete!**\\n\\nYour article has been successfully generated and is ready for review.'\n} }}",
+        "options": {}
+      },
+      "name": "Send Final Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1152, 1840],
+      "id": "send-final"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Start Webhook": {
+      "main": [
+        [
+          {
+            "node": "Store Initial Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Initial Data": {
+      "main": [
+        [
+          {
+            "node": "Register Wait Step 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Wait Step 1": {
+      "main": [
+        [
+          {
+            "node": "Wait for Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Topic": {
+      "main": [
+        [
+          {
+            "node": "Process Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Topic": {
+      "main": [
+        [
+          {
+            "node": "Get Name Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Name Prompt": {
+      "main": [
+        [
+          {
+            "node": "Prepare Short Name Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Short Name Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call LLM for Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM for Name": {
+      "main": [
+        [
+          {
+            "node": "Parse Short Name Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Short Name Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Initial Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Initial Questions": {
+      "main": [
+        [
+          {
+            "node": "Send Progress Animation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Progress Animation": {
+      "main": [
+        [
+          {
+            "node": "Get Questions Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Questions Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call LLM Initial Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM Initial Questions": {
+      "main": [
+        [
+          {
+            "node": "Parse WebSearch Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse WebSearch Calls": {
+      "main": [
+        [
+          {
+            "node": "Execute WebSearch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WebSearch": {
+      "main": [
+        [
+          {
+            "node": "Brave Search API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brave Search API": {
+      "main": [
+        [
+          {
+            "node": "Process Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Search Results": {
+      "main": [
+        [
+          {
+            "node": "Get Final Questions Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Final Questions Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call LLM Final Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM Final Questions": {
+      "main": [
+        [
+          {
+            "node": "Format Final Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Final Questions": {
+      "main": [
+        [
+          {
+            "node": "Send Questions Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Questions Message": {
+      "main": [
+        [
+          {
+            "node": "Process Questions Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Questions Action": {
+      "main": [
+        [
+          {
+            "node": "Send Progress Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Progress Message": {
+      "main": [
+        [
+          {
+            "node": "Get Structure Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Structure Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call LLM Structure Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM Structure Creation": {
+      "main": [
+        [
+          {
+            "node": "Format Structure Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Structure Response": {
+      "main": [
+        [
+          {
+            "node": "Send Structure Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Structure Message": {
+      "main": [
+        [
+          {
+            "node": "Process Source Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Source Collection": {
+      "main": [
+        [
+          {
+            "node": "Send Sources Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Sources Message": {
+      "main": [
+        [
+          {
+            "node": "Process Quote Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Quote Extraction": {
+      "main": [
+        [
+          {
+            "node": "Send Quotes Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Quotes Message": {
+      "main": [
+        [
+          {
+            "node": "Process Timeline Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Timeline Analysis": {
+      "main": [
+        [
+          {
+            "node": "Send Timeline Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Timeline Message": {
+      "main": [
+        [
+          {
+            "node": "Process Fact Checking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Fact Checking": {
+      "main": [
+        [
+          {
+            "node": "Send Facts Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Facts Message": {
+      "main": [
+        [
+          {
+            "node": "Process Article Writing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Article Writing": {
+      "main": [
+        [
+          {
+            "node": "Send Writing Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Writing Message": {
+      "main": [
+        [
+          {
+            "node": "Process Final Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Final Review": {
+      "main": [
+        [
+          {
+            "node": "Send Review Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Message": {
+      "main": [
+        [
+          {
+            "node": "Process Link Verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Link Verification": {
+      "main": [
+        [
+          {
+            "node": "Send Links Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Links Message": {
+      "main": [
+        [
+          {
+            "node": "Process Final Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Final Article": {
+      "main": [
+        [
+          {
+            "node": "Send Final Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f5a09a2c-0d7d-45f6-a2a7-f49587432c41",
+  "meta": {
+    "instanceId": "18767d44b6de750afd3d979380a185df2bdf4f8a557b5a389b149f9156389ea8"
+  },
+  "id": "CT5Y4nNVFd6fptdX",
+  "tags": []
+}
