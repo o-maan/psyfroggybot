@@ -21,14 +21,12 @@ const examples = [
 export async function generateMessage(prompt?: string): Promise<string> {
   const startTime = Date.now();
   try {
-    const model = 'deepseek-ai/DeepSeek-R1-0528';
+    const model = 'openai/gpt-oss-120b';
     llmLogger.info({ model, promptLength: prompt?.length || 0, prompt }, `🤖 Начало генерации LLM`);
 
     const stream = client.chatCompletionStream({
-      provider: 'novita',
-      model: 'deepseek-ai/DeepSeek-R1-0528', // очень долгая, 685B params
-      // model: 'Qwen/Qwen3-235B-A22B', // долгая
-      // model: 'Qwen/Qwen2.5-7B-Instruct-1M',
+      model: 'openai/gpt-oss-120b',
+      // model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', // для быстрых ответов
 
       messages: [
         {
