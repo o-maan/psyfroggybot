@@ -10,15 +10,8 @@ import {
   updateTaskStatus
 } from './db';
 import { sendWithRetry } from './utils/telegram-retry';
+import { cleanLLMText } from './utils/clean-llm-text';
 
-// Функция для удаления тегов <think>
-function removeThinkTags(text: string): string {
-  const lastThinkClose = text.lastIndexOf('</think>');
-  if (lastThinkClose !== -1 && text.trim().startsWith('<think>')) {
-    return text.substring(lastThinkClose + 8).trim();
-  }
-  return text;
-}
 
 // Примеры для разбора по схеме
 const SCHEMA_EXAMPLES = [
@@ -197,7 +190,7 @@ export class DeepWorkHandler {
         throw new Error('Ошибка генерации LLM');
       }
 
-      const cleanedResponse = removeThinkTags(response);
+      const cleanedResponse = cleanLLMText(response);
       const analysis = JSON.parse(cleanedResponse.replace(/```json|```/gi, '').trim());
 
       botLogger.info({
@@ -807,14 +800,7 @@ export class DeepWorkHandler {
       try {
         const generatedSupport = await generateMessage(supportPrompt);
         if (generatedSupport !== 'HF_JSON_ERROR') {
-          let cleanedSupport = removeThinkTags(generatedSupport).trim();
-          // Удаляем любые технические пометки в скобках
-          cleanedSupport = cleanedSupport.replace(/\s*\([^)]*символ[^)]*\)/gi, ''); // удаляем все скобки со словом "символ"
-          cleanedSupport = cleanedSupport.replace(/\s*\(\d+[^)]*\)/g, ''); // удаляем любые скобки с числами
-          cleanedSupport = cleanedSupport.replace(/\s*\([^)]*\)/g, ''); // удаляем вообще любые скобки
-          // Удаляем кавычки в начале и конце, если есть
-          cleanedSupport = cleanedSupport.replace(/^["']|["']$/g, '').trim();
-          
+          const cleanedSupport = cleanLLMText(generatedSupport);
           if (cleanedSupport.length <= 80) {
             supportText = cleanedSupport;
           }

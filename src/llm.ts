@@ -1,6 +1,7 @@
 import { InferenceClient } from '@huggingface/inference';
 import fs from 'fs';
 import { llmLogger } from './logger';
+import { cleanLLMText } from './utils/clean-llm-text';
 
 const client = new InferenceClient(process.env.HF_TOKEN);
 
@@ -68,18 +69,8 @@ export async function generateMessage(prompt?: string): Promise<string> {
       `✅ LLM генерация завершена за ${duration}ms`
     );
 
-    // Очищаем и форматируем результат
-    // Сначала удаляем теги <think>...</think>
-    const lastThinkClose = fullMessage.lastIndexOf('</think>');
-    let cleanedMessage = fullMessage;
-    if (lastThinkClose !== -1 && fullMessage.trim().startsWith('<think>')) {
-      // Удаляем всё от начала до конца последнего </think>
-      cleanedMessage = fullMessage.substring(lastThinkClose + 8).trim();
-    }
-    
-    let message = cleanedMessage
-      .replace(/\n/g, ' ')
-      .trim();
+    // Очищаем текст от технических элементов
+    let message = cleanLLMText(fullMessage);
 
     // Если сообщение слишком короткое, используем fallback
     if (message.length < 10) {
@@ -218,11 +209,8 @@ export async function generateUserResponse(
       `✅ Генерация ответа пользователю завершена за ${duration}ms`
     );
 
-    // Очищаем и форматируем результат
-    let response = fullResponse
-      .replace(/\n/g, ' ')
-      .replace(/<think>(.*?)<\/think>/gm, '')
-      .trim();
+    // Очищаем текст от технических элементов
+    let response = cleanLLMText(fullResponse);
 
     // Ограничиваем длину ответа
     if (response.length > 300) {
@@ -394,12 +382,9 @@ export async function generateFrogPrompt(
       `✅ Промпт для лягушки сгенерирован за ${duration}ms`
     );
 
-    // Очищаем и форматируем результат
-    let prompt = fullResponse
-      .replace(/\n/g, ' ')
-      .replace(/<think>(.*?)<\/think>/gm, '')
-      .replace(/"/g, '')
-      .trim();
+    // Очищаем текст от технических элементов
+    let prompt = cleanLLMText(fullResponse)
+      .replace(/"/g, ''); // Дополнительно убираем кавычки для промптов изображений
 
     // Ограничиваем длину промпта
     if (prompt.length > 200) {

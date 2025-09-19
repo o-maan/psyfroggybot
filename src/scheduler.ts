@@ -21,25 +21,13 @@ import {
 } from './db';
 import { generateFrogImage, generateFrogPrompt, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
+import { cleanLLMText } from './utils/clean-llm-text';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Функция удаления тегов <think>...</think> из ответа LLM
-function removeThinkTags(text: string): string {
-  // Ищем от начала строки до последнего вхождения </think>
-  const lastThinkClose = text.lastIndexOf('</think>');
-  if (lastThinkClose !== -1) {
-    // Проверяем, есть ли открывающий тег <think> в начале
-    if (text.trim().startsWith('<think>')) {
-      // Удаляем всё от начала до конца последнего </think>
-      return text.substring(lastThinkClose + 8).trim();
-    }
-  }
-  return text;
-}
 
 export class Scheduler {
   private bot: Telegraf;
@@ -267,7 +255,7 @@ export class Scheduler {
       const response = await generateMessage(prompt);
 
       // Удаляем теги <think>...</think> из ответа
-      const cleanedResponse = removeThinkTags(response);
+      const cleanedResponse = cleanLLMText(response);
 
       schedulerLogger.info(
         {
@@ -501,7 +489,7 @@ export class Scheduler {
       }
 
       // Удаляем теги <think>...</think> из ответа
-      response = removeThinkTags(response);
+      response = cleanLLMText(response);
 
       try {
         const result = JSON.parse(response.replace(/```json|```/gi, '').trim());
@@ -566,13 +554,13 @@ export class Scheduler {
   }> {
     // Удаляем теги <think>...</think>
     if (json.encouragement?.text) {
-      json.encouragement.text = removeThinkTags(json.encouragement.text);
+      json.encouragement.text = cleanLLMText(json.encouragement.text);
     }
     if (json.negative_part?.additional_text) {
-      json.negative_part.additional_text = removeThinkTags(json.negative_part.additional_text);
+      json.negative_part.additional_text = cleanLLMText(json.negative_part.additional_text);
     }
     if (json.positive_part?.additional_text) {
-      json.positive_part.additional_text = removeThinkTags(json.positive_part.additional_text);
+      json.positive_part.additional_text = cleanLLMText(json.positive_part.additional_text);
     }
 
     // Определяем что показывать
@@ -591,7 +579,7 @@ export class Scheduler {
         const weekendResponse = await generateMessage(weekendPrompt);
         
         if (weekendResponse && weekendResponse !== 'HF_JSON_ERROR') {
-          const cleanedResponse = removeThinkTags(weekendResponse);
+          const cleanedResponse = cleanLLMText(weekendResponse);
           try {
             const weekendJson = JSON.parse(cleanedResponse.replace(/```json|```/gi, '').trim());
             firstPart = `<i>${escapeHTML(weekendJson.encouragement.text)}</i>`;
@@ -723,7 +711,7 @@ export class Scheduler {
       schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
 
       // Удаляем теги <think>...</think>
-      text = removeThinkTags(text);
+      text = cleanLLMText(text);
 
       if (text.length > 555) text = text.slice(0, 552) + '...';
       // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
@@ -774,7 +762,7 @@ export class Scheduler {
       }
 
       // Удаляем теги <think>...</think>
-      jsonText = removeThinkTags(jsonText);
+      jsonText = cleanLLMText(jsonText);
 
       // Пост-обработка: убираем markdown-блоки и экранирование
       jsonText = jsonText.replace(/```json|```/gi, '').trim();
@@ -946,7 +934,7 @@ export class Scheduler {
     }
 
     // Удаляем теги <think>...</think>
-    jsonText = removeThinkTags(jsonText);
+    jsonText = cleanLLMText(jsonText);
 
     // Пост-обработка: убираем markdown-блоки и экранирование
     jsonText = jsonText.replace(/```json|```/gi, '').trim();
@@ -2211,41 +2199,6 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-  // Функция для очистки текста злого поста от технических пометок
-  private cleanAngryPostText(text: string): string {
-    let cleaned = text.trim();
-    
-    // Удаляем теги think если есть
-    cleaned = removeThinkTags(cleaned);
-    
-    // Ищем текст после "**Исправленный вариант**" и "> "
-    const correctedMatch = cleaned.match(/\*\*Исправленный вариант\*\*\s*>?\s*(.+?)(?:\*\*|$)/s);
-    if (correctedMatch) {
-      cleaned = correctedMatch[1].trim();
-    } else {
-      // Альтернативный поиск - ищем текст после ">"
-      const quoteMatch = cleaned.match(/>\s*(.+?)(?:\n\n|\*\*|$)/s);
-      if (quoteMatch) {
-        cleaned = quoteMatch[1].trim();
-      }
-    }
-    
-    // Удаляем любые технические пометки в скобках
-    cleaned = cleaned.replace(/\s*\([^)]*символ[^)]*\)/gi, '');
-    cleaned = cleaned.replace(/\s*\(\d+[^)]*\)/g, '');
-    cleaned = cleaned.replace(/\s*\([^)]*\)/g, '');
-    
-    // Удаляем кавычки в начале и конце
-    cleaned = cleaned.replace(/^["']|["']$/g, '').trim();
-    
-    // Убираем лишние символы форматирования
-    cleaned = cleaned.replace(/[\*_`~]/g, '');
-    
-    // Убираем множественные пробелы
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    
-    return cleaned;
-  }
 
   // Извлечение конкретной секции промпта из файла
   private extractPromptSection(fileContent: string, promptNumber: number): string | null {
@@ -2396,8 +2349,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Генерируем текст через LLM
         const generatedText = await generateMessage(promptSection);
         
-        // Удаляем теги <think>...</think>
-        let cleanedText = removeThinkTags(generatedText);
+        // Очищаем текст от технических элементов
+        let cleanedText = cleanLLMText(generatedText);
         
         // Проверяем на ошибку
         if (cleanedText === 'HF_JSON_ERROR' || !cleanedText) {
@@ -2455,7 +2408,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               /^👍/
             ];
             
-            const cleanedValidation = removeThinkTags(validatedText).trim();
+            const cleanedValidation = cleanLLMText(validatedText).trim();
             const isValidationOk = validationOkPatterns.some(pattern => pattern.test(cleanedValidation));
             
             if (isValidationOk) {
@@ -2466,7 +2419,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               }, '✅ Валидация подтвердила корректность текста, используем оригинал');
             } else {
               // Модель внесла исправления - используем их
-              finalText = this.cleanAngryPostText(validatedText);
+              finalText = cleanLLMText(validatedText);
               schedulerLogger.info({ 
                 originalLength: validatedText.length,
                 cleanedLength: finalText.length,

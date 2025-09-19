@@ -1,6 +1,7 @@
 import { generateMessage } from '../llm';
 import { botLogger } from '../logger';
 import { db } from '../db';
+import { cleanLLMText } from './clean-llm-text';
 
 interface DayRatingSupportWords {
   rating1: string; // 😩
@@ -10,22 +11,6 @@ interface DayRatingSupportWords {
   rating5: string; // 🤩
 }
 
-// Функция для удаления технических пометок
-function cleanSupportText(text: string): string {
-  let cleaned = text.trim();
-  // Удаляем теги think если есть
-  const lastThinkClose = cleaned.lastIndexOf('</think>');
-  if (lastThinkClose !== -1 && cleaned.trim().startsWith('<think>')) {
-    cleaned = cleaned.substring(lastThinkClose + 8).trim();
-  }
-  // Удаляем любые технические пометки в скобках
-  cleaned = cleaned.replace(/\s*\([^)]*символ[^)]*\)/gi, '');
-  cleaned = cleaned.replace(/\s*\(\d+[^)]*\)/g, '');
-  cleaned = cleaned.replace(/\s*\([^)]*\)/g, '');
-  // Удаляем кавычки в начале и конце
-  cleaned = cleaned.replace(/^["']|["']$/g, '').trim();
-  return cleaned;
-}
 
 // Генерация слов поддержки для всех оценок
 export async function generateDayRatingSupportWords(): Promise<DayRatingSupportWords> {
@@ -90,7 +75,7 @@ export async function generateDayRatingSupportWords(): Promise<DayRatingSupportW
     try {
       const generated = await generateMessage(prompt);
       if (generated !== 'HF_JSON_ERROR') {
-        const cleaned = cleanSupportText(generated);
+        const cleaned = cleanLLMText(generated);
         if (cleaned.length > 0 && cleaned.length <= 100) { // лимит 100 символов как просили
           supportWords[key as keyof DayRatingSupportWords] = cleaned;
         } else {
