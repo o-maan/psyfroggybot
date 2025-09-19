@@ -815,3 +815,146 @@ export const deleteFrogImage = (fileId: string) => {
   `);
   del.run(fileId);
 };
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ СО ЗЛЫМИ ПОСТАМИ =============
+
+// Сохранить злой пост
+export const saveAngryPost = (channelMessageId: number, threadId: number | null, userId: number) => {
+  const insert = db.query(`
+    INSERT INTO angry_posts (channel_message_id, thread_id, user_id)
+    VALUES (?, ?, ?)
+  `);
+  insert.run(channelMessageId, threadId, userId);
+  databaseLogger.info({ channelMessageId, threadId, userId }, 'Сохранен злой пост');
+};
+
+// Проверить, является ли пост злым
+export const isAngryPost = (channelMessageId: number) => {
+  const get = db.query(`
+    SELECT id FROM angry_posts
+    WHERE channel_message_id = ?
+  `);
+  const row = get.get(channelMessageId);
+  return !!row;
+};
+
+// Проверить по thread_id, является ли это комментарием к злому посту
+export const isAngryPostByThreadId = (threadId: number) => {
+  const get = db.query(`
+    SELECT id FROM angry_posts
+    WHERE thread_id = ?
+  `);
+  const row = get.get(threadId);
+  return !!row;
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ ПРИМЕРОВ ЗЛЫХ ПОСТОВ =============
+
+// Получить последние использованные примеры
+export const getLastUsedAngryExamples = (limit: number = 7) => {
+  const get = db.query(`
+    SELECT example_index 
+    FROM angry_post_examples_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { example_index: number }[];
+  return rows.map(row => row.example_index);
+};
+
+// Добавить использованный пример
+export const addUsedAngryExample = (exampleIndex: number) => {
+  // Сначала добавляем новый
+  const insert = db.query(`
+    INSERT INTO angry_post_examples_history (example_index)
+    VALUES (?)
+  `);
+  insert.run(exampleIndex);
+  
+  // Затем удаляем старые, оставляя только последние 7
+  const deleteOld = db.query(`
+    DELETE FROM angry_post_examples_history
+    WHERE id NOT IN (
+      SELECT id FROM angry_post_examples_history
+      ORDER BY used_at DESC
+      LIMIT 7
+    )
+  `);
+  deleteOld.run();
+  
+  databaseLogger.info({ exampleIndex }, 'Добавлен использованный пример злого поста');
+};
+
+// ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ОТВЕТОВ НА ЗЛЫЕ ПОСТЫ =============
+
+// Получить или создать запись о количестве ответов пользователя
+export const getOrCreateAngryPostUserResponse = (threadId: number, userId: number) => {
+  // Пытаемся получить существующую запись
+  const get = db.query(`
+    SELECT * FROM angry_post_user_responses
+    WHERE thread_id = ? AND user_id = ?
+  `);
+  
+  let row = get.get(threadId, userId) as {
+    id: number;
+    thread_id: number;
+    user_id: number;
+    response_count: number;
+    created_at: string;
+    updated_at: string;
+  } | undefined;
+  
+  // Если не существует, создаём
+  if (!row) {
+    const insert = db.query(`
+      INSERT INTO angry_post_user_responses (thread_id, user_id, response_count)
+      VALUES (?, ?, 0)
+    `);
+    insert.run(threadId, userId);
+    
+    // Получаем только что созданную запись
+    row = get.get(threadId, userId) as any;
+  }
+  
+  return row!;
+};
+
+// Увеличить счётчик ответов пользователя
+export const incrementAngryPostUserResponse = (threadId: number, userId: number): number => {
+  // Сначала убеждаемся, что запись существует
+  getOrCreateAngryPostUserResponse(threadId, userId);
+  
+  // Увеличиваем счётчик
+  const update = db.query(`
+    UPDATE angry_post_user_responses
+    SET response_count = response_count + 1, updated_at = datetime('now')
+    WHERE thread_id = ? AND user_id = ?
+  `);
+  update.run(threadId, userId);
+  
+  // Получаем обновлённое значение
+  const get = db.query(`
+    SELECT response_count FROM angry_post_user_responses
+    WHERE thread_id = ? AND user_id = ?
+  `);
+  const row = get.get(threadId, userId) as { response_count: number };
+  
+  databaseLogger.info({ threadId, userId, count: row.response_count }, 'Увеличен счётчик ответов на злой пост');
+  
+  return row.response_count;
+};
+
+// Получить информацию о злом посте
+export const getAngryPost = (channelMessageId: number) => {
+  const get = db.query(`
+    SELECT * FROM angry_posts
+    WHERE channel_message_id = ?
+  `);
+  return get.get(channelMessageId) as {
+    id: number;
+    channel_message_id: number;
+    thread_id: number | null;
+    user_id: number;
+    created_at: string;
+  } | undefined;
+};

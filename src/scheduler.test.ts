@@ -317,6 +317,9 @@ describe('Scheduler', () => {
       yesterday.setDate(yesterday.getDate() - 1);
       yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
       
+      // Мокаем getMainUserId
+      spyOn(scheduler, 'getMainUserId').mockReturnValue(TARGET_USER_ID);
+      
       // Мокаем время последней рассылки - вчера в 22:00
       const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
       getLastDailyRunTimeSpy.mockResolvedValue(yesterday);
@@ -374,6 +377,9 @@ describe('Scheduler', () => {
       yesterday.setDate(yesterday.getDate() - 1);
       yesterday.setHours(22, 0, 0, 0); // Вчера в 22:00
       
+      // Мокаем getMainUserId
+      spyOn(scheduler, 'getMainUserId').mockReturnValue(TARGET_USER_ID);
+      
       // Мокаем время последней рассылки - вчера в 22:00
       const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
       getLastDailyRunTimeSpy.mockResolvedValue(yesterday);
@@ -412,6 +418,9 @@ describe('Scheduler', () => {
 
     it('должен отправить злой пост если нет времени последней рассылки', async () => {
       const db = require('./db');
+      
+      // Мокаем getMainUserId
+      spyOn(scheduler, 'getMainUserId').mockReturnValue(5153477378);
       
       // Мокаем что рассылка не была выполнена
       const getLastDailyRunTimeSpy = spyOn(scheduler as any, 'getLastDailyRunTime');
@@ -466,12 +475,19 @@ describe('Scheduler', () => {
     it('должен отправить злой пост с сгенерированным изображением', async () => {
       const db = require('./db');
       const saveMessageSpy = spyOn(db, 'saveMessage').mockImplementation(() => {});
+      spyOn(db, 'saveAngryPost').mockImplementation(() => {});
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
       
+      // Мокаем extractPromptSection для возврата валидного промпта
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
+      
       // Мокаем генерацию текста
       mockGenerateMessage.mockResolvedValue('Кто-то не сделал задание! Нехорошо!');
+      
+      // Мокаем результат sendPhoto
+      mockBot.telegram.sendPhoto.mockResolvedValue({ message_id: 1234 });
       
       await sendAngryPost(123);
       
@@ -496,9 +512,13 @@ describe('Scheduler', () => {
     it('должен использовать fallback изображение при ошибке генерации', async () => {
       const db = require('./db');
       spyOn(db, 'saveMessage').mockImplementation(() => {});
+      spyOn(db, 'saveAngryPost').mockImplementation(() => {});
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
+      
+      // Мокаем extractPromptSection для возврата валидного промпта
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
       
       // Мокаем ошибку генерации изображения
       spyOn(llm, 'generateFrogImage').mockRejectedValue(new Error('API error'));
@@ -507,6 +527,9 @@ describe('Scheduler', () => {
       spyOn(scheduler, 'getNextImage').mockReturnValue('/path/to/image.jpg');
       
       mockGenerateMessage.mockResolvedValue('Злой текст');
+      
+      // Мокаем результат sendPhoto
+      mockBot.telegram.sendPhoto.mockResolvedValue({ message_id: 1235 });
       
       await sendAngryPost(123);
       
@@ -521,13 +544,23 @@ describe('Scheduler', () => {
     it('должен обрезать длинный текст', async () => {
       const db = require('./db');
       spyOn(db, 'saveMessage').mockImplementation(() => {});
+      spyOn(db, 'saveAngryPost').mockImplementation(() => {});
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
       
+      // Мокаем extractPromptSection для возврата валидного промпта
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
+      
       // Генерируем очень длинный текст
       const longText = 'А'.repeat(600);
       mockGenerateMessage.mockResolvedValue(longText);
+      
+      // Форсируем выбор варианта 1, 2 или 3 (не 4)
+      spyOn(Math, 'random').mockReturnValue(0.1); // Это даст promptNumber = 1
+      
+      // Мокаем результат sendPhoto
+      mockBot.telegram.sendPhoto.mockResolvedValue({ message_id: 1236 });
       
       await sendAngryPost(123);
       
