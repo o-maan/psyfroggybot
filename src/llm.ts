@@ -22,17 +22,20 @@ const examples = [
 export async function generateMessage(prompt?: string): Promise<string> {
   const startTime = Date.now();
   try {
-    const model = 'openai/gpt-oss-120b';
+    const model = 'deepseek-ai/DeepSeek-R1-0528'; // Проверенная рабочая модель
     llmLogger.info({ model, promptLength: prompt?.length || 0, prompt }, `🤖 Начало генерации LLM`);
 
     const stream = client.chatCompletionStream({
-      model: 'openai/gpt-oss-120b',
-      // model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', // для быстрых ответов
+      provider: 'novita',
+      model: 'deepseek-ai/DeepSeek-R1-0528',
+      // model: 'openai/gpt-oss-120b', // старая модель
+      // model: 'Qwen/QwQ-32B-Preview', // модель с размышлениями - проблемы с JSON
+      // model: 'mistralai/Mixtral-8x7B-Instruct-v0.1', // проблемы с ключами JSON
 
       messages: [
         {
           role: 'system',
-          content: 'Ты психологический помощник-лягушка (мужского рода), который поддерживает людей теплыми и мотивирующими сообщениями на русском языке. Используй мужской род в речи (например, "я рад", "я готов", "я понял").'
+          content: 'Ты психологический помощник-лягушка (мужского рода), который поддерживает людей теплыми и мотивирующими сообщениями на русском языке. Используй мужской род в речи (например, "я рад", "я готов", "я понял"). ВАЖНО: После размышлений ОБЯЗАТЕЛЬНО предоставь готовый текст для отправки пользователю.'
         },
         {
           role: 'user',
@@ -69,12 +72,39 @@ export async function generateMessage(prompt?: string): Promise<string> {
       `✅ LLM генерация завершена за ${duration}ms`
     );
 
+    // Логируем для отладки моделей
+    if ((model === 'Qwen/QwQ-32B-Preview' || model === 'openai/gpt-oss-120b') && fullMessage.length > 100) {
+      llmLogger.debug({ 
+        model,
+        preview: fullMessage.substring(0, 200),
+        hasThinkTags: fullMessage.includes('<think>')
+      }, 'Отладка ответа модели');
+    }
+
     // Очищаем текст от технических элементов
     let message = cleanLLMText(fullMessage);
 
+    // Логируем для отладки
+    if (prompt && prompt.includes('JSON')) {
+      llmLogger.info({
+        model,
+        promptIncludesJSON: true,
+        originalLength: fullMessage.length,
+        cleanedLength: message.length,
+        originalPreview: fullMessage.substring(0, 200),
+        cleanedMessage: message.substring(0, 200)
+      }, 'Отладка JSON запроса к QwQ');
+    }
+
     // Если сообщение слишком короткое, используем fallback
     if (message.length < 10) {
-      llmLogger.error({ model, messageLength: message.length }, 'Сообщение слишком короткое');
+      llmLogger.error({ 
+        model, 
+        messageLength: message.length,
+        originalLength: fullMessage.length,
+        preview: fullMessage.substring(0, 100),
+        cleanedPreview: message
+      }, 'Сообщение слишком короткое после очистки');
       return 'HF_JSON_ERROR';
     }
 
@@ -85,7 +115,7 @@ export async function generateMessage(prompt?: string): Promise<string> {
       {
         error: error.message,
         stack: error.stack,
-        model: 'deepseek-ai/DeepSeek-R1-0528',
+        model: 'Qwen/QwQ-32B-Preview',
       },
       'Ошибка LLM генерации'
     );

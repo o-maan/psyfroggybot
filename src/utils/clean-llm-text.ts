@@ -10,6 +10,22 @@ export function cleanLLMText(text: string): string {
   // Дополнительно удаляем любые оставшиеся теги think
   cleaned = cleaned.replace(/<think>.*?<\/think>/gis, '');
   
+  // Обработка формата "Размышления: ... Готовый текст: ..."
+  if (cleaned.includes('Готовый текст:')) {
+    const readyTextMatch = cleaned.match(/Готовый текст:\s*(.+?)$/is);
+    if (readyTextMatch) {
+      cleaned = readyTextMatch[1].trim();
+    }
+  }
+  
+  // Также проверяем вариации
+  if (cleaned.includes('Ответ:') && cleaned.includes('Размышлени')) {
+    const answerMatch = cleaned.match(/Ответ:\s*(.+?)$/is);
+    if (answerMatch) {
+      cleaned = answerMatch[1].trim();
+    }
+  }
+  
   // Удаляем блоки кода ```...```
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
   

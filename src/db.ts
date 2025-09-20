@@ -280,6 +280,57 @@ export const getLastNMessages = (chatId: number, n: number) => {
   }[];
 };
 
+// Получить все сообщения пользователя за последние 24 часа
+export const getUserMessagesLast24Hours = (chatId: number) => {
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ? 
+    AND m.author_id = u.id
+    AND datetime(m.sent_time) > datetime('now', '-24 hours')
+    ORDER BY m.sent_time ASC
+  `);
+  return getMessages.all(chatId) as {
+    message_text: string;
+    sent_time: string;
+  }[];
+};
+
+// Получить новые сообщения пользователя с момента последней генерации поста
+export const getUserMessagesSinceLastPost = (chatId: number) => {
+  // Сначала находим время последнего поста от бота в канале
+  const lastPostQuery = db.query(`
+    SELECT MAX(m.sent_time) as last_post_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ? 
+    AND m.author_id = 0
+    AND (m.message_text LIKE '%Переходи в комментарии и продолжим%' 
+         OR m.message_text LIKE '%Плюшки для лягушки%'
+         OR m.message_text LIKE '%Дыхательная практика%')
+  `);
+  
+  const lastPost = lastPostQuery.get(chatId) as { last_post_time: string | null } | undefined;
+  const lastPostTime = lastPost?.last_post_time || '1970-01-01T00:00:00Z';
+  
+  // Теперь получаем все сообщения пользователя после этого времени
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ? 
+    AND m.author_id = u.id
+    AND datetime(m.sent_time) > datetime(?)
+    ORDER BY m.sent_time ASC
+  `);
+  
+  return getMessages.all(chatId, lastPostTime) as {
+    message_text: string;
+    sent_time: string;
+  }[];
+};
+
 // Сохранить токен для пользователя
 export const saveUserToken = (chatId: number, token: string) => {
   const upsertToken = db.query(`
