@@ -885,6 +885,45 @@ export const addUsedAngryExample = (exampleIndex: number) => {
   databaseLogger.info({ exampleIndex }, 'Добавлен использованный пример злого поста');
 };
 
+// ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ИСПОЛЬЗОВАННЫХ ПРИМЕРОВ ПРОМПТОВ =============
+
+// Получить последние использованные примеры для конкретного промпта
+export const getLastUsedPromptExamples = (promptNumber: number, limit: number = 7) => {
+  const get = db.query(`
+    SELECT example_index 
+    FROM angry_prompt_examples_history
+    WHERE prompt_number = ?
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(promptNumber, limit) as { example_index: number }[];
+  return rows.map(row => row.example_index);
+};
+
+// Добавить использованный пример промпта
+export const addUsedPromptExample = (promptNumber: number, exampleIndex: number, exampleText?: string) => {
+  // Сначала добавляем новый
+  const insert = db.query(`
+    INSERT INTO angry_prompt_examples_history (prompt_number, example_index, example_text)
+    VALUES (?, ?, ?)
+  `);
+  insert.run(promptNumber, exampleIndex, exampleText || null);
+  
+  // Затем удаляем старые, оставляя только последние 7 для каждого промпта
+  const deleteOld = db.query(`
+    DELETE FROM angry_prompt_examples_history
+    WHERE prompt_number = ? AND id NOT IN (
+      SELECT id FROM angry_prompt_examples_history
+      WHERE prompt_number = ?
+      ORDER BY used_at DESC
+      LIMIT 7
+    )
+  `);
+  deleteOld.run(promptNumber, promptNumber);
+  
+  databaseLogger.info({ promptNumber, exampleIndex }, 'Добавлен использованный пример промпта');
+};
+
 // ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ОТВЕТОВ НА ЗЛЫЕ ПОСТЫ =============
 
 // Получить или создать запись о количестве ответов пользователя
