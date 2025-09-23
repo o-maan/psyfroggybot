@@ -25,6 +25,8 @@ import {
 import { generateFrogImage, generateFrogPrompt, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
+import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
+import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
@@ -491,11 +493,15 @@ export class Scheduler {
         return { probably_busy: false, busy_reason: null };
       }
 
-      // Удаляем теги <think>...</think> из ответа
-      response = cleanLLMText(response);
+      // Извлекаем JSON из ответа LLM
+      const jsonResponse = extractJsonFromLLM(response);
 
       try {
-          const result = JSON.parse(response.replace(/```json|```/gi, '').trim());
+          let result = JSON.parse(jsonResponse);
+          
+          // Исправляем альтернативные ключи от модели
+          result = fixAlternativeJsonKeys(result, { source: 'detectUserBusy' });
+          
         return {
           probably_busy: result.probably_busy || false,
           busy_reason: result.busy_reason || null,
@@ -582,9 +588,9 @@ export class Scheduler {
         const weekendResponse = await generateMessage(weekendPrompt);
         
         if (weekendResponse && weekendResponse !== 'HF_JSON_ERROR') {
-          const cleanedResponse = cleanLLMText(weekendResponse);
+          const jsonResponse = extractJsonFromLLM(weekendResponse);
           try {
-            const weekendJson = JSON.parse(cleanedResponse.replace(/```json|```/gi, '').trim());
+            const weekendJson = JSON.parse(jsonResponse);
             firstPart = `<i>${escapeHTML(weekendJson.encouragement.text)}</i>`;
           } catch {
             // Fallback на обычный текст
@@ -718,15 +724,32 @@ export class Scheduler {
         { chatId, busy_reason: busyStatus.busy_reason },
         '✈️ Пользователь занят, используем упрощенный промпт'
       );
-      let text = await generateMessage(prompt);
-      schedulerLogger.info({ chatId, textLength: text?.length || 0 }, `📝 LLM ответ получен: ${text}`);
+      let rawText = await generateMessage(prompt);
+      schedulerLogger.info({ chatId, textLength: rawText?.length || 0 }, `📝 LLM сырой ответ получен`);
+      
+      // Проверяем на ошибку до очистки
+      if (rawText === 'HF_JSON_ERROR') {
+        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (flight)');
+        const fallbackBusy =
+          'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
+        saveMessage(chatId, fallbackBusy, new Date().toISOString());
+        return fallbackBusy;
+      }
 
       // Удаляем теги <think>...</think>
-      text = cleanLLMText(text);
+      // Сначала пробуем извлечь JSON
+      let jsonText = extractJsonFromLLM(rawText);
+      
+      // Проверяем после извлечения
+      if (!jsonText || jsonText === 'HF_JSON_ERROR') {
+        schedulerLogger.warn({ chatId, extractedLength: jsonText?.length || 0 }, '❌ После извлечения JSON пустой (flight)');
+        const fallbackBusy =
+          'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
+        saveMessage(chatId, fallbackBusy, new Date().toISOString());
+        return fallbackBusy;
+      }
 
-      if (text.length > 555) text = text.slice(0, 552) + '...';
-      // --- Новая логика: пробуем парсить JSON и собираем только encouragement + flight ---
-      let jsonText = text.replace(/```json|```/gi, '').trim();
+      // --- Новая логика: парсим JSON и собираем только encouragement + flight ---
       if (jsonText.startsWith('"') && jsonText.endsWith('"')) {
         jsonText = jsonText.slice(1, -1);
       }
@@ -737,6 +760,10 @@ export class Scheduler {
         if (typeof json === 'string') {
           json = JSON.parse(json); // второй парс, если строка
         }
+        
+        // Исправляем альтернативные ключи для flight режима
+        json = fixAlternativeJsonKeys(json, { chatId, source: 'flight' });
+        
         if (json && typeof json === 'object' && json.encouragement && json.flight && json.flight.additional_task) {
           // Только encouragement и flight
           const encouragement = `<i>${escapeHTML(json.encouragement.text)}</i>`;
@@ -771,16 +798,23 @@ export class Scheduler {
         promptLength: prompt?.length || 0
       }, `📝 LLM сырой ответ получен`);
       
-      let jsonText = rawJsonText;
-
-      if (jsonText === 'HF_JSON_ERROR') {
-        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR');
+      // Сначала проверяем на исходную ошибку
+      if (rawJsonText === 'HF_JSON_ERROR') {
+        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (до очистки)');
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }
 
       // Удаляем теги <think>...</think>
-      jsonText = cleanLLMText(jsonText);
+      // Для JSON используем специальный экстрактор
+      let jsonText = extractJsonFromLLM(rawJsonText);
+      
+      // Проверяем после извлечения
+      if (!jsonText || jsonText === 'HF_JSON_ERROR') {
+        schedulerLogger.warn({ chatId, extractedLength: jsonText?.length || 0 }, '❌ После извлечения JSON пустой или ошибка');
+        const fallback = readFileSync('assets/fallback_text', 'utf-8');
+        return fallback;
+      }
       
       schedulerLogger.info({ 
         chatId, 
@@ -816,6 +850,9 @@ export class Scheduler {
           schedulerLogger.debug({ chatId }, '📦 Двойной парсинг: результат первого парсинга - строка');
           json = JSON.parse(json); // второй парс, если строка
         }
+        
+        // Исправляем альтернативные ключи от модели
+        json = fixAlternativeJsonKeys(json, { chatId, source: 'scheduled' });
         
         schedulerLogger.info({ 
           chatId,
@@ -976,14 +1013,28 @@ export class Scheduler {
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
 
     // Генерируем сообщение
-    let jsonText = await generateMessage(prompt);
+    const rawJsonText = await generateMessage(prompt);
     schedulerLogger.info(
-      { chatId, jsonLength: jsonText?.length || 0 },
-      `📝 LLM ответ получен для интерактивного режима`
+      { chatId, rawLength: rawJsonText?.length || 0 },
+      `📝 LLM сырой ответ получен для интерактивного режима`
     );
+    
+    // Временное детальное логирование для отладки
+    if (rawJsonText && rawJsonText.length > 0 && rawJsonText !== 'HF_JSON_ERROR') {
+      const hasThinkTags = rawJsonText.includes('<think>');
+      const hasJson = rawJsonText.includes('{') && rawJsonText.includes('}');
+      schedulerLogger.warn({ 
+        chatId,
+        hasThinkTags,
+        hasJson,
+        first500chars: rawJsonText.substring(0, 500),
+        last500chars: rawJsonText.substring(Math.max(0, rawJsonText.length - 500))
+      }, `🔍 ОТЛАДКА: Детальный анализ ответа модели`);
+    }
 
-    if (jsonText === 'HF_JSON_ERROR') {
-      schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме');
+    // Проверяем на ошибку до очистки
+    if (rawJsonText === 'HF_JSON_ERROR') {
+      schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме (до очистки)');
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
       // Для поста используем простое сообщение
       const postFallback = 'Надеюсь, у тебя был хороший день!';
@@ -1000,7 +1051,24 @@ export class Scheduler {
     }
 
     // Удаляем теги <think>...</think>
-    jsonText = cleanLLMText(jsonText);
+    let jsonText = cleanLLMText(rawJsonText);
+    
+    // Проверяем после очистки
+    if (!jsonText || jsonText === 'HF_JSON_ERROR') {
+      schedulerLogger.warn({ chatId, cleanedLength: jsonText?.length || 0 }, '❌ После очистки текст пустой в интерактивном режиме');
+      const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      const postFallback = 'Надеюсь, у тебя был хороший день!';
+      return {
+        json: {
+          encouragement: { text: fallback },
+          negative_part: { additional_text: '' },
+          positive_part: { additional_text: '' },
+          feels_and_emotions: { additional_text: null },
+        },
+        firstPart: postFallback,
+        relaxationType: 'breathing' as const,
+      };
+    }
 
     // Пост-обработка: убираем markdown-блоки и экранирование
     jsonText = jsonText.replace(/```json|```/gi, '').trim();
@@ -1015,6 +1083,10 @@ export class Scheduler {
       if (typeof json === 'string') {
         json = JSON.parse(json); // второй парс, если строка
       }
+      
+      // Исправляем альтернативные ключи от модели
+      json = fixAlternativeJsonKeys(json, { chatId, source: 'interactive' });
+      
       // Проверяем, что структура валидная
       if (
         !json ||

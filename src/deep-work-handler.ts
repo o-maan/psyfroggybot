@@ -11,6 +11,8 @@ import {
 } from './db';
 import { sendWithRetry } from './utils/telegram-retry';
 import { cleanLLMText } from './utils/clean-llm-text';
+import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
+import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 
 
 // Примеры для разбора по схеме
@@ -190,8 +192,11 @@ export class DeepWorkHandler {
         throw new Error('Ошибка генерации LLM');
       }
 
-      const cleanedResponse = cleanLLMText(response);
-      const analysis = JSON.parse(cleanedResponse.replace(/```json|```/gi, '').trim());
+      const jsonResponse = extractJsonFromLLM(response);
+      let analysis = JSON.parse(jsonResponse);
+
+      // Исправляем альтернативные ключи от модели
+      analysis = fixAlternativeJsonKeys(analysis, { source: 'analyze_situations' });
 
       botLogger.info({
         channelMessageId,
