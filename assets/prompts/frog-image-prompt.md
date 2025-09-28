@@ -62,3 +62,5 @@
 "cozy green frog in sweater, anthropomorphic frog character, home setting, warm lighting, relaxed pose, cup of tea, looking at viewer"
 
 Отвечай только промптом на английском языке, без дополнительных пояснений.
+
+ВАЖНО: НЕ ИСПОЛЬЗУЙ теги <think>, </think>, НЕ пиши "Мысли:", "Ответ:" или любые другие префиксы! Генерируй ТОЛЬКО готовый промпт на английском.

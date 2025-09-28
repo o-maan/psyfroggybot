@@ -26,6 +26,19 @@ export function cleanLLMText(text: string): string {
     }
   }
   
+  // Обработка формата "Мысли: ..."
+  if (cleaned.startsWith('Мысли:')) {
+    // Ищем где заканчиваются мысли (двойной перенос или конец)
+    const thoughtsEnd = cleaned.search(/\n\n/);
+    if (thoughtsEnd > 0) {
+      cleaned = cleaned.substring(thoughtsEnd).trim();
+    } else {
+      // Если нет двойного переноса, возможно весь текст - это мысли
+      // В этом случае возвращаем пустую строку или ищем альтернативные маркеры
+      cleaned = '';
+    }
+  }
+  
   // Удаляем блоки кода ```...```
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
   
