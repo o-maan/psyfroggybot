@@ -3134,6 +3134,39 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       'Обработка интерактивного ответа пользователя'
     );
 
+    // Проверяем на грубый/бессмысленный ответ
+    try {
+      const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
+      const rudeCheck = checkRudeMessage(messageText, userId);
+      
+      if (rudeCheck.isRude) {
+        schedulerLogger.info(
+          { userId, messageText: messageText.substring(0, 50), response: rudeCheck.response },
+          'Обнаружен грубый/бессмысленный ответ'
+        );
+        
+        // Отправляем ответ
+        if (rudeCheck.response) {
+          try {
+            await this.bot.telegram.sendMessage(replyToChatId, rudeCheck.response, {
+              reply_parameters: { message_id: messageId }
+            });
+          } catch (sendError) {
+            schedulerLogger.error({ error: sendError }, 'Ошибка отправки ответа на грубое сообщение');
+          }
+        }
+        
+        // Не продолжаем обработку, ждем нормальный ответ
+        return true;
+      } else if (!rudeCheck.needsCounter) {
+        // Если это был нормальный ответ - сбрасываем счетчик набора букв
+        resetKeyboardSpamCounter(userId);
+      }
+    } catch (rudeError) {
+      schedulerLogger.error({ error: rudeError }, 'Ошибка проверки грубого ответа, продолжаем как обычно');
+      // При ошибке продолжаем как с обычным ответом
+    }
+
     // Проверяем, нужно ли устанавливать напоминание
     const practiceStates = ['waiting_practice', 'deep_waiting_practice', 'finished', 'completed'];
     const shouldSetReminder = !practiceStates.includes(session.currentStep);
