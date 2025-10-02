@@ -157,10 +157,21 @@ export async function trackIncomingMessage(ctx: Context, next: () => Promise<voi
 export function wrapTelegramApi(bot: any) {
   const originalSendMessage = bot.telegram.sendMessage.bind(bot.telegram);
   const originalSendPhoto = bot.telegram.sendPhoto.bind(bot.telegram);
+  const originalSendVideo = bot.telegram.sendVideo.bind(bot.telegram);
+  const originalSendDocument = bot.telegram.sendDocument.bind(bot.telegram);
+  const originalSendMediaGroup = bot.telegram.sendMediaGroup.bind(bot.telegram);
+  const originalSendChatAction = bot.telegram.sendChatAction.bind(bot.telegram);
   const originalEditMessageText = bot.telegram.editMessageText.bind(bot.telegram);
   
   // Функция-обертка для отслеживания сообщений
   const trackSendMessage = async function(chatId: number, text: string, options?: any) {
+    // Показываем индикатор набора текста
+    try {
+      await originalSendChatAction(chatId, 'typing');
+    } catch (error) {
+      // Не критично
+    }
+    
     const result = await originalSendMessage(chatId, text, options);
     
     try {
@@ -208,6 +219,13 @@ export function wrapTelegramApi(bot: any) {
       }, '📤 Отправка фото');
     }
     
+    // Показываем индикатор загрузки фото
+    try {
+      await originalSendChatAction(chatId, 'upload_photo');
+    } catch (error) {
+      // Не критично
+    }
+    
     const result = await originalSendPhoto(chatId, photo, options);
     
     try {
@@ -235,6 +253,42 @@ export function wrapTelegramApi(bot: any) {
     }
     
     return result;
+  };
+  
+  // Оборачиваем sendVideo
+  bot.telegram.sendVideo = async function(chatId: number, video: any, options?: any) {
+    // Показываем индикатор загрузки видео
+    try {
+      await originalSendChatAction(chatId, 'upload_video');
+    } catch (error) {
+      // Не критично
+    }
+    
+    return originalSendVideo(chatId, video, options);
+  };
+  
+  // Оборачиваем sendDocument
+  bot.telegram.sendDocument = async function(chatId: number, document: any, options?: any) {
+    // Показываем индикатор загрузки документа
+    try {
+      await originalSendChatAction(chatId, 'upload_document');
+    } catch (error) {
+      // Не критично
+    }
+    
+    return originalSendDocument(chatId, document, options);
+  };
+  
+  // Оборачиваем sendMediaGroup
+  bot.telegram.sendMediaGroup = async function(chatId: number, media: any, options?: any) {
+    // Показываем индикатор загрузки фото
+    try {
+      await originalSendChatAction(chatId, 'upload_photo');
+    } catch (error) {
+      // Не критично
+    }
+    
+    return originalSendMediaGroup(chatId, media, options);
   };
   
   // Оборачиваем editMessageText
