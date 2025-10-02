@@ -3284,6 +3284,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         return;
       }
       
+      if (session.currentStep === 'deep_waiting_harm') {
+        const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        await deepHandler.handleHarmResponse(channelMessageId, messageText, userId, messageId);
+        return;
+      }
+      
       if (session.currentStep === 'deep_waiting_rational') {
         // Завершаем работу с фильтрами
         const sendOptions: any = { 
