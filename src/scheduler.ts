@@ -27,6 +27,7 @@ import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } fr
 import { cleanLLMText } from './utils/clean-llm-text';
 import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
+import { isLLMError } from './utils/llm-error-check';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
@@ -277,7 +278,7 @@ export class Scheduler {
         cleanedResponse.length < 20 ||
         cleanedResponse.length > 150 ||
         cleanedResponse.toLowerCase() === 'отлично' ||
-        cleanedResponse === 'HF_JSON_ERROR'
+        isLLMError(response, cleanedResponse)
       ) {
         throw new Error(`Неподходящий ответ от LLM: ${cleanedResponse.length} символов`);
       }
@@ -2634,8 +2635,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Очищаем текст от технических элементов
         let cleanedText = cleanLLMText(generatedText);
         
-        // Проверяем на ошибку
-        if (cleanedText === 'HF_JSON_ERROR' || !cleanedText) {
+        // Проверяем на ЛЮБЫЕ ошибки LLM
+        if (isLLMError(generatedText, cleanedText)) {
           // Используем fallback - выбираем рандомный пример из промптов 1, 2 и 3
           const fallbackExamples = [
             // Промпт 1 - злюсь

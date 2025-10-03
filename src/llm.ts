@@ -2,6 +2,7 @@ import { InferenceClient } from '@huggingface/inference';
 import fs from 'fs';
 import { llmLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
+import { isLLMError } from './utils/llm-error-check';
 
 const client = new InferenceClient(process.env.HF_TOKEN);
 
@@ -107,6 +108,16 @@ export async function generateMessage(prompt?: string): Promise<string> {
       }, 'Сообщение слишком короткое после очистки');
       return 'HF_JSON_ERROR';
     }
+    
+    // УНИВЕРСАЛЬНАЯ ПРОВЕРКА: проверяем результат на все возможные ошибки
+    if (isLLMError(fullMessage, message)) {
+      llmLogger.error({ 
+        model,
+        originalText: fullMessage.substring(0, 100),
+        cleanedText: message.substring(0, 100)
+      }, 'Обнаружена ошибка в ответе LLM');
+      return 'HF_JSON_ERROR';
+    }
 
     return message;
   } catch (e) {
@@ -115,7 +126,7 @@ export async function generateMessage(prompt?: string): Promise<string> {
       {
         error: error.message,
         stack: error.stack,
-        model: 'Qwen/QwQ-32B-Preview',
+        model: 'deepseek-ai/DeepSeek-R1-0528',
       },
       'Ошибка LLM генерации'
     );
