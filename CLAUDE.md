@@ -301,6 +301,7 @@ The app is designed for production deployment with:
 - Не усложняй без необходимости
 - Если пользователь сообщает о том что твой подход не работает, добавь логов
 - По окончанию проверяй можно ли упростить реализацию и убрать часть изменений
+
 - **КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:**
   - Думай по шагам перед любым решением
   - Когда придумываешь решение задачи - оцени не приведет ли это к другим проблемам и не допускай этого, стань своим же ревизором
@@ -344,10 +345,14 @@ await bot.telegram.sendPhoto(chatId, imageBuffer, {
 });
 
 // ВИДЕО - через reply_to_message_id (НЕ reply_parameters!!!)
-await bot.telegram.sendVideo(chatId, { source: videoBuffer }, {
-  caption: text,
-  reply_to_message_id: replyToMessageId, // ⚠️ НЕ reply_parameters!
-});
+await bot.telegram.sendVideo(
+  chatId,
+  { source: videoBuffer },
+  {
+    caption: text,
+    reply_to_message_id: replyToMessageId, // ⚠️ НЕ reply_parameters!
+  }
+);
 
 // МЕДИА ГРУППА - через reply_to_message_id с as any (НЕ reply_parameters!!!)
 const sendOptions: any = {};
