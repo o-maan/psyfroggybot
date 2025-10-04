@@ -4,36 +4,34 @@ import path from 'path';
 import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar';
 import {
+  addUsedAngryExample,
+  addUsedPromptExample,
   addUser,
   clearUserTokens,
   getAllUsers,
   getLastBotMessage,
-  getLastNBotMessages,
+  getLastUsedAngryExamples,
+  getLastUsedPromptExamples,
   getLastUserMessage,
   getUserByChatId,
   getUserImageIndex,
+  getUserMessagesSinceLastPost,
   getUserResponseStats,
+  incrementAngryPostUserResponse,
   saveMessage,
   saveUserImageIndex,
-  getLastUsedAngryExamples,
-  addUsedAngryExample,
-  incrementAngryPostUserResponse,
-  getLastUsedPromptExamples,
-  addUsedPromptExample,
-  getUserMessagesSinceLastPost,
 } from './db';
 import { generateFrogImage, generateFrogPrompt, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
-import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
+import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { isLLMError } from './utils/llm-error-check';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
 
 export class Scheduler {
   private bot: Telegraf;
@@ -89,8 +87,8 @@ export class Scheduler {
   // Универсальный метод отправки сообщений с повторными попытками при сетевых ошибках
   private async sendWithRetry(
     sendFunction: () => Promise<any>,
-    context: { 
-      chatId?: number; 
+    context: {
+      chatId?: number;
       messageType: string;
       retryData?: any; // Дополнительные данные для сложных операций
       maxAttempts?: number; // Возможность задать кастомное количество попыток
@@ -104,83 +102,93 @@ export class Scheduler {
 
     // Цикл попыток
     while (attempt <= maxAttempts) {
+      // Создаем копию context без retryData для логирования вне блока try
+      const { retryData, ...contextForLogging } = context;
+
       try {
-        // Создаем копию context без retryData для логирования
-        const { retryData, ...contextForLogging } = context;
-        
         schedulerLogger.info(
-          { 
+          {
             ...contextForLogging,
             attempt,
             maxAttempts,
             intervalMs,
             // Если есть retryData с изображением, логируем только размер
-            ...(retryData?.generatedImageBuffer ? {
-              imageBufferSize: retryData.generatedImageBuffer.length
-            } : {})
+            ...(retryData?.generatedImageBuffer
+              ? {
+                  imageBufferSize: retryData.generatedImageBuffer.length,
+                }
+              : {}),
           },
           `🔄 Попытка отправки ${attempt}/${maxAttempts}`
         );
-        
+
         // Пытаемся отправить
         const result = await sendFunction();
-        
+
         // Успешно отправлено!
         // Используем contextForLogging без retryData
         schedulerLogger.info(
-          { 
+          {
             ...contextForLogging,
             attempt,
             totalAttempts: maxAttempts,
             // Если есть retryData с изображением, логируем только размер
-            ...(retryData?.generatedImageBuffer ? {
-              imageBufferSize: retryData.generatedImageBuffer.length
-            } : {})
+            ...(retryData?.generatedImageBuffer
+              ? {
+                  imageBufferSize: retryData.generatedImageBuffer.length,
+                }
+              : {}),
           },
           `✅ Сообщение успешно отправлено с попытки ${attempt}/${maxAttempts}`
         );
-        
+
         // Выполняем коллбэк после успешной отправки, если он есть
         if (context.onSuccess) {
           try {
             await context.onSuccess(result);
           } catch (callbackError) {
             schedulerLogger.error(
-              { 
+              {
                 error: callbackError,
-                ...context
+                ...context,
               },
               'Ошибка в коллбэке после успешной отправки'
             );
           }
         }
-        
+
         return result;
-        
       } catch (error) {
         const err = error as Error;
-        
+
         // Проверяем, является ли это сетевой ошибкой
-        if (err.message.includes('502') || err.message.includes('Bad Gateway') || 
-            err.message.includes('Network') || err.message.includes('Timeout') ||
-            err.message.includes('ETELEGRAM') || err.message.includes('ECONNRESET') ||
-            err.message.includes('ETIMEDOUT') || err.message.includes('ENOTFOUND')) {
-          
+        if (
+          err.message.includes('502') ||
+          err.message.includes('Bad Gateway') ||
+          err.message.includes('Network') ||
+          err.message.includes('Timeout') ||
+          err.message.includes('ETELEGRAM') ||
+          err.message.includes('ECONNRESET') ||
+          err.message.includes('ETIMEDOUT') ||
+          err.message.includes('ENOTFOUND')
+        ) {
           schedulerLogger.warn(
-            { 
+            {
               ...contextForLogging,
               error: err.message,
               attempt,
               maxAttempts,
               nextDelayMs: intervalMs,
               // Если есть retryData с изображением, логируем только размер
-              ...(retryData?.generatedImageBuffer ? {
-                imageBufferSize: retryData.generatedImageBuffer.length
-              } : {})
+              ...(retryData?.generatedImageBuffer
+                ? {
+                    imageBufferSize: retryData.generatedImageBuffer.length,
+                  }
+                : {}),
             },
             `⚠️ Сетевая ошибка, попытка ${attempt}/${maxAttempts}`
           );
-          
+
           // Если есть еще попытки - ждем и пробуем снова
           if (attempt < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, intervalMs));
@@ -189,37 +197,41 @@ export class Scheduler {
           } else {
             // Исчерпаны все попытки
             schedulerLogger.error(
-              { 
+              {
                 ...contextForLogging,
                 totalAttempts: maxAttempts,
                 // Если есть retryData с изображением, логируем только размер
-                ...(retryData?.generatedImageBuffer ? {
-                  imageBufferSize: retryData.generatedImageBuffer.length
-                } : {})
+                ...(retryData?.generatedImageBuffer
+                  ? {
+                      imageBufferSize: retryData.generatedImageBuffer.length,
+                    }
+                  : {}),
               },
               '❌ Исчерпаны все попытки отправки сообщения'
             );
             throw new Error(`Исчерпаны все ${maxAttempts} попыток отправки сообщения: ${err.message}`);
           }
         }
-        
+
         // Не сетевая ошибка - пробрасываем сразу
         schedulerLogger.error(
-          { 
+          {
             ...contextForLogging,
             error: err.message,
             attempt,
             // Если есть retryData с изображением, логируем только размер
-            ...(retryData?.generatedImageBuffer ? {
-              imageBufferSize: retryData.generatedImageBuffer.length
-            } : {})
+            ...(retryData?.generatedImageBuffer
+              ? {
+                  imageBufferSize: retryData.generatedImageBuffer.length,
+                }
+              : {}),
           },
           'Не сетевая ошибка, прекращаем попытки'
         );
         throw error;
       }
     }
-    
+
     // Не должны сюда попасть, но на всякий случай
     throw new Error(`Исчерпаны все ${maxAttempts} попыток отправки сообщения`);
   }
@@ -261,7 +273,7 @@ export class Scheduler {
       const response = await generateMessage(prompt);
 
       // Удаляем теги <think>...</think> из ответа
-      const cleanedResponse = cleanLLMText(response);
+      const cleanedResponse = extractJsonFromLLM(response);
 
       schedulerLogger.info(
         {
@@ -316,7 +328,10 @@ export class Scheduler {
 
     // Проверяем, является ли это злым постом и обновляем thread_id
     if (isAngryPost(channelMessageId)) {
-      db.query('UPDATE angry_posts SET thread_id = ? WHERE channel_message_id = ?').run(discussionMessageId, channelMessageId);
+      db.query('UPDATE angry_posts SET thread_id = ? WHERE channel_message_id = ?').run(
+        discussionMessageId,
+        channelMessageId
+      );
       schedulerLogger.info(
         {
           channelMessageId,
@@ -498,11 +513,11 @@ export class Scheduler {
       const jsonResponse = extractJsonFromLLM(response);
 
       try {
-          let result = JSON.parse(jsonResponse);
-          
-          // Исправляем альтернативные ключи от модели
-          result = fixAlternativeJsonKeys(result, { source: 'detectUserBusy' });
-          
+        let result = JSON.parse(jsonResponse);
+
+        // Исправляем альтернативные ключи от модели
+        result = fixAlternativeJsonKeys(result, { source: 'detectUserBusy' });
+
         return {
           probably_busy: result.probably_busy || false,
           busy_reason: result.busy_reason || null,
@@ -519,6 +534,15 @@ export class Scheduler {
 
   // Вспомогательная функция для формирования сообщения по правилам
   private buildScheduledMessageFromHF(json: any): string {
+    schedulerLogger.info(
+      {
+        hasEncouragement: !!json?.encouragement,
+        encouragementText: json?.encouragement?.text,
+        encouragementLength: json?.encouragement?.text?.length || 0,
+      },
+      '📝 buildScheduledMessageFromHF: обработка encouragement'
+    );
+
     let n = 1;
     const parts: string[] = [];
     // Вдохновляющий текст
@@ -564,7 +588,21 @@ export class Scheduler {
   }> {
     // Удаляем теги <think>...</think>
     if (json.encouragement?.text) {
+      schedulerLogger.info(
+        {
+          encouragementBefore: json.encouragement.text,
+          encouragementLength: json.encouragement.text.length,
+        },
+        '🧹 buildInteractiveMessage: очистка encouragement от <think>'
+      );
       json.encouragement.text = cleanLLMText(json.encouragement.text);
+      schedulerLogger.info(
+        {
+          encouragementAfter: json.encouragement.text,
+          encouragementLength: json.encouragement.text.length,
+        },
+        '✨ buildInteractiveMessage: encouragement после очистки'
+      );
     }
     if (json.negative_part?.additional_text) {
       json.negative_part.additional_text = cleanLLMText(json.negative_part.additional_text);
@@ -579,34 +617,69 @@ export class Scheduler {
 
     // Проверяем, выходной ли сегодня день
     const isWeekendToday = this.isWeekend();
-    
+
     let firstPart: string;
-    
+
     if (isWeekendToday) {
       // В выходные генерируем специальный текст поддержки
       try {
         const weekendPrompt = readFileSync('assets/prompts/weekend-encouragement.md', 'utf-8');
         const weekendResponse = await generateMessage(weekendPrompt);
-        
+
         if (weekendResponse && weekendResponse !== 'HF_JSON_ERROR') {
           const jsonResponse = extractJsonFromLLM(weekendResponse);
           try {
             const weekendJson = JSON.parse(jsonResponse);
+            schedulerLogger.info(
+              {
+                weekendEncouragement: weekendJson.encouragement?.text,
+                weekendEncouragementLength: weekendJson.encouragement?.text?.length || 0,
+              },
+              '📅 buildInteractiveMessage: выходные - используем weekend encouragement'
+            );
             firstPart = `<i>${escapeHTML(weekendJson.encouragement.text)}</i>`;
           } catch {
             // Fallback на обычный текст
+            schedulerLogger.info(
+              {
+                fallbackEncouragement: json.encouragement?.text,
+                fallbackEncouragementLength: json.encouragement?.text?.length || 0,
+              },
+              '⚠️ buildInteractiveMessage: ошибка парсинга weekend JSON, используем обычный encouragement'
+            );
             firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
           }
         } else {
           // Fallback на обычный текст
+          schedulerLogger.info(
+            {
+              fallbackEncouragement: json.encouragement?.text,
+              fallbackEncouragementLength: json.encouragement?.text?.length || 0,
+            },
+            '⚠️ buildInteractiveMessage: weekend LLM вернул ошибку, используем обычный encouragement'
+          );
           firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
         }
       } catch (error) {
-        schedulerLogger.warn({ error }, 'Ошибка генерации текста для выходных, используем обычный');
+        schedulerLogger.warn(
+          {
+            error,
+            fallbackEncouragement: json.encouragement?.text,
+            fallbackEncouragementLength: json.encouragement?.text?.length || 0,
+          },
+          'Ошибка генерации текста для выходных, используем обычный'
+        );
         firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
       }
     } else {
       // В будни используем обычный вдохновляющий текст
+      schedulerLogger.info(
+        {
+          encouragement: json.encouragement?.text,
+          encouragementLength: json.encouragement?.text?.length || 0,
+        },
+        '📅 buildInteractiveMessage: будни - используем обычный encouragement'
+      );
       firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
     }
 
@@ -676,17 +749,19 @@ export class Scheduler {
       previousMessagesBlock = '\n\nОтветы пользователя:';
       userMessages.forEach((msg, i) => {
         // Ограничиваем длину до 500 символов для каждого сообщения
-        const truncatedText = msg.message_text.length > 500 
-          ? msg.message_text.substring(0, 497) + '...' 
-          : msg.message_text;
+        const truncatedText =
+          msg.message_text.length > 500 ? msg.message_text.substring(0, 497) + '...' : msg.message_text;
         previousMessagesBlock += `\n${i + 1}. ${truncatedText}`;
       });
-      
-      schedulerLogger.debug({ 
-        chatId, 
-        userMessagesCount: userMessages.length,
-        totalLength: previousMessagesBlock.length 
-      }, 'Добавлены ответы пользователя в промпт');
+
+      schedulerLogger.debug(
+        {
+          chatId,
+          userMessagesCount: userMessages.length,
+          totalLength: previousMessagesBlock.length,
+        },
+        'Добавлены ответы пользователя в промпт'
+      );
     }
 
     // Определяем занятость пользователя через анализ календаря
@@ -727,7 +802,7 @@ export class Scheduler {
       );
       let rawText = await generateMessage(prompt);
       schedulerLogger.info({ chatId, textLength: rawText?.length || 0 }, `📝 LLM сырой ответ получен`);
-      
+
       // Проверяем на ошибку до очистки
       if (rawText === 'HF_JSON_ERROR') {
         schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (flight)');
@@ -740,10 +815,13 @@ export class Scheduler {
       // Удаляем теги <think>...</think>
       // Сначала пробуем извлечь JSON
       let jsonText = extractJsonFromLLM(rawText);
-      
+
       // Проверяем после извлечения
       if (!jsonText || jsonText === 'HF_JSON_ERROR') {
-        schedulerLogger.warn({ chatId, extractedLength: jsonText?.length || 0 }, '❌ После извлечения JSON пустой (flight)');
+        schedulerLogger.warn(
+          { chatId, extractedLength: jsonText?.length || 0 },
+          '❌ После извлечения JSON пустой (flight)'
+        );
         const fallbackBusy =
           'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
         saveMessage(chatId, fallbackBusy, new Date().toISOString());
@@ -761,12 +839,21 @@ export class Scheduler {
         if (typeof json === 'string') {
           json = JSON.parse(json); // второй парс, если строка
         }
-        
+
         // Исправляем альтернативные ключи для flight режима
         json = fixAlternativeJsonKeys(json, { chatId, source: 'flight' });
-        
+
         if (json && typeof json === 'object' && json.encouragement && json.flight && json.flight.additional_task) {
           // Только encouragement и flight
+          schedulerLogger.info(
+            {
+              chatId,
+              encouragement: json.encouragement.text,
+              encouragementLength: json.encouragement.text?.length || 0,
+              flightTask: json.flight.additional_task,
+            },
+            '✈️ Flight режим: используем encouragement + flight.additional_task'
+          );
           const encouragement = `<i>${escapeHTML(json.encouragement.text)}</i>`;
           const flight = escapeHTML(json.flight.additional_task);
           const message = `${encouragement}\n\n${flight}`;
@@ -778,6 +865,14 @@ export class Scheduler {
       try {
         json = JSON.parse(jsonText);
         if (json && json.encouragement && json.encouragement.text) {
+          schedulerLogger.info(
+            {
+              chatId,
+              encouragement: json.encouragement.text,
+              encouragementLength: json.encouragement.text?.length || 0,
+            },
+            '⚠️ Flight режим: fallback на только encouragement (без flight)'
+          );
           const encouragement = `<i>${escapeHTML(json.encouragement.text)}</i>`;
           saveMessage(chatId, encouragement, new Date().toISOString());
           return encouragement;
@@ -792,13 +887,16 @@ export class Scheduler {
       // Обычный день — используем структуру с пунктами
       schedulerLogger.info({ chatId }, '📅 Пользователь не занят, используем обычный промпт');
       const rawJsonText = await generateMessage(prompt);
-      schedulerLogger.info({ 
-        chatId, 
-        rawLength: rawJsonText?.length || 0,
-        rawPreview: rawJsonText?.substring(0, 200) || 'null',
-        promptLength: prompt?.length || 0
-      }, `📝 LLM сырой ответ получен`);
-      
+      schedulerLogger.info(
+        {
+          chatId,
+          rawLength: rawJsonText?.length || 0,
+          rawPreview: rawJsonText?.substring(0, 200) || 'null',
+          promptLength: prompt?.length || 0,
+        },
+        `📝 LLM сырой ответ получен`
+      );
+
       // Сначала проверяем на исходную ошибку
       if (rawJsonText === 'HF_JSON_ERROR') {
         schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (до очистки)');
@@ -809,21 +907,27 @@ export class Scheduler {
       // Удаляем теги <think>...</think>
       // Для JSON используем специальный экстрактор
       let jsonText = extractJsonFromLLM(rawJsonText);
-      
+
       // Проверяем после извлечения
       if (!jsonText || jsonText === 'HF_JSON_ERROR') {
-        schedulerLogger.warn({ chatId, extractedLength: jsonText?.length || 0 }, '❌ После извлечения JSON пустой или ошибка');
+        schedulerLogger.warn(
+          { chatId, extractedLength: jsonText?.length || 0 },
+          '❌ После извлечения JSON пустой или ошибка'
+        );
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }
-      
-      schedulerLogger.info({ 
-        chatId, 
-        cleanedLength: jsonText?.length || 0,
-        cleanedPreview: jsonText?.substring(0, 200) || 'null',
-        hasThinkTags: rawJsonText?.includes('<think>') || false,
-        hasBrackets: jsonText?.includes('{') || false
-      }, `🧹 После очистки от технических элементов`);
+
+      schedulerLogger.info(
+        {
+          chatId,
+          cleanedLength: jsonText?.length || 0,
+          cleanedPreview: jsonText?.substring(0, 200) || 'null',
+          hasThinkTags: rawJsonText?.includes('<think>') || false,
+          hasBrackets: jsonText?.includes('{') || false,
+        },
+        `🧹 После очистки от технических элементов`
+      );
 
       // Пост-обработка: убираем markdown-блоки и экранирование
       jsonText = jsonText.replace(/```json|```/gi, '').trim();
@@ -833,38 +937,47 @@ export class Scheduler {
       }
       // Заменяем экранированные кавычки
       jsonText = jsonText.replace(/\\"/g, '"').replace(/\"/g, '"');
-      
-      schedulerLogger.debug({ 
-        chatId,
-        finalJsonLength: jsonText?.length || 0,
-        finalJsonPreview: jsonText?.substring(0, 200) || 'null'
-      }, `🔧 После финальной обработки JSON`);
+
+      schedulerLogger.debug(
+        {
+          chatId,
+          finalJsonLength: jsonText?.length || 0,
+          finalJsonPreview: jsonText?.substring(0, 200) || 'null',
+        },
+        `🔧 После финальной обработки JSON`
+      );
       let json: any;
       try {
-        schedulerLogger.debug({ 
-          chatId,
-          beforeParse: jsonText?.substring(0, 100) || 'null'
-        }, `🔍 Пытаемся парсить JSON`);
-        
+        schedulerLogger.debug(
+          {
+            chatId,
+            beforeParse: jsonText?.substring(0, 100) || 'null',
+          },
+          `🔍 Пытаемся парсить JSON`
+        );
+
         json = JSON.parse(jsonText);
         if (typeof json === 'string') {
           schedulerLogger.debug({ chatId }, '📦 Двойной парсинг: результат первого парсинга - строка');
           json = JSON.parse(json); // второй парс, если строка
         }
-        
+
         // Исправляем альтернативные ключи от модели
         json = fixAlternativeJsonKeys(json, { chatId, source: 'scheduled' });
-        
-        schedulerLogger.info({ 
-          chatId,
-          parsedType: typeof json,
-          hasEncouragement: !!json?.encouragement,
-          hasNegativePart: !!json?.negative_part,
-          hasPositivePart: !!json?.positive_part,
-          hasFeelsEmotions: 'feels_and_emotions' in (json || {}),
-          jsonKeys: json ? Object.keys(json) : []
-        }, `✅ JSON успешно распаршен`);
-        
+
+        schedulerLogger.info(
+          {
+            chatId,
+            parsedType: typeof json,
+            hasEncouragement: !!json?.encouragement,
+            hasNegativePart: !!json?.negative_part,
+            hasPositivePart: !!json?.positive_part,
+            hasFeelsEmotions: 'feels_and_emotions' in (json || {}),
+            jsonKeys: json ? Object.keys(json) : [],
+          },
+          `✅ JSON успешно распаршен`
+        );
+
         // Проверяем, что структура валидная
         if (
           !json ||
@@ -874,16 +987,23 @@ export class Scheduler {
           !json.positive_part ||
           !('feels_and_emotions' in json)
         ) {
-          throw new Error(`Invalid structure: missing fields - encouragement: ${!!json?.encouragement}, negative_part: ${!!json?.negative_part}, positive_part: ${!!json?.positive_part}, feels_and_emotions: ${'feels_and_emotions' in (json || {})}`);
+          throw new Error(
+            `Invalid structure: missing fields - encouragement: ${!!json?.encouragement}, negative_part: ${!!json?.negative_part}, positive_part: ${!!json?.positive_part}, feels_and_emotions: ${
+              'feels_and_emotions' in (json || {})
+            }`
+          );
         }
       } catch (parseError) {
         // fallback всегда
-        schedulerLogger.warn({ 
-          chatId, 
-          error: (parseError as Error).message,
-          jsonTextLength: jsonText?.length || 0,
-          jsonTextSample: jsonText?.substring(0, 200) || 'null'
-        }, '❌ JSON парсинг не удался, используем fallback');
+        schedulerLogger.warn(
+          {
+            chatId,
+            error: (parseError as Error).message,
+            jsonTextLength: jsonText?.length || 0,
+            jsonTextSample: jsonText?.substring(0, 200) || 'null',
+          },
+          '❌ JSON парсинг не удался, используем fallback'
+        );
         const fallback = readFileSync('assets/fallback_text', 'utf-8');
         return fallback;
       }
@@ -911,6 +1031,8 @@ export class Scheduler {
     firstPart: string;
     relaxationType: 'body' | 'breathing';
   }> {
+    // Для поста используем простое сообщение
+    const postFallback = 'Надеюсь, у тебя был хороший день!';
     // Получаем данные пользователя, включая имя и пол
     const user = getUserByChatId(chatId);
     const userName = user?.name || null;
@@ -972,17 +1094,19 @@ export class Scheduler {
       previousMessagesBlock = '\n\nОтветы пользователя:';
       userMessages.forEach((msg, i) => {
         // Ограничиваем длину до 500 символов для каждого сообщения
-        const truncatedText = msg.message_text.length > 500 
-          ? msg.message_text.substring(0, 497) + '...' 
-          : msg.message_text;
+        const truncatedText =
+          msg.message_text.length > 500 ? msg.message_text.substring(0, 497) + '...' : msg.message_text;
         previousMessagesBlock += `\n${i + 1}. ${truncatedText}`;
       });
-      
-      schedulerLogger.debug({ 
-        chatId, 
-        userMessagesCount: userMessages.length,
-        totalLength: previousMessagesBlock.length 
-      }, 'Добавлены ответы пользователя в промпт для интерактивного режима');
+
+      schedulerLogger.debug(
+        {
+          chatId,
+          userMessagesCount: userMessages.length,
+          totalLength: previousMessagesBlock.length,
+        },
+        'Добавлены ответы пользователя в промпт для интерактивного режима'
+      );
     }
 
     // Определяем занятость пользователя через анализ календаря
@@ -1019,26 +1143,37 @@ export class Scheduler {
       { chatId, rawLength: rawJsonText?.length || 0 },
       `📝 LLM сырой ответ получен для интерактивного режима`
     );
-    
+
     // Временное детальное логирование для отладки
     if (rawJsonText && rawJsonText.length > 0 && rawJsonText !== 'HF_JSON_ERROR') {
       const hasThinkTags = rawJsonText.includes('<think>');
       const hasJson = rawJsonText.includes('{') && rawJsonText.includes('}');
-      schedulerLogger.warn({ 
-        chatId,
-        hasThinkTags,
-        hasJson,
-        first500chars: rawJsonText.substring(0, 500),
-        last500chars: rawJsonText.substring(Math.max(0, rawJsonText.length - 500))
-      }, `🔍 ОТЛАДКА: Детальный анализ ответа модели`);
+      schedulerLogger.warn(
+        {
+          chatId,
+          hasThinkTags,
+          hasJson,
+          first500chars: rawJsonText.substring(0, 500),
+          last500chars: rawJsonText.substring(Math.max(0, rawJsonText.length - 500)),
+        },
+        `🔍 ОТЛАДКА: Детальный анализ ответа модели`
+      );
     }
 
     // Проверяем на ошибку до очистки
     if (rawJsonText === 'HF_JSON_ERROR') {
       schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме (до очистки)');
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
-      // Для поста используем простое сообщение
-      const postFallback = 'Надеюсь, у тебя был хороший день!';
+
+      schedulerLogger.info(
+        {
+          chatId,
+          fallbackText: fallback,
+          fallbackLength: fallback.length,
+        },
+        '🔄 Используем fallback текст как encouragement (HF_JSON_ERROR до очистки)'
+      );
+
       // Возвращаем fallback как JSON
       return {
         json: {
@@ -1051,14 +1186,37 @@ export class Scheduler {
       };
     }
 
-    // Удаляем теги <think>...</think>
-    let jsonText = cleanLLMText(rawJsonText);
-    
-    // Проверяем после очистки
+    // Извлекаем JSON из ответа (удаляем теги <think>...</think> и находим JSON)
+    let jsonText = extractJsonFromLLM(rawJsonText);
+
+    // Добавляем логирование результата извлечения
+    schedulerLogger.info(
+      {
+        chatId,
+        extractedLength: jsonText?.length || 0,
+        extractedPreview: jsonText?.substring(0, 200) || 'null',
+        isValidJsonStart: jsonText?.trim().startsWith('{') || false,
+      },
+      '📋 Результат извлечения JSON'
+    );
+
+    // Проверяем после извлечения
     if (!jsonText || jsonText === 'HF_JSON_ERROR') {
-      schedulerLogger.warn({ chatId, cleanedLength: jsonText?.length || 0 }, '❌ После очистки текст пустой в интерактивном режиме');
+      schedulerLogger.warn(
+        { chatId, extractedLength: jsonText?.length || 0 },
+        '❌ После извлечения JSON пустой или ошибка в интерактивном режиме'
+      );
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
-      const postFallback = 'Надеюсь, у тебя был хороший день!';
+
+      schedulerLogger.info(
+        {
+          chatId,
+          fallbackText: fallback,
+          fallbackLength: fallback.length,
+        },
+        '🔄 Используем fallback текст как encouragement (после извлечения пустой/ошибка)'
+      );
+
       return {
         json: {
           encouragement: { text: fallback },
@@ -1080,14 +1238,29 @@ export class Scheduler {
 
     let json: any;
     try {
+      // Детальное логирование перед парсингом
+      schedulerLogger.info(
+        {
+          chatId,
+          jsonTextLength: jsonText.length,
+          startsWithBrace: jsonText.startsWith('{'),
+          endsWithBrace: jsonText.endsWith('}'),
+          hasNewlines: jsonText.includes('\n'),
+          preview: jsonText.substring(0, 300),
+          lastChars: jsonText.substring(Math.max(0, jsonText.length - 100)),
+        },
+        '📋 Попытка парсинга JSON'
+      );
+
       json = JSON.parse(jsonText);
       if (typeof json === 'string') {
+        schedulerLogger.info({ chatId }, '⚠️ JSON.parse вернул строку, пробуем второй парсинг');
         json = JSON.parse(json); // второй парс, если строка
       }
-      
+
       // Исправляем альтернативные ключи от модели
       json = fixAlternativeJsonKeys(json, { chatId, source: 'interactive' });
-      
+
       // Проверяем, что структура валидная
       if (
         !json ||
@@ -1097,18 +1270,88 @@ export class Scheduler {
         !json.positive_part ||
         !('feels_and_emotions' in json)
       ) {
+        schedulerLogger.warn(
+          {
+            chatId,
+            hasEncouragement: !!json?.encouragement,
+            hasNegativePart: !!json?.negative_part,
+            hasPositivePart: !!json?.positive_part,
+            hasFeelsAndEmotions: 'feels_and_emotions' in (json || {}),
+            jsonKeys: json ? Object.keys(json) : [],
+          },
+          '⚠️ Структура JSON не соответствует ожидаемой'
+        );
         throw new Error('Invalid structure');
       }
+
+      // Проверяем что модель не вернула шаблон с "..."
+      const encouragementText = json.encouragement?.text || '';
+      if (encouragementText === '...' || encouragementText.length < 10) {
+        schedulerLogger.warn(
+          {
+            chatId,
+            encouragementText,
+            allTexts: {
+              encouragement: json.encouragement?.text,
+              negative: json.negative_part?.additional_text,
+              positive: json.positive_part?.additional_text,
+              emotions: json.feels_and_emotions?.additional_text,
+              support: json.deep_support?.text,
+            },
+          },
+          '⚠️ Модель вернула шаблон с "..." вместо реального текста'
+        );
+        throw new Error('Template with dots instead of real text');
+      }
+
+      // Логируем успешную валидацию encouragement
+      schedulerLogger.info(
+        {
+          chatId,
+          encouragementText,
+          encouragementLength: encouragementText.length,
+          hasNegativePart: !!json.negative_part?.additional_text,
+          hasPositivePart: !!json.positive_part?.additional_text,
+          hasEmotions: !!json.feels_and_emotions?.additional_text,
+        },
+        '✅ JSON успешно распарсен, encouragement валиден'
+      );
     } catch (error) {
-      // fallback всегда
-      schedulerLogger.warn({ 
-        chatId, 
-        jsonText: jsonText.substring(0, 200),
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, '❌ JSON парсинг не удался в интерактивном режиме, используем fallback');
+      // Подробное логирование ошибки
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const syntaxErrorMatch = errorMsg.match(/position (\d+)/);
+
+      let errorContext = '';
+      if (syntaxErrorMatch) {
+        const position = parseInt(syntaxErrorMatch[1]);
+        const start = Math.max(0, position - 50);
+        const end = Math.min(jsonText.length, position + 50);
+        errorContext = jsonText.substring(start, end);
+      }
+
+      schedulerLogger.warn(
+        {
+          chatId,
+          jsonTextLength: jsonText.length,
+          jsonTextPreview: jsonText.substring(0, 500),
+          error: errorMsg,
+          errorType: error instanceof SyntaxError ? 'SyntaxError' : 'Other',
+          errorContext,
+          syntaxErrorPosition: syntaxErrorMatch ? syntaxErrorMatch[1] : null,
+        },
+        '❌ JSON парсинг не удался в интерактивном режиме, используем fallback'
+      );
       const fallback = readFileSync('assets/fallback_text', 'utf-8');
-      // Для поста используем простое сообщение
-      const postFallback = 'Надеюсь, у тебя был хороший день!';
+
+      schedulerLogger.info(
+        {
+          chatId,
+          fallbackText: fallback,
+          fallbackLength: fallback.length,
+        },
+        '🔄 Используем fallback текст как encouragement (ошибка парсинга)'
+      );
+
       return {
         json: {
           encouragement: { text: fallback },
@@ -1356,11 +1599,11 @@ export class Scheduler {
 
       // Добавляем текст "Переходи в комментарии и продолжим 😉"
       const captionWithComment = firstPart + '\n\nПереходи в комментарии и продолжим 😉';
-      
+
       // Генерируем слова поддержки для оценок дня ДО отправки
       schedulerLogger.info({ chatId }, '🎯 Генерируем слова поддержки для оценок дня');
       const { generateDayRatingSupportWords, getDefaultSupportWords } = await import('./utils/support-words');
-      
+
       let supportWords;
       try {
         supportWords = await generateDayRatingSupportWords();
@@ -1368,19 +1611,19 @@ export class Scheduler {
         schedulerLogger.error({ error }, 'Ошибка генерации слов поддержки, используем дефолтные');
         supportWords = getDefaultSupportWords();
       }
-      
+
       // Определяем пользователя для поста из env, с учетом режима бота
       const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
-      
+
       // Добавляем слова поддержки в message_data
       const messageDataWithSupport = {
         ...json,
-        day_rating_support: supportWords
+        day_rating_support: supportWords,
       };
-      
+
       // СНАЧАЛА сохраняем в БД (используем временный ID)
       const tempMessageId = Date.now(); // Временный ID на основе timestamp
-      
+
       const { saveInteractivePost } = await import('./db');
       try {
         saveInteractivePost(tempMessageId, postUserId, messageDataWithSupport, relaxationType);
@@ -1391,7 +1634,13 @@ export class Scheduler {
         // Уведомляем админа о критической ошибке
         const adminChatId = this.getAdminChatId();
         if (adminChatId) {
-          await this.bot.telegram.sendMessage(adminChatId, `❌ Критическая ошибка при отправке поста пользователю ${chatId}: не удалось сохранить в БД\n\nОшибка: ${(dbError as Error).message}`)
+          await this.bot.telegram
+            .sendMessage(
+              adminChatId,
+              `❌ Критическая ошибка при отправке поста пользователю ${chatId}: не удалось сохранить в БД\n\nОшибка: ${
+                (dbError as Error).message
+              }`
+            )
             .catch(err => schedulerLogger.error({ error: err }, 'Не удалось отправить уведомление админу'));
         }
         return;
@@ -1399,7 +1648,7 @@ export class Scheduler {
 
       // Отправляем основной пост БЕЗ кнопок с механизмом повторных попыток
       let sentMessage;
-      
+
       // Подготавливаем данные для повторных попыток
       const retryData = {
         chatId,
@@ -1408,9 +1657,9 @@ export class Scheduler {
         captionWithComment,
         postUserId,
         relaxationType,
-        generatedImageBuffer: imageBuffer
+        generatedImageBuffer: imageBuffer,
       };
-      
+
       // Функция отправки для использования в sendWithRetry
       const sendPhotoFunction = async () => {
         if (imageBuffer) {
@@ -1437,17 +1686,17 @@ export class Scheduler {
           );
         }
       };
-      
+
       // Коллбэк после успешной отправки
       const onSuccessCallback = async (result: any) => {
         const messageId = result.message_id;
-        
+
         // Обновляем временный ID на реальный после успешной отправки
         try {
           const db = await import('./db');
           const updateQuery = db.db.query(`
-            UPDATE interactive_posts 
-            SET channel_message_id = ? 
+            UPDATE interactive_posts
+            SET channel_message_id = ?
             WHERE channel_message_id = ?
           `);
           updateQuery.run(messageId, tempMessageId);
@@ -1464,32 +1713,42 @@ export class Scheduler {
             deleteQuery.run(tempMessageId);
             schedulerLogger.info({ messageId }, '✅ Создана fallback запись с правильным ID');
           } catch (fallbackError) {
-            schedulerLogger.error({ error: fallbackError }, '❌ Критическая ошибка: не удалось создать fallback запись');
+            schedulerLogger.error(
+              { error: fallbackError },
+              '❌ Критическая ошибка: не удалось создать fallback запись'
+            );
           }
         }
-        
+
         // Готовим выбор сценария для отправки в комментарии
         const scenarioChoiceText = '<b>Как сегодня хочешь поработать?</b>';
         const scenarioChoiceKeyboard = {
           inline_keyboard: [
             [{ text: 'Упрощенный сценарий 🧩', callback_data: `scenario_simplified_${messageId}` }],
-            [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${messageId}` }]
+            [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${messageId}` }],
           ],
         };
-        
+
         // Получаем ID группы обсуждений
         const CHAT_ID = this.getChatId();
         if (CHAT_ID) {
           // Отправляем выбор сценария асинхронно после появления пересланного сообщения
-          this.sendFirstTaskAsync(messageId, scenarioChoiceText, scenarioChoiceKeyboard, 'scenario_choice', chatId, CHAT_ID);
+          this.sendFirstTaskAsync(
+            messageId,
+            scenarioChoiceText,
+            scenarioChoiceKeyboard,
+            'scenario_choice',
+            chatId,
+            CHAT_ID
+          );
         }
-        
+
         // Сохраняем сообщение в истории
         const { saveMessage } = await import('./db');
         const startTime = new Date().toISOString();
         saveMessage(chatId, captionWithComment, startTime);
       };
-      
+
       // Отправляем с повторными попытками
       sentMessage = await this.sendWithRetry(sendPhotoFunction, {
         chatId,
@@ -1497,9 +1756,9 @@ export class Scheduler {
         retryData,
         maxAttempts: 111, // 111 попыток для интерактивных сообщений
         intervalMs: 60000, // 1 минута между попытками
-        onSuccess: onSuccessCallback
+        onSuccess: onSuccessCallback,
       });
-      
+
       const postSentTime = new Date();
       schedulerLogger.info(
         {
@@ -1508,7 +1767,7 @@ export class Scheduler {
           messageId: sentMessage.message_id,
           sentAt: postSentTime.toISOString(),
           timestamp: postSentTime.getTime(),
-          hasGeneratedImage: !!imageBuffer
+          hasGeneratedImage: !!imageBuffer,
         },
         'Основной пост отправлен в канал'
       );
@@ -1544,12 +1803,11 @@ export class Scheduler {
         { error: error.message, stack: error.stack, chatId },
         'Ошибка отправки интерактивного сообщения'
       );
-      
+
       // Пробрасываем ошибку для обработки в команде
       throw error;
     }
   }
-
 
   // Асинхронная отправка первого задания как комментария к посту
   private async sendFirstTaskAsync(
@@ -1631,7 +1889,7 @@ export class Scheduler {
             chatId: originalChatId,
             messageType: 'first_task_with_thread',
             maxAttempts: 10,
-            intervalMs: 5000
+            intervalMs: 5000,
           }
         );
 
@@ -1666,7 +1924,7 @@ export class Scheduler {
             chatId: originalChatId,
             messageType: 'first_task_no_thread',
             maxAttempts: 10,
-            intervalMs: 5000
+            intervalMs: 5000,
           }
         );
 
@@ -1720,12 +1978,13 @@ export class Scheduler {
 
     if (!this.users || this.users.size === 0) {
       await this.sendWithRetry(
-        () => this.bot.telegram.sendMessage(adminChatId, '❗️Нет пользователей для рассылки. Отправляю сообщение себе.'),
+        () =>
+          this.bot.telegram.sendMessage(adminChatId, '❗️Нет пользователей для рассылки. Отправляю сообщение себе.'),
         {
           chatId: adminChatId,
           messageType: 'admin_no_users_warning',
           maxAttempts: 5,
-          intervalMs: 3000
+          intervalMs: 3000,
         }
       );
       await this.sendDailyMessage(adminChatId);
@@ -1785,15 +2044,12 @@ export class Scheduler {
 ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}` : ''}`;
 
     try {
-      await this.sendWithRetry(
-        () => this.bot.telegram.sendMessage(adminChatId, reportMessage),
-        {
-          chatId: adminChatId,
-          messageType: 'admin_daily_report',
-          maxAttempts: 5,
-          intervalMs: 3000
-        }
-      );
+      await this.sendWithRetry(() => this.bot.telegram.sendMessage(adminChatId, reportMessage), {
+        chatId: adminChatId,
+        messageType: 'admin_daily_report',
+        maxAttempts: 5,
+        intervalMs: 3000,
+      });
     } catch (adminError) {
       botLogger.error(adminError as Error, 'Отчет админу');
     }
@@ -1863,15 +2119,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         // Отправляем напоминание в личку пользователю
-        await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(chatId, reminderText),
-          {
-            chatId,
-            messageType: 'daily_reminder',
-            maxAttempts: 5,
-            intervalMs: 3000
-          }
-        );
+        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, reminderText), {
+          chatId,
+          messageType: 'daily_reminder',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        });
 
         schedulerLogger.info({ chatId }, '📨 Напоминание отправлено пользователю');
       }
@@ -1900,10 +2153,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // Проверяем, не получал ли пользователь уже задание с практикой в этом посте
     const { getInteractivePost } = await import('./db');
     const post = getInteractivePost(channelMessageId);
-    
+
     if (post && post.task3_completed) {
       schedulerLogger.debug(
-        { chatId, channelMessageId }, 
+        { chatId, channelMessageId },
         'Пользователь уже получал задание с практикой в этом посте - напоминание не нужно'
       );
       return;
@@ -1914,12 +2167,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     const delayMs = delayMinutes * 60 * 1000;
 
     schedulerLogger.debug(
-      { 
-        chatId, 
-        channelMessageId, 
+      {
+        chatId,
+        channelMessageId,
         delayMinutes,
-        isTestBot: this.isTestBot() 
-      }, 
+        isTestBot: this.isTestBot(),
+      },
       `⏰ Устанавливаем напоминание о незавершенной работе через ${delayMinutes} мин`
     );
 
@@ -1928,7 +2181,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Проверяем текущее состояние поста
         const { getInteractivePost } = await import('./db');
         const post = getInteractivePost(channelMessageId);
-        
+
         if (!post) {
           schedulerLogger.debug({ channelMessageId }, 'Пост не найден, пропускаем напоминание');
           return;
@@ -1937,31 +2190,34 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Проверяем, не дошел ли пользователь до дыхательной практики
         const currentState = post.current_state;
         const practiceStates = ['waiting_practice', 'deep_waiting_practice', 'finished'];
-        
+
         if (practiceStates.includes(currentState)) {
-          schedulerLogger.debug({ channelMessageId, currentState }, 'Пользователь уже дошел до практики, напоминание не нужно');
+          schedulerLogger.debug(
+            { channelMessageId, currentState },
+            'Пользователь уже дошел до практики, напоминание не нужно'
+          );
           return;
         }
 
         // Отправляем напоминание
         const reminderText = '🐸 Вижу, что лягуха не получила ответы на все задания. Давай доделаем - возвращайся 🤗';
-        await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(chatId, reminderText),
-          {
-            chatId,
-            messageType: 'incomplete_work_reminder',
-            maxAttempts: 5,
-            intervalMs: 3000
-          }
-        );
+        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, reminderText), {
+          chatId,
+          messageType: 'incomplete_work_reminder',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        });
 
         schedulerLogger.info({ chatId, channelMessageId }, '📨 Напоминание о незавершенной работе отправлено');
-        
+
         // ВАЖНО: Удаляем таймер из Map после отправки напоминания
         this.reminderTimeouts.delete(chatId);
         schedulerLogger.debug({ chatId }, '🗑️ Таймер удален из Map после отправки напоминания');
       } catch (error) {
-        schedulerLogger.error({ error: (error as Error).message, chatId }, 'Ошибка отправки напоминания о незавершенной работе');
+        schedulerLogger.error(
+          { error: (error as Error).message, chatId },
+          'Ошибка отправки напоминания о незавершенной работе'
+        );
         // Удаляем таймер даже в случае ошибки
         this.reminderTimeouts.delete(chatId);
       }
@@ -2059,19 +2315,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
             if (adminChatId) {
               await this.sendWithRetry(
-                () => this.bot.telegram.sendMessage(
-                  adminChatId,
-                  `🚨 КРИТИЧЕСКАЯ ОШИБКА в автоматической рассылке!\n\n` +
-                    `⏰ Время: ${startTimeMoscow}\n` +
-                    `❌ Ошибка: ${error}\n` +
-                    `⏱️ Длительность: ${duration}ms\n\n` +
-                    `Проверьте логи сервера для подробностей.`
-                ),
+                () =>
+                  this.bot.telegram.sendMessage(
+                    adminChatId,
+                    `🚨 КРИТИЧЕСКАЯ ОШИБКА в автоматической рассылке!\n\n` +
+                      `⏰ Время: ${startTimeMoscow}\n` +
+                      `❌ Ошибка: ${error}\n` +
+                      `⏱️ Длительность: ${duration}ms\n\n` +
+                      `Проверьте логи сервера для подробностей.`
+                  ),
                 {
                   chatId: adminChatId,
                   messageType: 'admin_critical_error',
                   maxAttempts: 5,
-                  intervalMs: 3000
+                  intervalMs: 3000,
                 }
               );
             }
@@ -2119,12 +2376,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
             if (adminChatId) {
               await this.sendWithRetry(
-                () => this.bot.telegram.sendMessage(adminChatId, `🚨 ОШИБКА в утренней проверке!\n\n❌ Ошибка: ${error}`),
+                () =>
+                  this.bot.telegram.sendMessage(adminChatId, `🚨 ОШИБКА в утренней проверке!\n\n❌ Ошибка: ${error}`),
                 {
                   chatId: adminChatId,
                   messageType: 'admin_morning_error',
                   maxAttempts: 5,
-                  intervalMs: 3000
+                  intervalMs: 3000,
                 }
               );
             }
@@ -2333,7 +2591,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             chatId: adminChatId,
             messageType: 'admin_morning_report',
             maxAttempts: 5,
-            intervalMs: 3000
+            intervalMs: 3000,
           }
         );
       } catch (adminError) {
@@ -2342,17 +2600,16 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-
   // Извлечение конкретной секции промпта из файла
   private extractPromptSection(fileContent: string, promptNumber: number): string | null {
     try {
       // Определяем маркеры для каждой секции
       const sectionMarkers = {
         1: '## ПРОМТ №1 - злюсь',
-        2: '## ПРОМТ №2 - расстроен', 
+        2: '## ПРОМТ №2 - расстроен',
         3: '## ПРОМТ №3 - переживаю, забочусь, поддерживаю',
         4: '## ПРОМТ №4 - шутки шучу',
-        5: '## ПРОМТ №5 (перепроверка)'
+        5: '## ПРОМТ №5 (перепроверка)',
       };
 
       const currentMarker = sectionMarkers[promptNumber as keyof typeof sectionMarkers];
@@ -2372,7 +2629,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       let endIndex = fileContent.length;
       const allMarkers = Object.values(sectionMarkers);
       const currentMarkerIndex = allMarkers.indexOf(currentMarker);
-      
+
       // Ищем следующую секцию
       for (let i = currentMarkerIndex + 1; i < allMarkers.length; i++) {
         const nextMarkerIndex = fileContent.indexOf(allMarkers[i], startIndex + 1);
@@ -2383,13 +2640,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Извлекаем текст секции
       const sectionContent = fileContent.substring(startIndex, endIndex).trim();
-      
+
       schedulerLogger.debug(
-        { 
-          promptNumber, 
+        {
+          promptNumber,
           sectionLength: sectionContent.length,
-          preview: sectionContent.substring(0, 100) 
-        }, 
+          preview: sectionContent.substring(0, 100),
+        },
         'Извлечена секция промпта'
       );
 
@@ -2406,23 +2663,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Ищем маркер начала примеров
       const examplesMarker = '### Примеры хороших ответов';
       const examplesStart = promptSection.indexOf(examplesMarker);
-      
+
       if (examplesStart === -1) {
         schedulerLogger.warn('Не найден маркер примеров в промпте');
         return [];
       }
-      
+
       // Вырезаем часть с примерами
       const examplesSection = promptSection.substring(examplesStart + examplesMarker.length);
-      
+
       // Разбиваем на строки и фильтруем
       const lines = examplesSection.split('\n');
       const examples: string[] = [];
       let currentExample = '';
-      
+
       for (const line of lines) {
         const trimmedLine = line.trim();
-        
+
         // Пропускаем пустые строки
         if (!trimmedLine) {
           // Если накопили пример, добавляем его
@@ -2432,7 +2689,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
           continue;
         }
-        
+
         // Если строка начинается с дефиса - это начало нового примера
         if (trimmedLine.startsWith('-')) {
           // Если был предыдущий пример, добавляем его
@@ -2446,17 +2703,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           currentExample += '\n' + trimmedLine;
         }
       }
-      
+
       // Добавляем последний пример, если есть
       if (currentExample) {
         examples.push(currentExample.trim());
       }
-      
-      schedulerLogger.debug({ 
-        examplesCount: examples.length,
-        firstExample: examples[0]?.substring(0, 50)
-      }, 'Извлечены примеры из промпта');
-      
+
+      schedulerLogger.debug(
+        {
+          examplesCount: examples.length,
+          firstExample: examples[0]?.substring(0, 50),
+        },
+        'Извлечены примеры из промпта'
+      );
+
       return examples;
     } catch (error) {
       schedulerLogger.error({ error }, 'Ошибка извлечения примеров из промпта');
@@ -2470,28 +2730,30 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Находим где начинаются примеры
       const examplesMarker = '### Примеры хороших ответов';
       const examplesStart = basePromptSection.indexOf(examplesMarker);
-      
+
       if (examplesStart === -1) {
         // Если не нашли маркер, возвращаем промпт как есть
         return basePromptSection;
       }
-      
+
       // Берем всю часть до примеров
       const promptBeforeExamples = basePromptSection.substring(0, examplesStart);
-      
+
       // Изменяем правила, чтобы указать на использование конкретного примера
       const modifiedPrompt = promptBeforeExamples.replace(
         'Выбери рандомным образом один из примеров ниже и на основании его напиши ответ в похожем стиле',
         'На основании примера ниже напиши ответ в похожем стиле'
       );
-      
+
       // Создаем новый промпт с одним примером
-      const newPrompt = modifiedPrompt + 
+      const newPrompt =
+        modifiedPrompt +
         '### Пример для подражания\n\n' +
-        selectedExample + '\n\n' +
+        selectedExample +
+        '\n\n' +
         'Напиши новый текст в точно таком же стиле, сохраняя тональность, длину и структуру примера.\n\n' +
         'ВАЖНО: Генерируй ТОЛЬКО готовый текст для отправки пользователю. БЕЗ размышлений, БЕЗ префиксов "Мысли:", "Ответ:", БЕЗ технических пометок. Только чистый текст в стиле примера.';
-      
+
       return newPrompt;
     } catch (error) {
       schedulerLogger.error({ error }, 'Ошибка создания промпта с одним примером');
@@ -2510,14 +2772,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     try {
       // Читаем файл с промптами
       const angryPromptsFile = readFileSync('assets/prompts/no-answer', 'utf-8');
-      
+
       // Выбираем рандомно один из 4 вариантов
       const promptNumber = Math.floor(Math.random() * 4) + 1; // 1, 2, 3 или 4
-      
+
       schedulerLogger.info({ promptNumber }, `🎲 Выбран вариант промпта №${promptNumber} для злого поста`);
-      
+
       let finalText = '';
-      
+
       if (promptNumber === 4) {
         // Вариант 4 - выбираем рандомный пример из списка, исключая последние 5 использованных
         const prompt4Examples = [
@@ -2536,22 +2798,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           'Разыскивается человек, который не заполняет лягуху! 🕵🏻‍♂️\nОсобые приметы: умеет писать, но вчера этого не сделал 🤨\nВознаграждение: 50 мух, 100 комаров.\nP.S. Тебе бы лучше сделать задание поскорее, а то запущу их всех 🪰🦟 к тебе 😈',
           'По болоту ходят слухи, что ты вчера не сделал задания 🗣️\nКомары уже сплетничают, что психолог из меня хреновый 🙈 Спаси мою репутацию - напиши что-нибудь! 🥲',
           'Ты знаешь, у меня в пруду собеседников толковых не много. Поговори со мной 😅 \n А если серьезно - давай заполним вчерашний пробел. Смотри задания 🗓️ в посте выше ☝🏻',
-          'Вчера я начал вести дневник: \"Человек игнорирует мои сообщения. Переживаю, что меня уволят. Ощущаю тревогу, разочарование в себе и обиду" 😢 \n Подышал - полегчало. \nНо будет еще лучше, когда ты сделаешь задания 📝',
+          'Вчера я начал вести дневник: "Человек игнорирует мои сообщения. Переживаю, что меня уволят. Ощущаю тревогу, разочарование в себе и обиду" 😢 \n Подышал - полегчало. \nНо будет еще лучше, когда ты сделаешь задания 📝',
           'Без твоих вчерашних ответов я начал разговаривать сам с собой 🐸 Беседа вышла интересная, но я предпочитаю твою компанию 🗣️ \nВозвращайся поскорее 😅',
           'Вчера ты молчал, и я от нечего делать организовал забастовку мух. Они требуют твоего возвращения! 📢 \nСделай быстрее задания ✍🏻',
-          'Я вчера так долго ждал твой ответ, что успел написать автобиографию. \n Глава 15: \"Все еще жду" 🗿 \nЧувствовал себя глупо 🙈 Сгладь эту неловкость - выполни задания',
+          'Я вчера так долго ждал твой ответ, что успел написать автобиографию. \n Глава 15: "Все еще жду" 🗿 \nЧувствовал себя глупо 🙈 Сгладь эту неловкость - выполни задания',
           'Вчера я тренировался в телепатии. Не сработало! 🥲 Так и не понял, о чем ты думаешь 💬 Поэтому расскажи мне',
           'Я буду на доске позора за такую работу 😱 Спасай ситуацию - сделай задания ✏️',
           'Я вчера от скуки начал считать капли дождя. Дошел до 1247 и понял - твои сообщения интереснее! 😉 \nВозвращайся, пока я не стал метеорологом 🌧️',
           'Знаешь что? Вчера без твоих ответов я так заскучал, что начал учиться синхронному плаванию! 🏊 \nПрогресс есть, но лучше бы мы с тобой поговорили!',
           'Слушай, я тут дошел до того, что начал давать психологические консультации мошкам! \nНо они жужжали что-то непонятное.. и.. я их съел.. 😐 \nДавай лучше мы с тобой продолжим, а? 😄',
-          'Мне придется вызвать лягушачью полицию! 🐸 \nОставлять мои задания невыполненными - возмутительно! Исправь ситуацию'
+          'Мне придется вызвать лягушачью полицию! 🐸 \nОставлять мои задания невыполненными - возмутительно! Исправь ситуацию',
         ];
-        
+
         // Получаем последние использованные примеры
         const lastUsedIndices = getLastUsedAngryExamples(7);
         schedulerLogger.info({ lastUsedIndices }, '📋 Последние использованные примеры');
-        
+
         // Отфильтровываем доступные примеры
         const availableIndices: number[] = [];
         for (let i = 0; i < prompt4Examples.length; i++) {
@@ -2559,46 +2821,48 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             availableIndices.push(i);
           }
         }
-        
+
         // Если все примеры использованы (маловероятно при 25 примерах), используем все
-        const indicesToChooseFrom = availableIndices.length > 0 ? availableIndices : 
-          Array.from({ length: prompt4Examples.length }, (_, i) => i);
-        
+        const indicesToChooseFrom =
+          availableIndices.length > 0 ? availableIndices : Array.from({ length: prompt4Examples.length }, (_, i) => i);
+
         // Выбираем рандомный индекс из доступных
         const selectedIndex = indicesToChooseFrom[Math.floor(Math.random() * indicesToChooseFrom.length)];
         finalText = prompt4Examples[selectedIndex];
-        
+
         // Сохраняем в историю
         addUsedAngryExample(selectedIndex);
-        
-        schedulerLogger.info({ 
-          selectedIndex,
-          selectedExample: finalText.substring(0, 50),
-          availableCount: availableIndices.length,
-          totalCount: prompt4Examples.length
-        }, '📝 Выбран готовый пример из варианта 4');
-        
+
+        schedulerLogger.info(
+          {
+            selectedIndex,
+            selectedExample: finalText.substring(0, 50),
+            availableCount: availableIndices.length,
+            totalCount: prompt4Examples.length,
+          },
+          '📝 Выбран готовый пример из варианта 4'
+        );
       } else {
         // Варианты 1, 2 или 3 - используем LLM
-        
+
         // Извлекаем нужный промпт из файла
         const promptSection = this.extractPromptSection(angryPromptsFile, promptNumber);
-        
+
         if (!promptSection) {
           throw new Error(`Не удалось извлечь промпт №${promptNumber} из файла`);
         }
-        
+
         // Извлекаем все примеры из секции
         const examples = this.extractExamplesFromPrompt(promptSection);
-        
+
         if (examples.length === 0) {
           throw new Error(`Не найдены примеры в промпте №${promptNumber}`);
         }
-        
+
         // Получаем последние использованные примеры для этого промпта
         const lastUsedIndices = getLastUsedPromptExamples(promptNumber, 7);
         schedulerLogger.info({ promptNumber, lastUsedIndices }, '📋 Последние использованные примеры промпта');
-        
+
         // Отфильтровываем доступные примеры
         const availableIndices: number[] = [];
         for (let i = 0; i < examples.length; i++) {
@@ -2606,35 +2870,38 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             availableIndices.push(i);
           }
         }
-        
+
         // Если все примеры использованы, используем все
-        const indicesToChooseFrom = availableIndices.length > 0 ? availableIndices : 
-          Array.from({ length: examples.length }, (_, i) => i);
-        
+        const indicesToChooseFrom =
+          availableIndices.length > 0 ? availableIndices : Array.from({ length: examples.length }, (_, i) => i);
+
         // Выбираем рандомный индекс из доступных
         const selectedIndex = indicesToChooseFrom[Math.floor(Math.random() * indicesToChooseFrom.length)];
         const selectedExample = examples[selectedIndex];
-        
+
         // Сохраняем в историю
         addUsedPromptExample(promptNumber, selectedIndex, selectedExample.substring(0, 200));
-        
+
         // Создаем промпт только с одним примером
         const modifiedPrompt = this.createPromptWithSingleExample(promptSection, selectedExample);
-        
-        schedulerLogger.info({ 
-          promptNumber,
-          totalExamples: examples.length,
-          selectedIndex,
-          selectedExample: selectedExample.substring(0, 50),
-          availableCount: availableIndices.length
-        }, '📝 Выбран пример для генерации');
-        
+
+        schedulerLogger.info(
+          {
+            promptNumber,
+            totalExamples: examples.length,
+            selectedIndex,
+            selectedExample: selectedExample.substring(0, 50),
+            availableCount: availableIndices.length,
+          },
+          '📝 Выбран пример для генерации'
+        );
+
         // Генерируем текст через LLM на основе одного примера
         const generatedText = await generateMessage(modifiedPrompt);
-        
+
         // Очищаем текст от технических элементов
         let cleanedText = cleanLLMText(generatedText);
-        
+
         // Проверяем на ЛЮБЫЕ ошибки LLM
         if (isLLMError(generatedText, cleanedText)) {
           // Используем fallback - выбираем рандомный пример из промптов 1, 2 и 3
@@ -2690,19 +2957,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             'Не дождался твоего ответа вчера... Я беспокоюсь! Знаешь, даже если трудно начать - маленькими шагами мы справимся 👣 Помни - я здесь, чтобы помочь тебе чувствовать себя лучше. Давай продолжим? 😊',
             'Даже если вчера не получилось сделать задания - не страшно! Сегодня новый день, и у нас есть возможность все исправить. Ты справишься 💚',
             'Заметил, что вчера от тебя не было сообщений 🧐 Это заставило меня поволноваться! Но я верю - ты найдешь силы продолжить 💪🏻 Сделай вчерашние задания 📝',
-            'Вчерашняя тишина меня огорчила... Но знаешь что важно? Ты можешь продолжить прямо сейчас! Я буду рядом 💚'
+            'Вчерашняя тишина меня огорчила... Но знаешь что важно? Ты можешь продолжить прямо сейчас! Я буду рядом 💚',
           ];
-          
+
           cleanedText = fallbackExamples[Math.floor(Math.random() * fallbackExamples.length)];
           schedulerLogger.warn('⚠️ LLM вернул ошибку, используем fallback из примеров промптов 1-3');
         }
-        
+
         // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ: Для вариантов 1-3 прогоняем через промпт 5 (перепроверка)
         const validationPrompt = null; // this.extractPromptSection(angryPromptsFile, 5);
         if (validationPrompt) {
           const validationRequest = `${validationPrompt}\n\nТекст для проверки:\n${cleanedText}`;
           const validatedText = await generateMessage(validationRequest);
-          
+
           // Если валидация вернула результат, используем его
           if (validatedText && validatedText !== 'HF_JSON_ERROR') {
             // Проверяем, не является ли ответ подтверждением что всё ОК
@@ -2719,26 +2986,32 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               /^CORRECT$/i,
               /^✓$/,
               /^✅/,
-              /^👍/
+              /^👍/,
             ];
-            
+
             const cleanedValidation = cleanLLMText(validatedText).trim();
             const isValidationOk = validationOkPatterns.some(pattern => pattern.test(cleanedValidation));
-            
+
             if (isValidationOk) {
               // Модель подтвердила, что текст корректен - используем оригинальный
               finalText = cleanedText;
-              schedulerLogger.info({ 
-                validationResponse: cleanedValidation.substring(0, 50)
-              }, '✅ Валидация подтвердила корректность текста, используем оригинал');
+              schedulerLogger.info(
+                {
+                  validationResponse: cleanedValidation.substring(0, 50),
+                },
+                '✅ Валидация подтвердила корректность текста, используем оригинал'
+              );
             } else {
               // Модель внесла исправления - используем их
               finalText = cleanLLMText(validatedText);
-              schedulerLogger.info({ 
-                originalLength: validatedText.length,
-                cleanedLength: finalText.length,
-                preview: finalText.substring(0, 50)
-              }, '✅ Текст прошел валидацию и очистку через промпт 5');
+              schedulerLogger.info(
+                {
+                  originalLength: validatedText.length,
+                  cleanedLength: finalText.length,
+                  preview: finalText.substring(0, 50),
+                },
+                '✅ Текст прошел валидацию и очистку через промпт 5'
+              );
             }
           } else {
             // Если валидация не удалась, используем оригинальный текст
@@ -2749,7 +3022,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           finalText = cleanedText;
         }
       }
-      
+
       // Ограничиваем длину текста
       finalText = finalText.length > 500 ? finalText.slice(0, 497) + '...' : finalText;
 
@@ -2793,7 +3066,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           chatId: userId,
           messageType: 'angry_post',
           maxAttempts: 20,
-          intervalMs: 10000
+          intervalMs: 10000,
         }
       );
 
@@ -2801,19 +3074,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Сохраняем информацию о злом посте в БД
       const { saveAngryPost } = await import('./db');
-      
+
       // Ждем немного, чтобы пост был переслан в группу обсуждений
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Получаем thread_id из памяти или БД
       let threadId: number | null = this.forwardedMessages.get(sentMessage.message_id) || null;
-      
+
       if (!threadId) {
         const { db } = await import('./db');
-        const row = db.query('SELECT thread_id FROM thread_mappings WHERE channel_message_id = ?').get(sentMessage.message_id) as any;
+        const row = db
+          .query('SELECT thread_id FROM thread_mappings WHERE channel_message_id = ?')
+          .get(sentMessage.message_id) as any;
         threadId = row?.thread_id || null;
       }
-      
+
       // Сохраняем злой пост
       saveAngryPost(sentMessage.message_id, threadId, userId);
       schedulerLogger.info({ channelMessageId: sentMessage.message_id, threadId, userId }, 'Злой пост сохранен в БД');
@@ -2829,7 +3104,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   public buildSecondPart(json: any, isSimplified: boolean = false): string {
     if (isSimplified) {
       // Для упрощенного сценария используем новый текст
-      let message = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+      let message =
+        '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
       return message;
     } else {
       // Для обычного сценария оставляем старый текст
@@ -2950,7 +3226,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     if (messageThreadId) {
       const { isAngryPostByThreadId } = await import('./db');
       const isAngryComment = await isAngryPostByThreadId(messageThreadId);
-      
+
       if (isAngryComment) {
         schedulerLogger.info(
           {
@@ -2960,19 +3236,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           },
           '😠 Обнаружен комментарий к злому посту'
         );
-        
+
         // Увеличиваем счётчик ответов пользователя
         const responseCount = incrementAngryPostUserResponse(messageThreadId, userId);
-        
+
         // Определяем текст ответа в зависимости от количества ответов
         let responseText = '';
-        
+
         if (responseCount === 1) {
           // Первый ответ
-          responseText = "Я рад тебя слышать! 🤗\nВыполни задания под вчерашним постом ✍🏻";
+          responseText = 'Я рад тебя слышать! 🤗\nВыполни задания под вчерашним постом ✍🏻';
         } else if (responseCount === 2) {
           // Второй ответ
-          responseText = "Буду ждать тебя там 🐸";
+          responseText = 'Буду ждать тебя там 🐸';
         } else {
           // Третий и последующие - не реагируем
           schedulerLogger.info(
@@ -2981,26 +3257,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           );
           return true;
         }
-        
+
         // Отправляем ответ
         await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(
-            replyToChatId, 
-            responseText, 
-            {
-              reply_parameters: { 
-                message_id: messageId 
-              }
-            }
-          ),
+          () =>
+            this.bot.telegram.sendMessage(replyToChatId, responseText, {
+              reply_parameters: {
+                message_id: messageId,
+              },
+            }),
           {
             chatId: userId,
             messageType: 'angry_post_response',
             maxAttempts: 5,
-            intervalMs: 3000
+            intervalMs: 3000,
           }
         );
-        
+
         schedulerLogger.info({ userId, responseCount }, '✅ Отправлен ответ на комментарий к злому посту');
         return true; // Возвращаем true, чтобы показать что сообщение обработано
       }
@@ -3139,24 +3412,24 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     try {
       const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
       const rudeCheck = checkRudeMessage(messageText, userId);
-      
+
       if (rudeCheck.isRude) {
         schedulerLogger.info(
           { userId, messageText: messageText.substring(0, 50), response: rudeCheck.response },
           'Обнаружен грубый/бессмысленный ответ'
         );
-        
+
         // Отправляем ответ
         if (rudeCheck.response) {
           try {
             await this.bot.telegram.sendMessage(replyToChatId, rudeCheck.response, {
-              reply_parameters: { message_id: messageId }
+              reply_parameters: { message_id: messageId },
             });
           } catch (sendError) {
             schedulerLogger.error({ error: sendError }, 'Ошибка отправки ответа на грубое сообщение');
           }
         }
-        
+
         // Не продолжаем обработку, ждем нормальный ответ
         return true;
       } else if (!rudeCheck.needsCounter) {
@@ -3171,20 +3444,26 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // Проверяем, нужно ли устанавливать напоминание
     const practiceStates = ['waiting_practice', 'deep_waiting_practice', 'finished', 'completed'];
     const shouldSetReminder = !practiceStates.includes(session.currentStep);
-    
+
     if (shouldSetReminder) {
       // Перезапускаем таймер напоминания при каждом ответе пользователя
       // Отменяем предыдущий таймер если есть
       this.clearReminder(userId);
-      
+
       // Устанавливаем новый таймер от текущего момента
       await this.setIncompleteWorkReminder(userId, channelMessageId);
       const delayMinutes = this.isTestBot() ? 1 : 30;
-      schedulerLogger.debug({ userId, channelMessageId, delayMinutes }, `⏰ Таймер напоминания перезапущен (${delayMinutes} мин от последней активности)`);
+      schedulerLogger.debug(
+        { userId, channelMessageId, delayMinutes },
+        `⏰ Таймер напоминания перезапущен (${delayMinutes} мин от последней активности)`
+      );
     } else {
       // Если пользователь дошел до практики или завершил работу - отменяем напоминание
       this.clearReminder(userId);
-      schedulerLogger.debug({ userId, channelMessageId, currentStep: session.currentStep }, '⏰ Напоминание отменено - пользователь на финальном этапе');
+      schedulerLogger.debug(
+        { userId, channelMessageId, currentStep: session.currentStep },
+        '⏰ Напоминание отменено - пользователь на финальном этапе'
+      );
     }
 
     // Импортируем функцию обновления статуса
@@ -3205,15 +3484,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Используем слова поддержки из messageData
         let supportText = session.messageData?.deep_support?.text;
-        
+
         // Если слова поддержки не были сгенерированы, используем fallback
         if (!supportText) {
           supportText = 'Понимаю, как тебе сейчас непросто';
         }
 
         // Второй этап - отправляем слова поддержки + задание с кнопкой
-        const secondTaskText = `<i>${escapeHTML(supportText)}</i>\n\n<b>Выбери 1 ситуацию, с которой хочешь поработать, и опиши ее подробно 📝</b>\n\n<i>💡 Ты можешь разобрать событие из прошлого, если сегодня ничего не произошло или что-то больше беспокоит</i>`;
-        
+        const secondTaskText = `<i>${escapeHTML(
+          supportText
+        )}</i>\n\n<b>Выбери 1 ситуацию, с которой хочешь поработать, и опиши ее подробно 📝</b>\n\n<i>💡 Ты можешь разобрать событие из прошлого, если сегодня ничего не произошло или что-то больше беспокоит</i>`;
+
         // Кнопка "Таблица эмоций"
         const emotionsTableKeyboard = {
           inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
@@ -3221,32 +3502,33 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Отправляем второе сообщение с кнопкой
         const secondTaskMessage = await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
-            parse_mode: 'HTML',
-            reply_markup: emotionsTableKeyboard,
-            reply_parameters: {
-              message_id: messageId,
-            },
-          }),
+          () =>
+            this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
+              parse_mode: 'HTML',
+              reply_markup: emotionsTableKeyboard,
+              reply_parameters: {
+                message_id: messageId,
+              },
+            }),
           {
             chatId: userId,
             messageType: 'deep_second_task',
             maxAttempts: 10,
             intervalMs: 5000,
-            onSuccess: async (result) => {
+            onSuccess: async result => {
               // Обновляем состояние - теперь ждем выбранную ситуацию
               const { updateInteractivePostState } = await import('./db');
               updateInteractivePostState(channelMessageId, 'deep_waiting_negative', {
                 bot_task2_message_id: result.message_id,
                 user_task1_message_id: messageId,
               });
-            }
+            },
           }
         );
 
         return;
       }
-      
+
       // Проверяем глубокий сценарий
       if (session.currentStep === 'deep_waiting_negative') {
         // Пользователь ответил на первое задание в глубоком сценарии
@@ -3263,13 +3545,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Импортируем функцию получения обработчика глубокой работы
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
-        
+
         // Анализируем ответ и выбираем технику
         await deepHandler.analyzeUserResponse(channelMessageId, messageText, userId, messageId);
-        
+
         return;
       }
-      
+
       // Обработка глубоких состояний
       if (session.currentStep === 'deep_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
@@ -3277,49 +3559,47 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         await deepHandler.handleThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'deep_waiting_distortions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleDistortionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'deep_waiting_harm') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleHarmResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'deep_waiting_rational') {
         // Завершаем работу с фильтрами
-        const sendOptions: any = { 
+        const sendOptions: any = {
           parse_mode: 'HTML',
           reply_parameters: {
-            message_id: messageId
-          }
+            message_id: messageId,
+          },
         };
-        
-        const sendOptionsWithButton: any = { 
+
+        const sendOptionsWithButton: any = {
           parse_mode: 'HTML',
           reply_parameters: {
-            message_id: messageId
+            message_id: messageId,
           },
           reply_markup: {
-            inline_keyboard: [[
-              { text: 'Вперед 🔥', callback_data: `deep_continue_to_treats_${channelMessageId}` }
-            ]]
-          }
+            inline_keyboard: [[{ text: 'Вперед 🔥', callback_data: `deep_continue_to_treats_${channelMessageId}` }]],
+          },
         };
-        
+
         await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(replyToChatId, 
-            '<i>🎉 Отлично! Сложная часть позади!\n' +
-            'Можно выдохнуть 😌</i>\n\n' +
-            'Перейдем к более приятной 🤗',
-            sendOptionsWithButton
-          ),
+          () =>
+            this.bot.telegram.sendMessage(
+              replyToChatId,
+              '<i>🎉 Отлично! Сложная часть позади!\n' + 'Можно выдохнуть 😌</i>\n\n' + 'Перейдем к более приятной 🤗',
+              sendOptionsWithButton
+            ),
           {
             chatId: userId,
             messageType: 'deep_rational_complete',
@@ -3329,13 +3609,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               const { updateInteractivePostState, updateTaskStatus } = await import('./db');
               updateInteractivePostState(channelMessageId, 'deep_waiting_continue_to_treats');
               updateTaskStatus(channelMessageId, 1, true);
-            }
+            },
           }
         );
-        
+
         return;
       }
-      
+
       if (session.currentStep === 'deep_waiting_positive') {
         // Ответ на плюшки в глубоком сценарии - отправляем финальную часть
         schedulerLogger.info(
@@ -3347,15 +3627,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           '📝 Получен ответ на плюшки (глубокий сценарий), отправляем дыхательную практику'
         );
 
-        // Импортируем функцию подсчета эмоций  
+        // Импортируем функцию подсчета эмоций
         const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
-        
+
         // Проверяем количество позитивных эмоций в ответе
         const emotionAnalysis = countEmotions(messageText, 'positive');
-        
+
         // Проверяем, не запрашивали ли мы уже дополнение негативных эмоций в глубоком сценарии
         const negativeEmotionsWereRequested = activePost?.current_state === 'schema_waiting_emotions_clarification';
-        
+
         schedulerLogger.debug(
           {
             userId,
@@ -3364,15 +3644,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             positiveEmotions: emotionAnalysis.emotions,
             categories: emotionAnalysis.categories,
             negativeEmotionsWereRequested,
-            scenario: 'deep'
+            scenario: 'deep',
           },
           'Анализ позитивных эмоций в плюшках (глубокий сценарий)'
         );
-        
+
         // Если эмоций мало И мы не просили дополнить негативные эмоции - предлагаем дополнить
         if (emotionAnalysis.count < 3 && !negativeEmotionsWereRequested) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'positive');
-          
+
           const sendOptions: any = {
             parse_mode: 'HTML',
             reply_parameters: {
@@ -3381,39 +3661,39 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
-                [{ text: 'Пропустить', callback_data: `skip_positive_emotions_${channelMessageId}` }]
+                [{ text: 'Пропустить', callback_data: `skip_positive_emotions_${channelMessageId}` }],
               ],
             },
           };
-          
+
           try {
-            await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
-              {
-                chatId: userId,
-                messageType: 'positive_emotions_help_deep',
-                maxAttempts: 10,
-                intervalMs: 5000
-              }
-            );
-            
+            await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
+              chatId: userId,
+              messageType: 'positive_emotions_help_deep',
+              maxAttempts: 10,
+              intervalMs: 5000,
+            });
+
             // Обновляем состояние в БД сразу после успешной отправки
             const { updateInteractivePostState } = await import('./db');
             updateInteractivePostState(channelMessageId, 'deep_waiting_positive_emotions_clarification', {
-              user_task2_message_id: messageId
+              user_task2_message_id: messageId,
             });
-            
+
             // Обновляем состояние сессии
             session.currentStep = 'deep_waiting_positive_emotions_clarification';
             return true;
           } catch (helpError) {
-            schedulerLogger.error({ error: helpError }, 'Ошибка отправки помощи с позитивными эмоциями в глубоком сценарии, продолжаем с практикой');
+            schedulerLogger.error(
+              { error: helpError },
+              'Ошибка отправки помощи с позитивными эмоциями в глубоком сценарии, продолжаем с практикой'
+            );
             // Продолжаем дальше к практике
           }
         }
 
         // Если эмоций достаточно, были негативные эмоции или произошла ошибка - продолжаем как обычно
-        
+
         // Отмечаем второе задание как выполненное
         const { updateTaskStatus } = await import('./db');
         updateTaskStatus(channelMessageId, 2, true);
@@ -3421,7 +3701,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         let finalMessage = '<i>Вау! 🤩 Ты справился! Это было потрясающе!</i>\n\n';
         finalMessage += 'Последний шаг - время замедлиться и побыть в покое 🤍\n';
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
-        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
+        finalMessage +=
+          '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         // Добавляем кнопки к заданию 3
         const practiceKeyboard = {
@@ -3448,7 +3729,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             practiceVideoPath: this.PRACTICE_VIDEO_PATH,
             step: 'before_deep_video_send',
             isTestBot: this.isTestBot(),
-            chatId: replyToChatId
+            chatId: replyToChatId,
           },
           '🎬 [DEEP] Готовимся отправить видео с практикой'
         );
@@ -3456,23 +3737,24 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Отправляем видео с дыхательной практикой
         const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
         const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-        
+
         const task3Message = await this.sendWithRetry(
-          () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-            caption: finalMessage,
-            parse_mode: 'HTML',
-            reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-            reply_markup: practiceKeyboard,
-            thumbnail: { source: thumbnailBuffer },
-          }),
+          () =>
+            this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
+              caption: finalMessage,
+              parse_mode: 'HTML',
+              reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
+              reply_markup: practiceKeyboard,
+              thumbnail: { source: thumbnailBuffer },
+            } as any),
           {
             chatId: userId,
             messageType: 'deep_practice_video',
             maxAttempts: 20,
             intervalMs: 10000,
-            onSuccess: async (result) => {
+            onSuccess: async result => {
               // Логика перенесена после вызова
-            }
+            },
           }
         );
 
@@ -3491,11 +3773,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Отменяем напоминание о незавершенной работе, так как пользователь дошел до практики
         this.clearReminder(userId);
-        schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание о незавершенной работе отменено - пользователь дошел до практики (глубокий сценарий)');
+        schedulerLogger.debug(
+          { userId, channelMessageId },
+          'Напоминание о незавершенной работе отменено - пользователь дошел до практики (глубокий сценарий)'
+        );
 
         return;
       }
-      
+
       // Обработка состояния deep_waiting_positive_emotions_clarification
       if (session.currentStep === 'deep_waiting_positive_emotions_clarification') {
         // Пользователь дополнил ответ про позитивные эмоции в глубоком сценарии
@@ -3529,7 +3814,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         let finalMessage = '<i>Вау! 🤩 Ты справился! Это было потрясающе!</i>\n\n';
         finalMessage += 'Последний шаг - время замедлиться и побыть в покое 🤍\n';
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
-        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
+        finalMessage +=
+          '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         const practiceKeyboard = {
           inline_keyboard: [
@@ -3542,85 +3828,105 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Отправляем видео с дыхательной практикой
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-          
+
           const task3Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-              caption: finalMessage,
-              parse_mode: 'HTML',
-              reply_to_message_id: messageId,
-              reply_markup: practiceKeyboard,
-              thumbnail: { source: thumbnailBuffer },
-            }),
+            () =>
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
+                caption: finalMessage,
+                parse_mode: 'HTML',
+                reply_to_message_id: messageId,
+                reply_markup: practiceKeyboard,
+                thumbnail: { source: thumbnailBuffer },
+              } as any),
             {
               chatId: userId,
               messageType: 'deep_practice_video_after_positive_clarification',
               maxAttempts: 20,
-              intervalMs: 10000
+              intervalMs: 10000,
             }
           );
 
           // Сохраняем сообщение
           saveMessage(userId, finalMessage, new Date().toISOString(), 0);
-          
+
           // Обновляем состояние в БД
           updateInteractivePostState(channelMessageId, 'deep_waiting_practice', {
             bot_task3_message_id: task3Message.message_id,
           });
-          
+
           // Отмечаем что задание 3 было отправлено
           updateTaskStatus(channelMessageId, 3, true);
-          
+
           // Отменяем напоминание о незавершенной работе
           this.clearReminder(userId);
-          schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание отменено - пользователь дошел до практики (глубокий сценарий после уточнения эмоций)');
+          schedulerLogger.debug(
+            { userId, channelMessageId },
+            'Напоминание отменено - пользователь дошел до практики (глубокий сценарий после уточнения эмоций)'
+          );
 
           return true;
         } catch (practiceError) {
-          schedulerLogger.error({ error: practiceError }, 'Ошибка отправки практики после уточнения позитивных эмоций (глубокий сценарий)');
+          schedulerLogger.error(
+            { error: practiceError },
+            'Ошибка отправки практики после уточнения позитивных эмоций (глубокий сценарий)'
+          );
           return false;
         }
       }
-      
+
       // Обработка состояния deep_waiting_practice
       if (session.currentStep === 'deep_waiting_practice') {
         // Пользователь написал что-то после получения задания с практикой (глубокий сценарий)
-        schedulerLogger.info({ userId, messageText: messageText.substring(0, 50) }, 'Получен текст вместо нажатия кнопки практики (глубокий сценарий)');
-        
+        schedulerLogger.info(
+          { userId, messageText: messageText.substring(0, 50) },
+          'Получен текст вместо нажатия кнопки практики (глубокий сценарий)'
+        );
+
         // Проверяем, отправляли ли мы уже напоминание
         const { updateInteractivePostState } = await import('./db');
         const { getInteractivePost } = await import('./db');
         const post = getInteractivePost(channelMessageId);
-        
+
         if (!post?.practice_reminder_sent) {
           // Отправляем напоминание только один раз
           try {
             await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(userId, 'Отличная работа! 🌟 Теперь выполни дыхательную практику и нажми "Сделал" после ее завершения'),
+              () =>
+                this.bot.telegram.sendMessage(
+                  userId,
+                  'Отличная работа! 🌟 Теперь выполни дыхательную практику и нажми "Сделал" после ее завершения'
+                ),
               {
                 chatId: userId,
                 messageType: 'deep_practice_reminder',
                 maxAttempts: 5,
-                intervalMs: 3000
+                intervalMs: 3000,
               }
             );
-            
+
             // Отмечаем, что напоминание отправлено
             updateInteractivePostState(channelMessageId, 'deep_waiting_practice', {
               practice_reminder_sent: true,
             });
-            
-            schedulerLogger.info({ channelMessageId }, 'Отправлено напоминание о необходимости нажать кнопку (глубокий сценарий)');
+
+            schedulerLogger.info(
+              { channelMessageId },
+              'Отправлено напоминание о необходимости нажать кнопку (глубокий сценарий)'
+            );
           } catch (error) {
             schedulerLogger.error({ error }, 'Ошибка отправки напоминания о практике (глубокий сценарий)');
           }
         } else {
           // Напоминание уже было отправлено, просто игнорируем
-          schedulerLogger.debug({ userId }, 'Игнорируем повторное сообщение - напоминание уже было отправлено (глубокий сценарий)');
+          schedulerLogger.debug(
+            { userId },
+            'Игнорируем повторное сообщение - напоминание уже было отправлено (глубокий сценарий)'
+          );
         }
-        
+
         return true; // Всегда возвращаем true, чтобы не обрабатывать как обычное сообщение
       }
-      
+
       // Обработка состояний разбора по схеме
       if (session.currentStep === 'schema_waiting_trigger') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
@@ -3628,42 +3934,42 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         await deepHandler.handleTriggerResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'schema_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleSchemaThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'schema_waiting_emotions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleSchemaEmotionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'schema_waiting_emotions_clarification') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleSchemaEmotionsClarificationResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'schema_waiting_behavior') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleSchemaBehaviorResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'schema_waiting_correction') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
         await deepHandler.handleSchemaCorrectionResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
-      
+
       if (session.currentStep === 'waiting_negative') {
         // Пользователь ответил на первое задание
         schedulerLogger.info(
@@ -3677,7 +3983,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Импортируем функции из БД
         const { updateInteractivePostState, updateTaskStatus } = await import('./db');
-        
+
         // Сохраняем ID сообщения пользователя
         updateInteractivePostState(channelMessageId, 'waiting_negative', {
           user_task1_message_id: messageId,
@@ -3686,25 +3992,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Сразу анализируем ответ на наличие эмоций
         // Импортируем функцию подсчета эмоций
         const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
-        
+
         // Проверяем количество эмоций в ответе
         const emotionAnalysis = countEmotions(messageText, 'negative');
-        
+
         schedulerLogger.debug(
           {
             userId,
             channelMessageId,
             emotionsCount: emotionAnalysis.count,
             emotions: emotionAnalysis.emotions,
-            categories: emotionAnalysis.categories
+            categories: emotionAnalysis.categories,
           },
           'Анализ эмоций в ответе пользователя'
         );
-        
+
         // Если меньше 3 эмоций - предлагаем дополнить
         if (emotionAnalysis.count < 3) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'negative');
-          
+
           const sendOptions: any = {
             parse_mode: 'HTML',
             reply_parameters: {
@@ -3713,11 +4019,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
-                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }]
+                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }],
               ],
             },
           };
-          
+
           try {
             const helpMessageResult = await this.sendWithRetry(
               () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
@@ -3725,15 +4031,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
                 chatId: userId,
                 messageType: 'emotions_help',
                 maxAttempts: 10,
-                intervalMs: 5000
+                intervalMs: 5000,
               }
             );
-            
+
             // Обновляем состояние в БД сразу после успешной отправки
             updateInteractivePostState(channelMessageId, 'waiting_emotions_clarification', {
-              user_schema_message_id: messageId
+              user_schema_message_id: messageId,
             });
-            
+
             // Обновляем состояние сессии
             session.currentStep = 'waiting_emotions_clarification';
             return true;
@@ -3742,36 +4048,38 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             // Продолжаем дальше если ошибка
           }
         }
-        
+
         // Если эмоций достаточно или произошла ошибка - отправляем плюшки
         try {
           // Отмечаем первое задание как выполненное
           updateTaskStatus(channelMessageId, 1, true);
-          
+
           // Отправляем плюшки с новым текстом
-          const fallbackText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
-          
+          const fallbackText =
+            '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+
           const fallbackMessage = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId },
-              reply_markup: {
-                inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-              },
-            }),
+            () =>
+              this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+                parse_mode: 'HTML',
+                reply_parameters: { message_id: messageId },
+                reply_markup: {
+                  inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+                },
+              }),
             {
               chatId: userId,
               messageType: 'positive_task',
               maxAttempts: 5,
-              intervalMs: 3000
+              intervalMs: 3000,
             }
           );
-          
+
           // Обновляем состояние
           updateInteractivePostState(channelMessageId, 'waiting_positive', {
             bot_task2_message_id: fallbackMessage.message_id,
           });
-          
+
           session.currentStep = 'waiting_positive';
           return true;
         } catch (fallbackError2) {
@@ -3791,25 +4099,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Импортируем функцию подсчета эмоций
         const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
-        
+
         // Проверяем количество эмоций в ответе
         const emotionAnalysis = countEmotions(messageText, 'negative');
-        
+
         schedulerLogger.debug(
           {
             userId,
             channelMessageId,
             emotionsCount: emotionAnalysis.count,
             emotions: emotionAnalysis.emotions,
-            categories: emotionAnalysis.categories
+            categories: emotionAnalysis.categories,
           },
           'Анализ эмоций в ответе пользователя'
         );
-        
+
         // Если меньше 3 эмоций - предлагаем дополнить
         if (emotionAnalysis.count < 3) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'negative');
-          
+
           const sendOptions: any = {
             parse_mode: 'HTML',
             reply_parameters: {
@@ -3818,11 +4126,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
-                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }]
+                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }],
               ],
             },
           };
-          
+
           try {
             const helpMessageResult = await this.sendWithRetry(
               () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
@@ -3830,16 +4138,16 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
                 chatId: userId,
                 messageType: 'emotions_help',
                 maxAttempts: 10,
-                intervalMs: 5000
+                intervalMs: 5000,
               }
             );
-            
+
             // Обновляем состояние в БД сразу после успешной отправки
             const { updateInteractivePostState } = await import('./db');
             updateInteractivePostState(channelMessageId, 'waiting_emotions_clarification', {
-              user_schema_message_id: messageId
+              user_schema_message_id: messageId,
             });
-            
+
             // Обновляем состояние сессии
             session.currentStep = 'waiting_emotions_clarification';
             return true;
@@ -3848,7 +4156,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             // Продолжаем дальше к плюшкам
           }
         }
-        
+
         // Если эмоций достаточно или произошла ошибка - продолжаем как обычно
 
         // Отмечаем первое задание как выполненное
@@ -3882,14 +4190,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               messageType: 'plushki_task',
               maxAttempts: 10,
               intervalMs: 5000,
-              onSuccess: async (result) => {
+              onSuccess: async result => {
                 saveMessage(userId, plushkiText, new Date().toISOString(), 0);
 
                 // Сохраняем ID сообщения с плюшками
                 updateInteractivePostState(channelMessageId, 'waiting_positive', {
                   bot_task2_message_id: result.message_id,
                 });
-              }
+              },
             }
           );
 
@@ -3958,7 +4266,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           'Это требовало смелости. Ты справился 🌱',
           'Благодарю за доверие и честность 💫',
           'Ты проделал непростую работу с эмоциями 🌊',
-          'Я слышу тебя. Ты смог это выразить 👐🏻'
+          'Я слышу тебя. Ты смог это выразить 👐🏻',
         ];
         const randomSupportText = emotionsSupportTexts[Math.floor(Math.random() * emotionsSupportTexts.length)];
         const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
@@ -3980,7 +4288,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               chatId: userId,
               messageType: 'plushki_after_clarification',
               maxAttempts: 10,
-              intervalMs: 5000
+              intervalMs: 5000,
             }
           );
 
@@ -3989,7 +4297,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
           // Обновляем состояние в БД
           updateInteractivePostState(channelMessageId, 'waiting_positive', {
-            bot_task2_message_id: task2Message.message_id
+            bot_task2_message_id: task2Message.message_id,
           });
 
           // Обновляем состояние - теперь ждем плюшки
@@ -4038,14 +4346,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               messageType: 'plushki_after_schema',
               maxAttempts: 10,
               intervalMs: 5000,
-              onSuccess: async (result) => {
+              onSuccess: async result => {
                 saveMessage(userId, responseText, new Date().toISOString(), 0);
 
                 // Сохраняем ID сообщения с плюшками
                 updateInteractivePostState(channelMessageId, 'waiting_positive', {
                   bot_task2_message_id: result.message_id,
                 });
-              }
+              },
             }
           );
 
@@ -4054,31 +4362,35 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           return true;
         } catch (plushkiError) {
           schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек, отправляем минимальный fallback');
-          
+
           // Fallback: отправляем минимальные плюшки без доп. текста
           try {
             const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
             const fallbackMessage = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-                parse_mode: 'HTML',
-                reply_parameters: { message_id: messageId },
-              }),
+              () =>
+                this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
+                  parse_mode: 'HTML',
+                  reply_parameters: { message_id: messageId },
+                }),
               {
                 chatId: userId,
                 messageType: 'plushki_fallback',
                 maxAttempts: 5,
-                intervalMs: 3000
+                intervalMs: 3000,
               }
             );
-            
+
             updateInteractivePostState(channelMessageId, 'waiting_positive', {
               bot_task2_message_id: fallbackMessage.message_id,
             });
-            
+
             session.currentStep = 'waiting_positive';
             return true;
           } catch (criticalError) {
-            schedulerLogger.error({ error: criticalError }, 'Критическая ошибка: не удалось отправить даже fallback плюшек');
+            schedulerLogger.error(
+              { error: criticalError },
+              'Критическая ошибка: не удалось отправить даже fallback плюшек'
+            );
             return false;
           }
         }
@@ -4096,22 +4408,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               task1: activePost?.task1_completed,
               task2: activePost?.task2_completed,
               task3: activePost?.task3_completed,
-              current_state: activePost?.current_state
-            }
+              current_state: activePost?.current_state,
+            },
           },
           '📝 Получен ответ на плюшки, отправляем задание 3'
         );
 
-        // Импортируем функцию подсчета эмоций  
+        // Импортируем функцию подсчета эмоций
         const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
-        
+
         // Проверяем количество позитивных эмоций в ответе
         const emotionAnalysis = countEmotions(messageText, 'positive');
-        
+
         // Проверяем, не запрашивали ли мы уже дополнение негативных эмоций
-        const negativeEmotionsWereRequested = activePost?.current_state === 'waiting_emotions_clarification' || 
-                                            activePost?.bot_help_message_id;
-        
+        const negativeEmotionsWereRequested =
+          activePost?.current_state === 'waiting_emotions_clarification' || activePost?.bot_help_message_id;
+
         schedulerLogger.debug(
           {
             userId,
@@ -4119,15 +4431,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             positiveEmotionsCount: emotionAnalysis.count,
             positiveEmotions: emotionAnalysis.emotions,
             categories: emotionAnalysis.categories,
-            negativeEmotionsWereRequested
+            negativeEmotionsWereRequested,
           },
           'Анализ позитивных эмоций в плюшках'
         );
-        
+
         // Если эмоций мало И мы не просили дополнить негативные эмоции - предлагаем дополнить
         if (emotionAnalysis.count < 3 && !negativeEmotionsWereRequested) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'positive');
-          
+
           const sendOptions: any = {
             parse_mode: 'HTML',
             reply_parameters: {
@@ -4136,53 +4448,54 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
-                [{ text: 'Пропустить', callback_data: `skip_positive_emotions_${channelMessageId}` }]
+                [{ text: 'Пропустить', callback_data: `skip_positive_emotions_${channelMessageId}` }],
               ],
             },
           };
-          
+
           try {
-            await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
-              {
-                chatId: userId,
-                messageType: 'positive_emotions_help',
-                maxAttempts: 10,
-                intervalMs: 5000
-              }
-            );
-            
+            await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
+              chatId: userId,
+              messageType: 'positive_emotions_help',
+              maxAttempts: 10,
+              intervalMs: 5000,
+            });
+
             // Обновляем состояние в БД сразу после успешной отправки
             const { updateInteractivePostState } = await import('./db');
             updateInteractivePostState(channelMessageId, 'waiting_positive_emotions_clarification', {
-              user_task2_message_id: messageId
+              user_task2_message_id: messageId,
             });
-            
+
             // Обновляем состояние сессии
             session.currentStep = 'waiting_positive_emotions_clarification';
             return true;
           } catch (helpError) {
-            schedulerLogger.error({ error: helpError }, 'Ошибка отправки помощи с позитивными эмоциями, продолжаем с практикой');
+            schedulerLogger.error(
+              { error: helpError },
+              'Ошибка отправки помощи с позитивными эмоциями, продолжаем с практикой'
+            );
             // Продолжаем дальше к практике
           }
         }
 
         // Если эмоций достаточно, были негативные эмоции или произошла ошибка - продолжаем как обычно
-        
+
         // Отмечаем второе задание как выполненное
         updateTaskStatus(channelMessageId, 2, true);
-        
+
         schedulerLogger.debug(
           {
             channelMessageId,
-            step: 'after_task2_update'
+            step: 'after_task2_update',
           },
           '✅ Второе задание отмечено как выполненное'
         );
 
         let finalMessage = 'У нас остался последний шаг\n\n';
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
-        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
+        finalMessage +=
+          '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         // Добавляем кнопки к заданию 3
         // Используем channelMessageId напрямую, как в глубоком сценарии
@@ -4191,7 +4504,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             {
               channelMessageId,
               sessionData: session,
-              activePost: activePost ? { id: activePost.channel_message_id } : null
+              activePost: activePost ? { id: activePost.channel_message_id } : null,
             },
             '❌ channelMessageId отсутствует или равен 0!'
           );
@@ -4200,13 +4513,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             channelMessageId = activePost.channel_message_id;
           }
         }
-        
+
         schedulerLogger.debug(
           {
             sessionChannelMessageId: session.channelMessageId,
             channelMessageId: channelMessageId,
             finalChannelId: channelMessageId,
-            step: 'prepare_practice_keyboard'
+            step: 'prepare_practice_keyboard',
           },
           '🔢 Подготовка ID для кнопок практики'
         );
@@ -4228,7 +4541,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Для обычных групп с комментариями не нужен message_thread_id
         // Используем только reply_to_message_id который уже установлен выше
-        
+
         schedulerLogger.info(
           {
             channelMessageId,
@@ -4238,35 +4551,36 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             keyboardData: practiceKeyboard,
             step: 'before_video_send',
             isTestBot: this.isTestBot(),
-            chatId: replyToChatId
+            chatId: replyToChatId,
           },
           '🎬 Готовимся отправить видео с практикой'
         );
-        
+
         try {
           // Отправляем видео с дыхательной практикой с повторными попытками
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-          
+
           const task3Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-              caption: finalMessage,
-              parse_mode: 'HTML',
-              reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-              reply_markup: practiceKeyboard,
-              thumbnail: { source: thumbnailBuffer },
-            }),
+            () =>
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
+                caption: finalMessage,
+                parse_mode: 'HTML',
+                reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
+                reply_markup: practiceKeyboard,
+                thumbnail: { source: thumbnailBuffer },
+              } as any),
             {
               chatId: userId,
               messageType: 'practice_video',
               maxAttempts: 20, // Для видео больше попыток
               intervalMs: 10000, // 10 секунд между попытками
-              onSuccess: async (result) => {
+              onSuccess: async result => {
                 schedulerLogger.info(
                   {
                     channelMessageId,
                     task3MessageId: result.message_id,
-                    step: 'video_sent_success'
+                    step: 'video_sent_success',
                   },
                   '✅ Видео с практикой успешно отправлено'
                 );
@@ -4286,8 +4600,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
                 // Отменяем напоминание о незавершенной работе
                 this.clearReminder(userId);
-                schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание о незавершенной работе отменено - пользователь дошел до практики');
-              }
+                schedulerLogger.debug(
+                  { userId, channelMessageId },
+                  'Напоминание о незавершенной работе отменено - пользователь дошел до практики'
+                );
+              },
             }
           );
 
@@ -4296,7 +4613,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           return true;
         } catch (practiceError) {
           schedulerLogger.error(
-            { 
+            {
               error: practiceError,
               errorMessage: (practiceError as Error).message,
               errorStack: (practiceError as Error).stack,
@@ -4306,39 +4623,44 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               messageId,
               videoPath: this.PRACTICE_VIDEO_PATH,
               isTestBot: this.isTestBot(),
-              step: 'video_send_error'
-            }, 
+              step: 'video_send_error',
+            },
             'Ошибка отправки финального задания, отправляем fallback'
           );
-          
+
           // Fallback: отправляем минимальное сообщение без кнопок
           try {
-            const fallbackFinalText = 'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
-            
+            const fallbackFinalText =
+              'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
+
             // В fallback тоже отправляем видео с повторными попытками
             const fallbackVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
             const fallbackThumbnail = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-            
+
             await this.sendWithRetry(
-              () => this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, {
-                caption: fallbackFinalText,
-                parse_mode: 'HTML',
-                reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-                thumbnail: { source: fallbackThumbnail },
-              }),
+              () =>
+                this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, {
+                  caption: fallbackFinalText,
+                  parse_mode: 'HTML',
+                  reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
+                  thumbnail: { source: fallbackThumbnail },
+                } as any),
               {
                 chatId: userId,
                 messageType: 'practice_video_fallback',
                 maxAttempts: 5,
-                intervalMs: 3000
+                intervalMs: 3000,
               }
             );
-            
+
             // Обновляем состояние сессии все равно
             session.currentStep = 'waiting_practice';
             return true;
           } catch (criticalError) {
-            schedulerLogger.error({ error: criticalError }, 'Критическая ошибка: не удалось отправить даже fallback финального задания');
+            schedulerLogger.error(
+              { error: criticalError },
+              'Критическая ошибка: не удалось отправить даже fallback финального задания'
+            );
             return false;
           }
         }
@@ -4372,7 +4694,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Отправляем финальную часть
         let finalMessage = 'У нас остался последний шаг\n\n';
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
-        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
+        finalMessage +=
+          '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         const practiceKeyboard = {
           inline_keyboard: [
@@ -4385,34 +4708,35 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Отправляем видео с дыхательной практикой
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-          
+
           const practiceResult = await this.sendWithRetry(
-            () => this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-              caption: finalMessage,
-              parse_mode: 'HTML',
-              reply_to_message_id: messageId,
-              reply_markup: practiceKeyboard,
-              thumbnail: { source: thumbnailBuffer },
-            }),
+            () =>
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
+                caption: finalMessage,
+                parse_mode: 'HTML',
+                reply_to_message_id: messageId,
+                reply_markup: practiceKeyboard,
+                thumbnail: { source: thumbnailBuffer },
+              } as any),
             {
               chatId: userId,
               messageType: 'practice_video_after_positive_clarification',
               maxAttempts: 20,
-              intervalMs: 10000
+              intervalMs: 10000,
             }
           );
 
           // Сохраняем сообщение
           saveMessage(userId, finalMessage, new Date().toISOString(), 0);
-          
+
           // Обновляем состояние в БД
           updateInteractivePostState(channelMessageId, 'waiting_practice', {
             bot_task3_message_id: practiceResult.message_id,
           });
-          
+
           // Отмечаем что задание 3 было отправлено
           updateTaskStatus(channelMessageId, 3, true);
-          
+
           // Отменяем напоминание о незавершенной работе
           this.clearReminder(userId);
           schedulerLogger.debug({ userId, channelMessageId }, 'Напоминание отменено - пользователь дошел до практики');
@@ -4424,35 +4748,39 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
       } else if (session.currentStep === 'waiting_practice') {
         // Пользователь написал что-то после получения задания с кнопками
-        schedulerLogger.info({ userId, messageText: messageText.substring(0, 50) }, 'Получен текст вместо нажатия кнопки практики');
-        
+        schedulerLogger.info(
+          { userId, messageText: messageText.substring(0, 50) },
+          'Получен текст вместо нажатия кнопки практики'
+        );
+
         // Проверяем, отправляли ли мы уже напоминание
         const { updateInteractivePostState } = await import('./db');
         const { getInteractivePost } = await import('./db');
         const post = getInteractivePost(channelMessageId);
-        
+
         if (!post?.practice_reminder_sent) {
           // Отправляем напоминание только один раз
           try {
             await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
-                reply_parameters: {
-                  message_id: messageId
-                }
-              }),
+              () =>
+                this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
+                  reply_parameters: {
+                    message_id: messageId,
+                  },
+                }),
               {
                 chatId: userId,
                 messageType: 'practice_reminder',
                 maxAttempts: 5,
-                intervalMs: 3000
+                intervalMs: 3000,
               }
             );
-            
+
             // Отмечаем, что напоминание отправлено
             updateInteractivePostState(channelMessageId, 'waiting_practice', {
               practice_reminder_sent: true,
             });
-            
+
             schedulerLogger.info({ channelMessageId }, 'Отправлено напоминание о необходимости нажать кнопку');
           } catch (error) {
             schedulerLogger.error({ error }, 'Ошибка отправки напоминания о практике');
@@ -4461,7 +4789,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           // Напоминание уже было отправлено, просто игнорируем
           schedulerLogger.debug({ userId }, 'Игнорируем повторное сообщение - напоминание уже было отправлено');
         }
-        
+
         return true; // Всегда возвращаем true, чтобы не обрабатывать как обычное сообщение
       }
 
@@ -4701,15 +5029,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           sendOptions.reply_to_message_id = threadId;
         }
 
-        await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(chatId, responseText, sendOptions),
-          {
-            chatId: userId,
-            messageType: 'pending_schema_response',
-            maxAttempts: 10,
-            intervalMs: 5000
-          }
-        );
+        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, responseText, sendOptions), {
+          chatId: userId,
+          messageType: 'pending_schema_response',
+          maxAttempts: 10,
+          intervalMs: 5000,
+        });
 
         // НЕ обновляем статус, так как пользователь еще не ответил на схему
 
@@ -4727,7 +5052,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         let finalMessage = 'У нас остался последний шаг\n\n';
         // Всегда отправляем дыхательную практику с видео
         finalMessage += '3. <b>Дыхательная практика</b>\n\n';
-        finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
+        finalMessage +=
+          '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
         const practiceKeyboard = {
           inline_keyboard: [
@@ -4747,13 +5073,13 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Отправляем видео с дыхательной практикой
         const practiceVideoBuffer = readFileSync(this.PRACTICE_VIDEO_PATH);
         const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
-        
+
         // Для видео используем reply_to_message_id вместо reply_parameters
         const videoOptions: any = {
           caption: finalMessage,
           parse_mode: sendOptions.parse_mode,
           reply_markup: sendOptions.reply_markup,
-          thumbnail: { source: thumbnailBuffer }
+          thumbnail: { source: thumbnailBuffer },
         };
         if (sendOptions.reply_parameters?.message_id) {
           videoOptions.reply_to_message_id = sendOptions.reply_parameters.message_id;
@@ -4764,7 +5090,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             chatId: userId,
             messageType: 'pending_practice_video',
             maxAttempts: 20,
-            intervalMs: 10000
+            intervalMs: 10000,
           }
         );
 

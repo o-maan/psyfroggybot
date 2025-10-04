@@ -1,13 +1,13 @@
 // Универсальная проверка на ошибки LLM
 export function isLLMError(originalText: string, cleanedText?: string): boolean {
   // Список известных ошибок LLM
+  // ВАЖНО: не включаем 'null' и 'undefined' в паттерны для поиска внутри текста,
+  // так как JSON может содержать null значения (например: "additional_text": null)
   const errorPatterns = [
     'HF_JSON_ERROR',
     'HFJSONERROR',
     'ERROR',
     'error',
-    'undefined',
-    'null',
     'Internal Server Error',
     'Service Unavailable',
     'Bad Gateway',
@@ -25,27 +25,42 @@ export function isLLMError(originalText: string, cleanedText?: string): boolean 
     'ETIMEDOUT',
     'Failed to fetch'
   ];
+
+  // Проверка на точное совпадение с 'null' или 'undefined' (весь текст = null)
+  const exactMatchErrors = ['null', 'undefined'];
   
   // Проверяем оригинальный текст
   if (!originalText || originalText.length < 5) return true;
-  
+
+  // Проверка на точное совпадение с null/undefined
+  const textToCheckExact = (cleanedText !== undefined ? cleanedText : originalText).trim().toLowerCase();
+  if (exactMatchErrors.includes(textToCheckExact)) {
+    return true;
+  }
+
   // Если передан очищенный текст - проверяем и его
   if (cleanedText !== undefined) {
-    if (!cleanedText || cleanedText.length < 10) return true;
-    
-    // Проверяем очищенный текст на ошибки
+    if (!cleanedText || cleanedText.length < 10) {
+      console.log('isLLMError: cleanedText too short', {
+        cleanedTextLength: cleanedText?.length || 0,
+        cleanedTextPreview: cleanedText?.substring(0, 50)
+      });
+      return true;
+    }
+
+    // Проверяем очищенный текст на ошибки (includes для паттернов)
     const textToCheck = cleanedText.toLowerCase();
     for (const pattern of errorPatterns) {
-      if (cleanedText === pattern || textToCheck.includes(pattern.toLowerCase())) {
+      if (textToCheck.includes(pattern.toLowerCase())) {
         return true;
       }
     }
   }
-  
-  // Проверяем оригинальный текст на известные ошибки
+
+  // Проверяем оригинальный текст на известные ошибки (includes для паттернов)
   const originalLower = originalText.toLowerCase();
   for (const pattern of errorPatterns) {
-    if (originalText === pattern || originalLower.includes(pattern.toLowerCase())) {
+    if (originalLower.includes(pattern.toLowerCase())) {
       return true;
     }
   }

@@ -2,6 +2,7 @@ import { InferenceClient } from '@huggingface/inference';
 import fs from 'fs';
 import { llmLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
+import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 import { isLLMError } from './utils/llm-error-check';
 
 const client = new InferenceClient(process.env.HF_TOKEN);
@@ -29,9 +30,6 @@ export async function generateMessage(prompt?: string): Promise<string> {
     const stream = client.chatCompletionStream({
       provider: 'novita',
       model: 'deepseek-ai/DeepSeek-R1-0528',
-      // model: 'openai/gpt-oss-120b', // старая модель
-      // model: 'Qwen/QwQ-32B-Preview', // модель с размышлениями - проблемы с JSON
-      // model: 'mistralai/Mixtral-8x7B-Instruct-v0.1', // проблемы с ключами JSON
 
       messages: [
         {
@@ -73,19 +71,23 @@ export async function generateMessage(prompt?: string): Promise<string> {
       `✅ LLM генерация завершена за ${duration}ms`
     );
 
-    // Логируем для отладки моделей
-    if ((model === 'Qwen/QwQ-32B-Preview' || model === 'openai/gpt-oss-120b') && fullMessage.length > 100) {
-      llmLogger.debug({ 
+    // Логируем сырой ответ от LLM
+    llmLogger.info(
+      {
         model,
-        preview: fullMessage.substring(0, 200),
-        hasThinkTags: fullMessage.includes('<think>')
-      }, 'Отладка ответа модели');
-    }
+        fullMessage,
+        messageLength: fullMessage.length
+      },
+      '✍️✍️✍️ Сырой ответ от LLM'
+    );
 
     // Очищаем текст от технических элементов
-    let message = cleanLLMText(fullMessage);
+    // Для JSON используем специальный экстрактор
+    let message = prompt && prompt.includes('JSON')
+      ? extractJsonFromLLM(fullMessage)
+      : cleanLLMText(fullMessage);
 
-    // Логируем для отладки
+    // Логируем для отладки JSON запросов
     if (prompt && prompt.includes('JSON')) {
       llmLogger.info({
         model,
@@ -94,7 +96,7 @@ export async function generateMessage(prompt?: string): Promise<string> {
         cleanedLength: message.length,
         originalPreview: fullMessage.substring(0, 200),
         cleanedMessage: message.substring(0, 200)
-      }, 'Отладка JSON запроса к QwQ');
+      }, 'Отладка JSON запроса');
     }
 
     // Если сообщение слишком короткое, используем fallback
@@ -110,13 +112,39 @@ export async function generateMessage(prompt?: string): Promise<string> {
     }
     
     // УНИВЕРСАЛЬНАЯ ПРОВЕРКА: проверяем результат на все возможные ошибки
-    if (isLLMError(fullMessage, message)) {
-      llmLogger.error({ 
-        model,
-        originalText: fullMessage.substring(0, 100),
-        cleanedText: message.substring(0, 100)
-      }, 'Обнаружена ошибка в ответе LLM');
-      return 'HF_JSON_ERROR';
+    // НО не для JSON ответов с think тегами, которые валидны после извлечения
+    const isJsonRequest = prompt && prompt.includes('JSON');
+    if (isJsonRequest) {
+      // Для JSON проверяем только извлеченный текст, а не оригинальный
+      const errorCheckResult = isLLMError(message, message);
+      llmLogger.debug({
+        isJsonRequest,
+        messageLength: message.length,
+        errorCheckResult,
+        messagePreview: message.substring(0, 300)
+      }, 'Проверка JSON на ошибки');
+      
+      if (errorCheckResult) {
+        llmLogger.error({ 
+          model,
+          originalText: fullMessage.substring(0, 100),
+          cleanedText: message.substring(0, 100),
+          cleanedTextLength: message.length,
+          reason: 'JSON error check failed'
+        }, 'Обнаружена ошибка в JSON ответе LLM');
+        return 'HF_JSON_ERROR';
+      }
+    } else {
+      // Для обычных текстов проверяем оба варианта
+      if (isLLMError(fullMessage, message)) {
+        llmLogger.error({ 
+          model,
+          originalText: fullMessage.substring(0, 100),
+          cleanedText: message.substring(0, 100),
+          reason: 'Text error check failed'
+        }, 'Обнаружена ошибка в ответе LLM');
+        return 'HF_JSON_ERROR';
+      }
     }
 
     return message;
