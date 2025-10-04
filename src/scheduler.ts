@@ -615,73 +615,8 @@ export class Scheduler {
     // TODO: Временно отключаем расслабление тела, оставляем только дыхательную практику
     const relaxationType: 'body' | 'breathing' = 'breathing'; // Math.random() < 0.5 ? 'body' : 'breathing';
 
-    // Проверяем, выходной ли сегодня день
-    const isWeekendToday = this.isWeekend();
-
-    let firstPart: string;
-
-    if (isWeekendToday) {
-      // В выходные генерируем специальный текст поддержки
-      try {
-        const weekendPrompt = readFileSync('assets/prompts/weekend-encouragement.md', 'utf-8');
-        const weekendResponse = await generateMessage(weekendPrompt);
-
-        if (weekendResponse && weekendResponse !== 'HF_JSON_ERROR') {
-          const jsonResponse = extractJsonFromLLM(weekendResponse);
-          try {
-            const weekendJson = JSON.parse(jsonResponse);
-            schedulerLogger.info(
-              {
-                weekendEncouragement: weekendJson.encouragement?.text,
-                weekendEncouragementLength: weekendJson.encouragement?.text?.length || 0,
-              },
-              '📅 buildInteractiveMessage: выходные - используем weekend encouragement'
-            );
-            firstPart = `<i>${escapeHTML(weekendJson.encouragement.text)}</i>`;
-          } catch {
-            // Fallback на обычный текст
-            schedulerLogger.info(
-              {
-                fallbackEncouragement: json.encouragement?.text,
-                fallbackEncouragementLength: json.encouragement?.text?.length || 0,
-              },
-              '⚠️ buildInteractiveMessage: ошибка парсинга weekend JSON, используем обычный encouragement'
-            );
-            firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
-          }
-        } else {
-          // Fallback на обычный текст
-          schedulerLogger.info(
-            {
-              fallbackEncouragement: json.encouragement?.text,
-              fallbackEncouragementLength: json.encouragement?.text?.length || 0,
-            },
-            '⚠️ buildInteractiveMessage: weekend LLM вернул ошибку, используем обычный encouragement'
-          );
-          firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
-        }
-      } catch (error) {
-        schedulerLogger.warn(
-          {
-            error,
-            fallbackEncouragement: json.encouragement?.text,
-            fallbackEncouragementLength: json.encouragement?.text?.length || 0,
-          },
-          'Ошибка генерации текста для выходных, используем обычный'
-        );
-        firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
-      }
-    } else {
-      // В будни используем обычный вдохновляющий текст
-      schedulerLogger.info(
-        {
-          encouragement: json.encouragement?.text,
-          encouragementLength: json.encouragement?.text?.length || 0,
-        },
-        '📅 buildInteractiveMessage: будни - используем обычный encouragement'
-      );
-      firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
-    }
+    // Используем encouragement из основного JSON (логика выходных уже учтена в generateInteractiveScheduledMessage)
+    const firstPart = `<i>${escapeHTML(json.encouragement.text)}</i>`;
 
     return {
       firstPart,
@@ -1135,7 +1070,18 @@ export class Scheduler {
     const userGenderToUse = userGender || 'unknown';
     promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
 
-    let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
+    // Проверяем выходной ли день и добавляем инструкции для encouragement
+    const isWeekend = this.isWeekend();
+    let weekendInstructions = '';
+    if (isWeekend) {
+      const weekendPromptContent = readFileSync('assets/prompts/weekend-encouragement.md', 'utf-8');
+      weekendInstructions = `\n\n**ВАЖНО: Сегодня выходной день!**
+Для encouragement.text используй стиль выходного дня из следующих рекомендаций:
+
+${weekendPromptContent}`;
+    }
+
+    let prompt = promptBase + weekendInstructions + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
 
     // Генерируем сообщение
     const rawJsonText = await generateMessage(prompt);
