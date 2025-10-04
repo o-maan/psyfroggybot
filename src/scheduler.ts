@@ -21,7 +21,7 @@ import {
   saveMessage,
   saveUserImageIndex,
 } from './db';
-import { generateFrogImage, generateFrogPrompt, generateMessage } from './llm';
+import { generateFrogImage, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
@@ -1349,16 +1349,15 @@ ${weekendPromptContent}`;
       // Генерируем промпт и изображение лягушки
       let imageBuffer: Buffer | null = null;
       try {
-        // Получаем последнее сообщения
-        const lastUserMessage = getLastUserMessage(chatId);
-        const userMessageText = lastUserMessage?.message_text || 'Пользователь еще не отвечал';
-        const lastBotMessage = getLastBotMessage(chatId);
-        const botMessageText = lastBotMessage?.message_text || 'Бот еще не отвечал';
+        // Выбираем случайный промпт в зависимости от дня недели
+        const isWeekend = this.isWeekend();
+        const promptVariant = Math.random() < 0.5 ? '1' : '2';
+        const imagePromptFile = isWeekend
+          ? `assets/prompts/frog-image-prompt-weekend-${promptVariant}`
+          : `assets/prompts/frog-image-prompt-weekday-${promptVariant}`;
+        const imagePrompt = readFileSync(imagePromptFile, 'utf-8');
 
-        // Используем последнее сообщение пользователя для промпта изображения
-        const imagePrompt = await generateFrogPrompt(userMessageText, calendarEvents || undefined, botMessageText);
-
-        schedulerLogger.info({ chatId, imagePrompt }, `🎨 Промпт для планируемого изображения: "${imagePrompt}"`);
+        schedulerLogger.info({ chatId, imagePrompt, isWeekend, promptVariant }, `🎨 Промпт для планируемого изображения (вариант ${promptVariant}): "${imagePrompt}"`);
         imageBuffer = await generateFrogImage(imagePrompt);
       } catch (imageError) {
         const imgErr = imageError as Error;
@@ -1520,16 +1519,15 @@ ${weekendPromptContent}`;
       // Генерируем промпт и изображение лягушки
       let imageBuffer: Buffer | null = null;
       try {
-        // Получаем последнее сообщения
-        const lastUserMessage = getLastUserMessage(chatId);
-        const userMessageText = lastUserMessage?.message_text || 'Пользователь еще не отвечал';
-        const lastBotMessage = getLastBotMessage(chatId);
-        const botMessageText = lastBotMessage?.message_text || 'Бот еще не отвечал';
+        // Выбираем случайный промпт в зависимости от дня недели
+        const isWeekend = this.isWeekend();
+        const promptVariant = Math.random() < 0.5 ? '1' : '2';
+        const imagePromptFile = isWeekend
+          ? `assets/prompts/frog-image-prompt-weekend-${promptVariant}`
+          : `assets/prompts/frog-image-prompt-weekday-${promptVariant}`;
+        const imagePrompt = readFileSync(imagePromptFile, 'utf-8');
 
-        // Используем последнее сообщение пользователя для промпта изображения
-        const imagePrompt = await generateFrogPrompt(userMessageText, calendarEvents || undefined, botMessageText);
-
-        schedulerLogger.info({ chatId, imagePrompt }, `🎨 Промпт для интерактивного изображения: "${imagePrompt}"`);
+        schedulerLogger.info({ chatId, imagePrompt, isWeekend, promptVariant }, `🎨 Промпт для интерактивного изображения (вариант ${promptVariant}): "${imagePrompt}"`);
         imageBuffer = await generateFrogImage(imagePrompt);
       } catch (imageError) {
         const imgErr = imageError as Error;
@@ -1546,17 +1544,9 @@ ${weekendPromptContent}`;
       // Добавляем текст "Переходи в комментарии и продолжим 😉"
       const captionWithComment = firstPart + '\n\nПереходи в комментарии и продолжим 😉';
 
-      // Генерируем слова поддержки для оценок дня ДО отправки
-      schedulerLogger.info({ chatId }, '🎯 Генерируем слова поддержки для оценок дня');
-      const { generateDayRatingSupportWords, getDefaultSupportWords } = await import('./utils/support-words');
-
-      let supportWords;
-      try {
-        supportWords = await generateDayRatingSupportWords();
-      } catch (error) {
-        schedulerLogger.error({ error }, 'Ошибка генерации слов поддержки, используем дефолтные');
-        supportWords = getDefaultSupportWords();
-      }
+      // Используем дефолтные слова поддержки для первой отправки (генерация будет асинхронно)
+      const { getDefaultSupportWords } = await import('./utils/support-words');
+      const supportWords = getDefaultSupportWords();
 
       // Определяем пользователя для поста из env, с учетом режима бота
       const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
@@ -1717,6 +1707,28 @@ ${weekendPromptContent}`;
         },
         'Основной пост отправлен в канал'
       );
+
+      // Асинхронно генерируем и обновляем слова поддержки в БД (не блокируем)
+      const messageId = sentMessage.message_id;
+      (async () => {
+        try {
+          schedulerLogger.info({ chatId, messageId }, '🎯 Начинаем асинхронную генерацию слов поддержки');
+          const { generateDayRatingSupportWords } = await import('./utils/support-words');
+          const generatedSupportWords = await generateDayRatingSupportWords();
+
+          // Обновляем в БД
+          const db = await import('./db');
+          const updateQuery = db.db.query(`
+            UPDATE interactive_posts
+            SET message_data = json_set(message_data, '$.day_rating_support', json(?))
+            WHERE channel_message_id = ?
+          `);
+          updateQuery.run(JSON.stringify(generatedSupportWords), messageId);
+          schedulerLogger.info({ chatId, messageId }, '✅ Слова поддержки сгенерированы и обновлены в БД');
+        } catch (error) {
+          schedulerLogger.error({ error, chatId, messageId }, '❌ Ошибка асинхронной генерации слов поддержки (используются дефолтные)');
+        }
+      })();
 
       // Устанавливаем напоминание через 1.5 часа для пользователя
       const sentTime = postSentTime.toISOString();
