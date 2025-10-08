@@ -34,7 +34,8 @@ export async function generateMessage(prompt?: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          content: 'Ты психологический помощник-лягушка (мужского рода), который поддерживает людей теплыми и мотивирующими сообщениями на русском языке. Используй мужской род в речи (например, "я рад", "я готов", "я понял"). ВАЖНО: Генерируй ТОЛЬКО готовый текст для отправки пользователю, БЕЗ размышлений и префиксов типа "Мысли:", "Ответ:".'
+          content:
+            'Ты психологический помощник-лягушка (мужского рода), который поддерживает людей теплыми и мотивирующими сообщениями на русском языке. Используй мужской род в речи (например, "я рад", "я готов", "я понял"). ВАЖНО: Генерируй ТОЛЬКО готовый текст для отправки пользователю, БЕЗ размышлений и префиксов типа "Мысли:", "Ответ:".',
         },
         {
           role: 'user',
@@ -76,73 +77,86 @@ export async function generateMessage(prompt?: string): Promise<string> {
       {
         model,
         fullMessage,
-        messageLength: fullMessage.length
+        messageLength: fullMessage.length,
       },
       '✍️✍️✍️ Сырой ответ от LLM'
     );
 
     // Очищаем текст от технических элементов
     // Для JSON используем специальный экстрактор
-    let message = prompt && prompt.includes('JSON')
-      ? extractJsonFromLLM(fullMessage)
-      : cleanLLMText(fullMessage);
+    let message = prompt && prompt.includes('JSON') ? extractJsonFromLLM(fullMessage) : cleanLLMText(fullMessage);
 
     // Логируем для отладки JSON запросов
     if (prompt && prompt.includes('JSON')) {
-      llmLogger.info({
-        model,
-        promptIncludesJSON: true,
-        originalLength: fullMessage.length,
-        cleanedLength: message.length,
-        originalPreview: fullMessage.substring(0, 200),
-        cleanedMessage: message.substring(0, 200)
-      }, 'Отладка JSON запроса');
+      llmLogger.info(
+        {
+          model,
+          promptIncludesJSON: true,
+          originalLength: fullMessage.length,
+          cleanedLength: message.length,
+          originalPreview: fullMessage.substring(0, 200),
+          cleanedMessage: message.substring(0, 200),
+        },
+        'Отладка JSON запроса'
+      );
     }
 
     // Если сообщение слишком короткое, используем fallback
     if (message.length < 10) {
-      llmLogger.error({ 
-        model, 
-        messageLength: message.length,
-        originalLength: fullMessage.length,
-        preview: fullMessage.substring(0, 100),
-        cleanedPreview: message
-      }, 'Сообщение слишком короткое после очистки');
+      llmLogger.error(
+        {
+          model,
+          messageLength: message.length,
+          originalLength: fullMessage.length,
+          preview: fullMessage.substring(0, 100),
+          cleanedPreview: message,
+        },
+        'Сообщение слишком короткое после очистки'
+      );
       return 'HF_JSON_ERROR';
     }
-    
+
     // УНИВЕРСАЛЬНАЯ ПРОВЕРКА: проверяем результат на все возможные ошибки
     // НО не для JSON ответов с think тегами, которые валидны после извлечения
     const isJsonRequest = prompt && prompt.includes('JSON');
     if (isJsonRequest) {
       // Для JSON проверяем только извлеченный текст, а не оригинальный
       const errorCheckResult = isLLMError(message, message);
-      llmLogger.debug({
-        isJsonRequest,
-        messageLength: message.length,
-        errorCheckResult,
-        messagePreview: message.substring(0, 300)
-      }, 'Проверка JSON на ошибки');
-      
+      llmLogger.debug(
+        {
+          isJsonRequest,
+          messageLength: message.length,
+          errorCheckResult,
+          messagePreview: message.substring(0, 300),
+        },
+        'Проверка JSON на ошибки'
+      );
+
       if (errorCheckResult) {
-        llmLogger.error({ 
-          model,
-          originalText: fullMessage.substring(0, 100),
-          cleanedText: message.substring(0, 100),
-          cleanedTextLength: message.length,
-          reason: 'JSON error check failed'
-        }, 'Обнаружена ошибка в JSON ответе LLM');
+        llmLogger.error(
+          {
+            model,
+            originalText: fullMessage.substring(0, 100),
+            cleanedText: message.substring(0, 100),
+            cleanedTextLength: message.length,
+            reason: 'JSON error check failed',
+          },
+          'Обнаружена ошибка в JSON ответе LLM'
+        );
         return 'HF_JSON_ERROR';
       }
     } else {
       // Для обычных текстов проверяем оба варианта
       if (isLLMError(fullMessage, message)) {
-        llmLogger.error({ 
-          model,
-          originalText: fullMessage.substring(0, 100),
-          cleanedText: message.substring(0, 100),
-          reason: 'Text error check failed'
-        }, 'Обнаружена ошибка в ответе LLM');
+        llmLogger.error(
+          {
+            model,
+            originalText: fullMessage.substring(0, 100),
+            cleanedText: message.substring(0, 100),
+            reason: 'Text error check failed',
+          },
+          'Обнаружена ошибка в ответе LLM'
+        );
         return 'HF_JSON_ERROR';
       }
     }
@@ -452,8 +466,7 @@ export async function generateFrogPrompt(
     );
 
     // Очищаем текст от технических элементов
-    let prompt = cleanLLMText(fullResponse)
-      .replace(/"/g, ''); // Дополнительно убираем кавычки для промптов изображений
+    let prompt = cleanLLMText(fullResponse).replace(/"/g, ''); // Дополнительно убираем кавычки для промптов изображений
 
     // Ограничиваем длину промпта
     if (prompt.length > 200) {
@@ -480,5 +493,74 @@ export async function generateFrogPrompt(
 
     // Fallback промпт при ошибке
     return 'anthropomorphic frog portrait, friendly psychologist, warm smile, soft lighting, digital art, looking at viewer';
+  }
+}
+
+// Специальный метод для анализа с низкой температурой (для JSON ответов)
+export async function analyzeWithLowTemp(prompt: string): Promise<string> {
+  const startTime = Date.now();
+  try {
+    const model = 'deepseek-ai/DeepSeek-R1-0528';
+    llmLogger.info({ model, promptLength: prompt.length }, `🔍 Начало анализа с низкой температурой`);
+
+    const stream = client.chatCompletionStream({
+      provider: 'novita',
+      model: 'deepseek-ai/DeepSeek-R1-0528',
+
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Ты аналитик. Отвечай четко и строго по инструкции. Генерируй ТОЛЬКО валидный JSON без дополнительных пояснений.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      parameters: {
+        max_new_tokens: 300,
+        temperature: 0.2, // Низкая температура для точного анализа
+        top_p: 0.9,
+      },
+    });
+
+    let fullMessage = '';
+    let chunkCount = 0;
+
+    for await (const chunk of stream) {
+      if (chunk.choices && chunk.choices[0]?.delta?.content) {
+        const content = chunk.choices[0].delta.content;
+        fullMessage += content;
+        chunkCount++;
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    llmLogger.info({ chunkCount, finalLength: fullMessage.length, duration }, `✅ Анализ завершен за ${duration}ms`);
+
+    // Извлекаем JSON из ответа
+    const message = extractJsonFromLLM(fullMessage);
+
+    llmLogger.info(
+      {
+        model,
+        extractedJson: message,
+        originalLength: fullMessage.length,
+      },
+      '🔍 Результат анализа'
+    );
+
+    return message;
+  } catch (e) {
+    const error = e as Error;
+    llmLogger.error(
+      {
+        error: error.message,
+        stack: error.stack,
+      },
+      'Ошибка анализа с низкой температурой'
+    );
+    throw error;
   }
 }

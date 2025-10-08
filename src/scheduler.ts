@@ -47,6 +47,7 @@ export class Scheduler {
   private calendarService: CalendarService;
   private dailyCronJob: cron.ScheduledTask | null = null;
   private morningCheckCronJob: cron.ScheduledTask | null = null;
+  private morningMessageCronJob: cron.ScheduledTask | null = null;
   private testModeCheckTimeout: NodeJS.Timeout | null = null;
   // Для хранения состояния интерактивных сессий
   private interactiveSessions: Map<
@@ -1568,7 +1569,7 @@ ${weekendPromptContent}`;
         schedulerLogger.error({ error: dbError, chatId }, '❌ Критическая ошибка: не удалось сохранить пост в БД');
         // Если не удалось сохранить в БД - НЕ отправляем в Telegram
         // Уведомляем админа о критической ошибке
-        const adminChatId = this.getAdminChatId();
+        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
         if (adminChatId) {
           await this.bot.telegram
             .sendMessage(
@@ -2201,8 +2202,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   private initializeDailySchedule() {
     logger.info('Инициализация автоматического ежедневного расписания');
     this.startDailyCronJob();
-    // Утренняя проверка отключена - теперь проверка запускается через ANGRY_POST_DELAY_MINUTES после каждого поста
-    // this.startMorningCheckCronJob();
+    // Утренняя проверка в 8:00 - отправка злого поста если пользователь не ответил
+    this.startMorningCheckCronJob();
+    // Утреннее сообщение в 9:00 - приветствие и приглашение делиться переживаниями
+    this.startMorningMessageCronJob();
   }
 
   // Запуск cron job для ежедневной отправки в 22:00
@@ -2358,6 +2361,63 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       schedulerLogger.info('Morning check cron job успешно создан');
     } else {
       logger.error('Morning check планировщик', new Error('Morning check cron job не был создан'));
+    }
+  }
+
+  // Запуск cron job для утреннего поста в 9:00
+  private startMorningMessageCronJob() {
+    // Останавливаем предыдущий job, если он есть
+    if (this.morningMessageCronJob) {
+      schedulerLogger.info('Перезапуск morning message cron job');
+      this.morningMessageCronJob.stop();
+      this.morningMessageCronJob.destroy();
+      this.morningMessageCronJob = null;
+    }
+
+    schedulerLogger.info('Создание morning message cron job (9:00 МСК)');
+
+    // Создаем новый cron job: каждый день в 9:00
+    this.morningMessageCronJob = cron.schedule(
+      '0 9 * * *',
+      async () => {
+        schedulerLogger.info('🌅 Запуск утренней рассылки');
+        try {
+          const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          if (!adminChatId) {
+            throw new Error('ADMIN_CHAT_ID не установлен в переменных окружения');
+          }
+          await this.sendMorningMessage(adminChatId);
+        } catch (error) {
+          schedulerLogger.error(error as Error, 'Ошибка утренней рассылки');
+          // Уведомляем админа об ошибке
+          try {
+            const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+            if (adminChatId) {
+              await this.sendWithRetry(
+                () =>
+                  this.bot.telegram.sendMessage(adminChatId, `🚨 ОШИБКА в утренней рассылке!\n\n❌ Ошибка: ${error}`),
+                {
+                  chatId: adminChatId,
+                  messageType: 'admin_morning_message_error',
+                  maxAttempts: 5,
+                  intervalMs: 3000,
+                }
+              );
+            }
+          } catch (notifyError) {
+            logger.error('Уведомление админа об ошибке morning message', notifyError as Error);
+          }
+        }
+      },
+      {
+        timezone: 'Europe/Moscow',
+      }
+    );
+
+    if (this.morningMessageCronJob) {
+      schedulerLogger.info('Morning message cron job успешно создан');
+    } else {
+      logger.error('Morning message планировщик', new Error('Morning message cron job не был создан'));
     }
   }
 
@@ -3058,6 +3118,423 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
+  // Отправка утреннего поста в 9:00
+  async sendMorningMessage(chatId: number) {
+    try {
+      schedulerLogger.debug({ chatId }, 'Начало отправки утреннего сообщения');
+
+      // Показываем, что бот "пишет"
+      await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
+
+      // Генерируем текст утреннего сообщения
+      const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
+      const morningText = await generateMessage(morningPrompt);
+      const cleanedText = cleanLLMText(morningText);
+
+      schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст утреннего сообщения');
+
+      // Генерируем изображение лягушки
+      let imageBuffer: Buffer | null = null;
+      try {
+        const imagePrompt = readFileSync('assets/prompts/frog-image-prompt-morning', 'utf-8');
+        schedulerLogger.info({ chatId, imagePrompt }, '🎨 Промпт для утреннего изображения');
+        imageBuffer = await generateFrogImage(imagePrompt);
+      } catch (imageError) {
+        const imgErr = imageError as Error;
+        schedulerLogger.error(
+          {
+            error: imgErr.message,
+            stack: imgErr.stack,
+            chatId,
+          },
+          'Ошибка генерации изображения для утреннего сообщения'
+        );
+      }
+
+      // Добавляем текст "Переходи в комментарии и продолжим 😉"
+      const captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
+
+      // Отправляем основной пост БЕЗ кнопок
+      let sentMessage;
+      if (imageBuffer) {
+        sentMessage = await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imageBuffer },
+          {
+            caption: captionWithComment,
+            parse_mode: 'HTML',
+          }
+        );
+        schedulerLogger.info(
+          {
+            chatId,
+            messageLength: cleanedText.length,
+            imageSize: imageBuffer.length,
+          },
+          'Утреннее сообщение с сгенерированным изображением отправлено'
+        );
+      } else {
+        // Fallback: используем старую систему ротации
+        const imagePath = this.getNextImage(chatId);
+        sentMessage = await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imagePath },
+          {
+            caption: captionWithComment,
+            parse_mode: 'HTML',
+          }
+        );
+        schedulerLogger.info(
+          {
+            chatId,
+            messageLength: cleanedText.length,
+            imagePath,
+          },
+          'Утреннее сообщение с изображением из ротации отправлено (fallback)'
+        );
+      }
+
+      const messageId = sentMessage.message_id;
+
+      // Сохраняем пост в БД как утренний (с типом morning)
+      const { saveMorningPost } = await import('./db');
+      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+      saveMorningPost(messageId, postUserId);
+
+      schedulerLogger.info({ messageId, chatId }, '💾 Утренний пост сохранен в БД');
+
+      // Получаем ID группы обсуждений
+      const CHAT_ID = this.getChatId();
+      if (CHAT_ID) {
+        // Отправляем первое сообщение в комментарии асинхронно
+        this.sendFirstTaskAsync(
+          messageId,
+          'Когда будешь готов поделиться - просто напиши! Я здесь для тебя 🤗',
+          undefined,
+          'morning_initial',
+          chatId,
+          CHAT_ID
+        );
+      }
+
+      schedulerLogger.info({ chatId }, 'Утренний пост успешно отправлен');
+    } catch (e) {
+      const error = e as Error;
+      schedulerLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка отправки утреннего сообщения');
+      throw error;
+    }
+  }
+
+  // Обработка ответов пользователя на утренний пост
+  private async handleMorningPostResponse(
+    userId: number,
+    messageText: string,
+    replyToChatId: number,
+    messageId: number,
+    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string; last_button_message_id?: number }
+  ) {
+    const { updateMorningPostStep, updateMorningPostButtonMessage, saveMessage } = await import('./db');
+    const { getLastNMessages } = await import('./db');
+    const { checkRudeMessage } = await import('./utils/rude-filter');
+
+    schedulerLogger.info(
+      {
+        userId,
+        currentStep: morningPost.current_step,
+        messageText: messageText.substring(0, 50),
+      },
+      '🌅 Обработка ответа на утренний пост'
+    );
+
+    // Сохраняем сообщение пользователя в БД (независимо от того, нажал ли он кнопку)
+    saveMessage(userId, messageText, new Date().toISOString(), userId);
+    schedulerLogger.debug({ userId, messageText: messageText.substring(0, 50) }, '💾 Сообщение пользователя сохранено в БД');
+
+    // Проверка на грубость/фигню БЕЗ LLM
+    const rudeCheck = checkRudeMessage(messageText, userId);
+    if (rudeCheck.isRude && rudeCheck.response) {
+      await this.sendWithRetry(
+        () =>
+          this.bot.telegram.sendMessage(replyToChatId, rudeCheck.response!, {
+            reply_parameters: { message_id: messageId },
+          }),
+        {
+          chatId: userId,
+          messageType: 'morning_rude_response',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        }
+      );
+
+      schedulerLogger.info({ userId, messageText }, '✅ Отправлен ответ на грубость/фигню');
+      return;
+    }
+
+    // Обработка в зависимости от шага
+    if (morningPost.current_step === 'waiting_user_message') {
+      // ШАГ 1: Пользователь написал первое сообщение
+
+      // Ставим реакцию 👀 на сообщение пользователя
+      try {
+        await this.bot.telegram.setMessageReaction(replyToChatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+        schedulerLogger.debug({ userId, messageId }, '👀 Поставлена реакция на сообщение (ШАГ 1)');
+      } catch (reactionError) {
+        schedulerLogger.warn({ reactionError, messageId }, 'Не удалось поставить реакцию 👀 (ШАГ 1)');
+      }
+
+      // Отправляем сообщение с кнопкой "Ответь мне"
+      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+      const keyboard = {
+        inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
+      };
+
+      const sentMessage = await this.sendWithRetry(
+        () =>
+          this.bot.telegram.sendMessage(replyToChatId, responseText, {
+            reply_parameters: { message_id: messageId },
+            reply_markup: keyboard,
+          }),
+        {
+          chatId: userId,
+          messageType: 'morning_step1',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        }
+      );
+
+      // Сохраняем ID отправленного сообщения
+      if (sentMessage) {
+        updateMorningPostButtonMessage(morningPost.channel_message_id, sentMessage.message_id);
+      }
+
+      // Обновляем шаг
+      updateMorningPostStep(morningPost.channel_message_id, 'waiting_button_click');
+
+      schedulerLogger.info({ userId }, '✅ ШАГ 1: Отправлено сообщение с кнопкой');
+    } else if (morningPost.current_step === 'waiting_button_click') {
+      // Ставим реакцию 👀 на сообщение пользователя
+      try {
+        await this.bot.telegram.setMessageReaction(replyToChatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+        schedulerLogger.debug({ userId, messageId }, '👀 Поставлена реакция на сообщение (waiting_button_click)');
+      } catch (reactionError) {
+        schedulerLogger.warn({ reactionError, messageId }, 'Не удалось поставить реакцию 👀 (waiting_button_click)');
+      }
+
+      // Удаляем предыдущее сообщение с кнопкой (если оно есть)
+      if (morningPost.last_button_message_id) {
+        try {
+          await this.bot.telegram.deleteMessage(replyToChatId, morningPost.last_button_message_id);
+          schedulerLogger.info({ userId, deletedMessageId: morningPost.last_button_message_id }, '🗑️ Удалено предыдущее сообщение с кнопкой');
+        } catch (error) {
+          schedulerLogger.warn({ error, messageId: morningPost.last_button_message_id }, 'Не удалось удалить предыдущее сообщение с кнопкой');
+        }
+      }
+
+      // Пользователь продолжает писать, повторяем сообщение с кнопкой
+      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+      const keyboard = {
+        inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
+      };
+
+      const sentMessage = await this.sendWithRetry(
+        () =>
+          this.bot.telegram.sendMessage(replyToChatId, responseText, {
+            reply_parameters: { message_id: messageId },
+            reply_markup: keyboard,
+          }),
+        {
+          chatId: userId,
+          messageType: 'morning_step1_repeat',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        }
+      );
+
+      // Сохраняем ID нового сообщения
+      if (sentMessage) {
+        updateMorningPostButtonMessage(morningPost.channel_message_id, sentMessage.message_id);
+      }
+
+      schedulerLogger.info({ userId }, '✅ ШАГ 1: Повторно отправлено сообщение с кнопкой');
+    } else if (morningPost.current_step === 'waiting_more_emotions' || morningPost.current_step.startsWith('waiting_more_emotions_')) {
+      // ШАГ 2.5: Пользователь написал больше об эмоциях после просьбы
+
+      // Ставим реакцию 👀 на сообщение пользователя
+      try {
+        await this.bot.telegram.setMessageReaction(replyToChatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+        schedulerLogger.debug({ userId, messageId }, '👀 Поставлена реакция на сообщение (waiting_more_emotions)');
+      } catch (reactionError) {
+        schedulerLogger.warn({ reactionError, messageId }, 'Не удалось поставить реакцию 👀 (waiting_more_emotions)');
+      }
+
+      // Переходим к анализу и ШАГу 3
+      await this.processMorningStep3(userId, messageText, replyToChatId, messageId, morningPost);
+    } else if (morningPost.current_step === 'waiting_more') {
+      // Пользователь продолжает делиться после финального ответа
+
+      // Ставим реакцию 👀 на сообщение пользователя
+      try {
+        await this.bot.telegram.setMessageReaction(replyToChatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+        schedulerLogger.debug({ userId, messageId }, '👀 Поставлена реакция на сообщение (waiting_more)');
+      } catch (reactionError) {
+        schedulerLogger.warn({ reactionError, messageId }, 'Не удалось поставить реакцию 👀 (waiting_more)');
+      }
+
+      // Запускаем логику заново с кнопкой "Ответь мне"
+      schedulerLogger.info({ userId, currentStep: morningPost.current_step }, '🔄 Пользователь продолжает делиться, отправляем кнопку');
+
+      // Удаляем предыдущую кнопку если есть
+      const { getMorningPost } = await import('./db');
+      const currentPost = getMorningPost(morningPost.channel_message_id);
+      if (currentPost?.last_button_message_id) {
+        try {
+          await this.bot.telegram.deleteMessage(replyToChatId, currentPost.last_button_message_id);
+          schedulerLogger.info({ userId, deletedMessageId: currentPost.last_button_message_id }, '🗑️ Удалено предыдущее сообщение с кнопкой');
+        } catch (error) {
+          schedulerLogger.warn({ error }, 'Не удалось удалить предыдущее сообщение с кнопкой');
+        }
+      }
+
+      // Отправляем кнопку "Ответь мне"
+      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+
+      const sentMessage = await this.sendWithRetry(
+        () =>
+          this.bot.telegram.sendMessage(replyToChatId, responseText, {
+            reply_parameters: { message_id: messageId },
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
+            },
+          }),
+        {
+          chatId: userId,
+          messageType: 'morning_step1_repeat',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        }
+      );
+
+      // Сохраняем ID кнопки
+      if (sentMessage) {
+        const { updateMorningPostButtonMessage } = await import('./db');
+        updateMorningPostButtonMessage(morningPost.channel_message_id, sentMessage.message_id);
+      }
+
+      // Обновляем шаг
+      const { updateMorningPostStep } = await import('./db');
+      updateMorningPostStep(morningPost.channel_message_id, 'waiting_button_click');
+
+      schedulerLogger.info({ userId }, '✅ Отправлена кнопка для продолжения диалога');
+    } else if (morningPost.current_step === 'completed') {
+      // Сессия завершена (старая логика, больше не используется)
+      const finalText = 'Спасибо что делишься! Я всегда рад тебя слушать 🤗';
+
+      await this.sendWithRetry(
+        () =>
+          this.bot.telegram.sendMessage(replyToChatId, finalText, {
+            reply_parameters: { message_id: messageId },
+          }),
+        {
+          chatId: userId,
+          messageType: 'morning_completed',
+          maxAttempts: 5,
+          intervalMs: 3000,
+        }
+      );
+
+      schedulerLogger.info({ userId }, '✅ Утренняя сессия уже завершена, отправлена благодарность');
+    }
+  }
+
+  // ШАГ 3: Финальная обработка с анализом эмоций
+  private async processMorningStep3(
+    userId: number,
+    messageText: string,
+    replyToChatId: number,
+    messageId: number,
+    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string }
+  ) {
+    const { updateMorningPostStep } = await import('./db');
+    const { getLastNMessages } = await import('./db');
+
+    // Получаем все сообщения пользователя за эту сессию
+    const messages = getLastNMessages(userId, 10);
+    const userMessages = messages
+      .filter(m => m.author_id === userId)
+      .map(m => m.message_text)
+      .reverse()
+      .join('\n');
+
+    schedulerLogger.info({ userId, messagesCount: messages.length }, 'ШАГ 3: Финальный ответ с поддержкой');
+
+    // Ставим реакцию 👀 на сообщение пользователя чтобы показать что читаем
+    try {
+      await this.bot.telegram.setMessageReaction(replyToChatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
+      schedulerLogger.debug({ userId, messageId }, '👀 Поставлена реакция на сообщение');
+    } catch (reactionError) {
+      schedulerLogger.warn({ reactionError, messageId }, 'Не удалось поставить реакцию 👀');
+    }
+
+    // Определяем sentiment из current_step
+    const sentiment = morningPost.current_step.includes('negative') ? 'negative' : 'positive';
+
+    // Генерируем финальный ответ в зависимости от sentiment
+    let finalPrompt = '';
+    if (sentiment === 'negative') {
+      finalPrompt = `Контекст всех сообщений пользователя:
+${userMessages}
+
+Пользователь поделился негативными эмоциями. Не повторяя предыдущих слов - еще раз кратко вырази поддержку или напиши что-то приятное человеку, чтобы его утешить или поднять настроение.
+
+Требования:
+- До 200 символов
+- До 2 эмоджи
+- Тепло, заботливо и искренне
+- Как человек, а не робот
+- НЕ используй обращения типа "брат", "братан", "бро", "слушай" и т.п.
+- Мужской род (например, "я рад помочь")
+- ТОЛЬКО текст поддержки, без кавычек, без технической информации`;
+    } else {
+      finalPrompt = `Контекст всех сообщений пользователя:
+${userMessages}
+
+Пользователь поделился позитивными эмоциями. Не повторяя предыдущих слов - пожелай человеку чаще испытывать больше хороших эмоций, похвали или еще раз порадуйся за человека.
+
+Требования:
+- До 200 символов
+- До 2 эмоджи
+- Тепло, заботливо и искренне
+- Как человек, а не робот
+- НЕ используй обращения типа "брат", "братан", "бро", "слушай" и т.п.
+- Мужской род (например, "я рад за тебя")
+- ТОЛЬКО текст поддержки, без кавычек, без технической информации`;
+    }
+
+    const finalResponse = await generateMessage(finalPrompt);
+    const cleanedFinalResponse = cleanLLMText(finalResponse);
+
+    // Добавляем фразу "Если захочешь еще чем-то поделиться - я рядом 🤗"
+    const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
+
+    await this.sendWithRetry(
+      () =>
+        this.bot.telegram.sendMessage(replyToChatId, fullMessage, {
+          reply_parameters: { message_id: messageId },
+        }),
+      {
+        chatId: userId,
+        messageType: 'morning_step3',
+        maxAttempts: 5,
+        intervalMs: 3000,
+      }
+    );
+
+    // Обновляем шаг на "waiting_more" чтобы бот продолжал слушать (работа по кругу)
+    updateMorningPostStep(morningPost.channel_message_id, 'waiting_more');
+
+    schedulerLogger.info({ userId }, '✅ ШАГ 3: Отправлен финальный ответ с поддержкой');
+  }
+
   // Построение второй части сообщения
   public buildSecondPart(json: any, isSimplified: boolean = false): string {
     if (isSimplified) {
@@ -3233,6 +3710,61 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
 
         schedulerLogger.info({ userId, responseCount }, '✅ Отправлен ответ на комментарий к злому посту');
+        return true; // Возвращаем true, чтобы показать что сообщение обработано
+      }
+    }
+
+    // Проверяем, не является ли это комментарием к утреннему посту
+    if (messageThreadId) {
+      const { getMorningPost } = await import('./db');
+
+      // Пробуем найти утренний пост по messageThreadId
+      let morningPost = await getMorningPost(messageThreadId);
+
+      // Если не нашли напрямую, ищем через маппинг пересланных сообщений
+      if (!morningPost) {
+        let mappedChannelId = null;
+
+        // Проверяем в памяти
+        for (const [channelId, forwardedId] of this.forwardedMessages.entries()) {
+          if (forwardedId === messageThreadId) {
+            mappedChannelId = channelId;
+            break;
+          }
+        }
+
+        // Если не нашли в памяти, проверяем в БД
+        if (!mappedChannelId) {
+          const { getChannelMessageIdByThreadId } = require('./db');
+          mappedChannelId = await getChannelMessageIdByThreadId(messageThreadId);
+        }
+
+        if (mappedChannelId) {
+          morningPost = await getMorningPost(mappedChannelId);
+        }
+      }
+
+      if (morningPost) {
+        schedulerLogger.info(
+          {
+            userId,
+            messageThreadId,
+            morningPostId: morningPost.channel_message_id,
+            currentStep: morningPost.current_step,
+            messageText: messageText.substring(0, 50),
+          },
+          '🌅 Обнаружен комментарий к утреннему посту'
+        );
+
+        // Обрабатываем комментарий к утреннему посту
+        await this.handleMorningPostResponse(
+          userId,
+          messageText,
+          replyToChatId,
+          messageId,
+          morningPost
+        );
+
         return true; // Возвращаем true, чтобы показать что сообщение обработано
       }
     }

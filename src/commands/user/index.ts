@@ -9,6 +9,7 @@ import { registerSendnowCommand } from './sendnow';
 import { registerFroCommand } from './fro';
 import { registerRemindCommand } from './remind';
 import { registerCalendarCommand } from './calendar';
+import { registerDayCommand } from './day';
 
 export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calendarService: CalendarService) {
   registerPingCommand(bot);
@@ -19,4 +20,5 @@ export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calend
   registerFroCommand(bot, scheduler);
   registerRemindCommand(bot, scheduler);
   registerCalendarCommand(bot, calendarService);
+  registerDayCommand(bot, scheduler);
 }

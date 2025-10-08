@@ -15,7 +15,9 @@ import { handleEmotionsTable } from './emotions_table';
 import { handleSkipEmotions } from './skip_emotions';
 import { handleHelpEmotions } from './help_emotions';
 import { handleSkipPositiveEmotions } from './skip_positive_emotions';
-import { 
+import { handleMorningRespond } from './morning_respond';
+import { handleMorningCantRemember } from './morning_cant_remember';
+import {
   handleDeepSituationChoice,
   handleDeepFiltersStart,
   handleDeepFiltersExample,
@@ -46,7 +48,11 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/skip_emotions_(\d+)/, ctx => handleSkipEmotions(ctx, scheduler));
   bot.action(/help_emotions_(\d+)/, handleHelpEmotions);
   bot.action(/skip_positive_emotions_(\d+)/, ctx => handleSkipPositiveEmotions(ctx, bot));
-  
+
+  // Обработчики кнопок утреннего поста
+  bot.action(/morning_respond_(\d+)/, handleMorningRespond);
+  bot.action(/cant_remember_emotions_(\d+)/, handleMorningCantRemember);
+
   // Обработчик для неактивной кнопки
   bot.action('disabled', async (ctx) => {
     await ctx.answerCbQuery();

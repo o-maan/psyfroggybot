@@ -1048,3 +1048,63 @@ export const getAngryPost = (channelMessageId: number) => {
     created_at: string;
   } | undefined;
 };
+
+// Сохранить утренний пост
+export const saveMorningPost = (channelMessageId: number, userId: number) => {
+  const insert = db.query(`
+    INSERT INTO morning_posts (channel_message_id, user_id, current_step)
+    VALUES (?, ?, 'waiting_user_message')
+  `);
+  insert.run(channelMessageId, userId);
+};
+
+// Получить утренний пост по ID сообщения в канале
+export const getMorningPost = (channelMessageId: number) => {
+  const get = db.query(`
+    SELECT * FROM morning_posts
+    WHERE channel_message_id = ?
+  `);
+  return get.get(channelMessageId) as {
+    id: number;
+    channel_message_id: number;
+    user_id: number;
+    created_at: string;
+    current_step: string;
+  } | undefined;
+};
+
+// Обновить шаг утреннего поста
+export const updateMorningPostStep = (channelMessageId: number, step: string) => {
+  const update = db.query(`
+    UPDATE morning_posts
+    SET current_step = ?
+    WHERE channel_message_id = ?
+  `);
+  update.run(step, channelMessageId);
+};
+
+// Обновить ID последнего сообщения с кнопкой
+export const updateMorningPostButtonMessage = (channelMessageId: number, buttonMessageId: number) => {
+  const update = db.query(`
+    UPDATE morning_posts
+    SET last_button_message_id = ?
+    WHERE channel_message_id = ?
+  `);
+  update.run(buttonMessageId, channelMessageId);
+};
+
+// Получить все утренние посты пользователя
+export const getUserMorningPosts = (userId: number) => {
+  const query = db.query(`
+    SELECT * FROM morning_posts
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+  `);
+  return query.all(userId) as Array<{
+    id: number;
+    channel_message_id: number;
+    user_id: number;
+    created_at: string;
+    current_step: string;
+  }>;
+};

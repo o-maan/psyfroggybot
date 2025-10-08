@@ -1,7 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { readFileSync } from 'fs';
 import path from 'path';
-import { generateMessage } from './llm';
+import { generateMessage, analyzeWithLowTemp } from './llm';
 import { botLogger } from './logger';
 import { 
   updateInteractivePostState, 
@@ -187,9 +187,9 @@ export class DeepWorkHandler {
       // Загружаем промпт для анализа
       const analyzePrompt = readFileSync('assets/prompts/analyze_situations.md', 'utf-8');
       const fullPrompt = analyzePrompt + '\n' + userText;
-      
-      // Запрашиваем анализ у LLM
-      const response = await generateMessage(fullPrompt);
+
+      // Запрашиваем анализ у LLM с низкой температурой (0.3) для точности
+      const response = await analyzeWithLowTemp(fullPrompt);
       
       if (response === 'HF_JSON_ERROR') {
         throw new Error('Ошибка генерации LLM');
