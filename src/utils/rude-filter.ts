@@ -35,6 +35,25 @@ async function loadRussianDictionary() {
 
 // Функция для добавления различных форм слов
 function addWordForms() {
+  // КРИТИЧЕСКИ ВАЖНО: Добавляем ВСЕ эмоции из словаря эмоций
+  const { NEGATIVE_EMOTIONS, POSITIVE_EMOTIONS } = require('./emotions');
+
+  // Добавляем все негативные эмоции
+  for (const category of Object.values(NEGATIVE_EMOTIONS)) {
+    for (const emotion of category as string[]) {
+      russianWordsSet.add(emotion.toLowerCase());
+    }
+  }
+
+  // Добавляем все позитивные эмоции
+  for (const category of Object.values(POSITIVE_EMOTIONS)) {
+    for (const emotion of category as string[]) {
+      russianWordsSet.add(emotion.toLowerCase());
+    }
+  }
+
+  botLogger.info('Добавлены все эмоции из словаря в whitelist фильтра спама');
+
   // Значительно расширенные базовые слова для генерации форм
   const baseWords = {
     // Глаголы (100+)
@@ -995,9 +1014,10 @@ function isKeyboardSpam(text: string): boolean {
   // Базовая проверка структуры
   const vowels = (normalized.match(/[аеёиоуыэюя]/g) || []).length;
   const vowelRatio = vowels / normalized.length;
-  
+
   // Слишком мало или слишком много гласных
-  if (vowelRatio < 0.25 || vowelRatio > 0.7) {
+  // СМЯГЧЕНО: 20-75% вместо 25-70%
+  if (vowelRatio < 0.2 || vowelRatio > 0.75) {
     return true;
   }
   
@@ -1042,6 +1062,27 @@ function isKeyboardSpam(text: string): boolean {
     }
   }
   
+  // ========================================
+  // ГЛАВНОЕ ПРАВИЛО: если структура нормальная - это НЕ спам!
+  // Применяем ДО всех специфических проверок
+  // ========================================
+
+  // Если есть 2+ нормальные биграммы И гласные в пределах 25-70% - это нормальное слово
+  if (bigramCount >= 2 && vowelRatio >= 0.25 && vowelRatio <= 0.7) {
+    return false;
+  }
+
+  // Для слов 4-8 букв: если гласные 30-60% И есть хотя бы 1 биграмма - не спам
+  if (normalized.length >= 4 && normalized.length <= 8) {
+    if (vowelRatio >= 0.3 && vowelRatio <= 0.6 && bigramCount >= 1) {
+      return false;
+    }
+  }
+
+  // ========================================
+  // Специфические проверки на явный спам
+  // ========================================
+
   // Для слов средней длины проверяем биграммы только если мало гласных
   if (normalized.length >= 5 && normalized.length <= 8) {
     // Если очень мало гласных И нет биграмм - вероятно спам
@@ -1049,11 +1090,11 @@ function isKeyboardSpam(text: string): boolean {
       return true;
     }
   }
-  
+
   // Проверка на чередование типов букв (высокая энтропия)
   let transitions = 0;
   let lastIsVowel = null;
-  
+
   for (const char of normalized) {
     const isVowel = /[аеёиоуыэюя]/.test(char);
     if (lastIsVowel !== null && lastIsVowel !== isVowel) {
@@ -1061,13 +1102,13 @@ function isKeyboardSpam(text: string): boolean {
     }
     lastIsVowel = isVowel;
   }
-  
+
   // Слишком много чередований - признак случайного набора
   const transitionRatio = transitions / (normalized.length - 1);
   if (transitionRatio > 0.8) {
     return true;
   }
-  
+
   // Проверка триграмм для средних слов
   if (normalized.length >= 5 && normalized.length <= 7) {
     const uncommonTrigrams = ['вкл', 'вкр', 'вкв', 'пвл', 'шыо', 'увк', 'увп', 'ывд', 'вда'];
@@ -1084,35 +1125,12 @@ function isKeyboardSpam(text: string): boolean {
     if (bigramCount === 0) {
       return true; // 6 букв без единой нормальной биграммы = спам
     }
-    // СМЯГЧЕННОЕ ПРАВИЛО: если соотношение гласных нормальное (30-60%) И есть хоть 2 биграммы - не спам
-    if (vowelRatio >= 0.3 && vowelRatio <= 0.6 && bigramCount >= 2) {
-      return false;
-    }
     if (bigramCount < 2 && vowelRatio < 0.35) {
       return true; // мало биграмм + мало гласных
     }
   }
-  
-  // Финальная проверка для слов 4-5 букв - если есть хотя бы одна гласная и структура похожа на слово
-  if (normalized.length >= 4 && normalized.length <= 5) {
-    // Если есть хоть одна распространенная биграмма - скорее всего не спам
-    if (bigramCount > 0) {
-      return false;
-    }
-    // Если соотношение гласных нормальное - тоже даем шанс
-    if (vowelRatio >= 0.3 && vowelRatio <= 0.6) {
-      return false;
-    }
-  }
 
-  // ОБЩЕЕ ПРАВИЛО ДЛЯ ВСЕХ СЛОВ: если структура выглядит нормально - не спам
-  // Нормальное слово: 30-60% гласных И хотя бы 1 биграмма на каждые 3 буквы
-  const minBigramsExpected = Math.floor(normalized.length / 3);
-  if (vowelRatio >= 0.3 && vowelRatio <= 0.6 && bigramCount >= minBigramsExpected) {
-    return false;
-  }
-
-  // Если прошло все проверки - не спам
+  // Если дошли сюда - не спам
   return false;
 }
 

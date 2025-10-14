@@ -17,6 +17,10 @@ import { handleHelpEmotions } from './help_emotions';
 import { handleSkipPositiveEmotions } from './skip_positive_emotions';
 import { handleMorningRespond } from './morning_respond';
 import { handleMorningCantRemember } from './morning_cant_remember';
+import { handleConfirmNegative } from './confirm_negative';
+import { handleSkipEmotionsClarification } from './skip_emotions_clarification';
+import { handleContinueToPlushki } from './continue_to_plushki';
+import { handleEmotionsAdditionDone } from './emotions_addition_done';
 import {
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -52,6 +56,18 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Обработчики кнопок утреннего поста
   bot.action(/morning_respond_(\d+)/, handleMorningRespond);
   bot.action(/cant_remember_emotions_(\d+)/, handleMorningCantRemember);
+
+  // Обработчик подтверждения выгрузки негативных переживаний
+  bot.action(/confirm_negative_(\d+)/, ctx => handleConfirmNegative(ctx, bot, scheduler));
+
+  // Обработчик пропуска уточнения эмоций
+  bot.action(/skip_emotions_clarification_(\d+)/, ctx => handleSkipEmotionsClarification(ctx, bot));
+
+  // Обработчик кнопки "Идем дальше 🚀"
+  bot.action(/continue_to_plushki_(\d+)/, ctx => handleContinueToPlushki(ctx, bot));
+
+  // Обработчик кнопки "Описал ☑️" (после добавления эмоций B1/B4)
+  bot.action(/emotions_addition_done_(\d+)/, ctx => handleEmotionsAdditionDone(ctx, bot));
 
   // Обработчик для неактивной кнопки
   bot.action('disabled', async (ctx) => {

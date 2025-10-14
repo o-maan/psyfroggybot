@@ -24,6 +24,17 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       '🔘 Нажата кнопка пропуска первого задания'
     );
 
+    // Останавливаем таймер напоминания если он есть
+    const scheduler = (bot as any).scheduler;
+    if (scheduler && userId) {
+      const session = scheduler.interactiveSessions?.get(userId);
+      if (session?.reminderTimeout) {
+        clearTimeout(session.reminderTimeout);
+        session.reminderTimeout = undefined;
+        botLogger.info({ userId }, '⏰ Таймер напоминания остановлен при нажатии кнопки пропуска');
+      }
+    }
+
     // Получаем данные поста из БД
     const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML, saveInteractivePost } = await import('../../db');
     let post = getInteractivePost(channelMessageId);
@@ -87,10 +98,9 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
 
     // Формируем текст для плюшек
     let plushkiText: string;
-    
+
     if (isFromEmotionsClarification) {
       // Если нажали "В другой раз" при уточнении эмоций - добавляем слова поддержки
-      const scheduler = (bot as any).scheduler;
       const supportText = scheduler ? scheduler.getRandomSupportText() : 'Спасибо, что поделился 💚';
       plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
     } else {
@@ -125,7 +135,6 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     });
 
     // Устанавливаем/перезапускаем таймер напоминания о незавершенной работе
-    const scheduler = (bot as any).scheduler;
     if (scheduler && userId) {
       scheduler.setIncompleteWorkReminder(userId, channelMessageId);
       botLogger.debug({ userId, channelMessageId }, '⏰ Таймер напоминания перезапущен после пропуска задания');

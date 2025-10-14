@@ -975,6 +975,78 @@ export const addUsedPromptExample = (promptNumber: number, exampleIndex: number,
   databaseLogger.info({ promptNumber, exampleIndex }, 'Добавлен использованный пример промпта');
 };
 
+// ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ПОДДЕРЖИВАЮЩИХ СООБЩЕНИЙ =============
+
+// Получить последние использованные поддерживающие сообщения
+export const getLastUsedSupportMessages = (limit: number = 5) => {
+  const get = db.query(`
+    SELECT message_index
+    FROM support_messages_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { message_index: number }[];
+  return rows.map(row => row.message_index);
+};
+
+// Добавить использованное поддерживающее сообщение
+export const addUsedSupportMessage = (messageIndex: number) => {
+  // Сначала добавляем новый
+  const insert = db.query(`
+    INSERT INTO support_messages_history (message_index, used_at)
+    VALUES (?, datetime('now'))
+  `);
+  insert.run(messageIndex);
+
+  // Затем удаляем старые, оставляя только последние 5
+  const deleteOld = db.query(`
+    DELETE FROM support_messages_history
+    WHERE id NOT IN (
+      SELECT id FROM support_messages_history
+      ORDER BY used_at DESC
+      LIMIT 5
+    )
+  `);
+  deleteOld.run();
+
+  databaseLogger.info({ messageIndex }, 'Добавлено использованное поддерживающее сообщение');
+};
+
+// Получить последние использованные тексты поддержки эмоций
+export const getLastUsedEmotionsSupportTexts = (limit: number = 5) => {
+  const get = db.query(`
+    SELECT message_index
+    FROM emotions_support_texts_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { message_index: number }[];
+  return rows.map(row => row.message_index);
+};
+
+// Добавить использованный текст поддержки эмоций
+export const addUsedEmotionsSupportText = (messageIndex: number) => {
+  // Сначала добавляем новый
+  const insert = db.query(`
+    INSERT INTO emotions_support_texts_history (message_index, used_at)
+    VALUES (?, datetime('now'))
+  `);
+  insert.run(messageIndex);
+
+  // Затем удаляем старые, оставляя только последние 5
+  const deleteOld = db.query(`
+    DELETE FROM emotions_support_texts_history
+    WHERE id NOT IN (
+      SELECT id FROM emotions_support_texts_history
+      ORDER BY used_at DESC
+      LIMIT 5
+    )
+  `);
+  deleteOld.run();
+
+  databaseLogger.info({ messageIndex }, 'Добавлен использованный текст поддержки эмоций');
+};
+
 // ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ОТВЕТОВ НА ЗЛЫЕ ПОСТЫ =============
 
 // Получить или создать запись о количестве ответов пользователя

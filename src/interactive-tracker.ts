@@ -48,7 +48,7 @@ export async function trackUserMessage(
       };
       
       // Сохраняем связь с сообщением пользователя
-      await saveUserMessageLink(post.channel_message_id, messageId, replyToMessageId);
+      await saveUserMessageLink(post.channel_message_id, messageId, replyToMessageId, userId, messageText);
     }
   }
 
@@ -66,7 +66,7 @@ export async function trackUserMessage(
       };
       
       // Сохраняем связь без конкретного бот-сообщения
-      await saveUserMessageLink(lastPost.channel_message_id, messageId);
+      await saveUserMessageLink(lastPost.channel_message_id, messageId, undefined, userId, messageText);
     }
   }
 
@@ -80,7 +80,7 @@ export async function trackUserMessage(
         userId
       };
       
-      await saveUserMessageLink(post.channel_message_id, messageId);
+      await saveUserMessageLink(post.channel_message_id, messageId, undefined, userId, messageText);
     }
   }
 
@@ -95,7 +95,7 @@ export async function trackUserMessage(
     
     // Даже если контекст не найден, сохраняем сообщение для истории
     // Используем 0 как псевдо channelMessageId для общих сообщений
-    await saveUserMessageLink(0, messageId, undefined, userId);
+    await saveUserMessageLink(0, messageId, undefined, userId, messageText);
   }
 
   return context;
@@ -143,7 +143,8 @@ async function saveUserMessageLink(
   channelMessageId: number,
   userMessageId: number,
   replyToBotMessageId?: number,
-  userId?: number
+  userId?: number,
+  messageText?: string
 ) {
   try {
     // Если channelMessageId = 0, это общее сообщение без поста
@@ -152,6 +153,7 @@ async function saveUserMessageLink(
       const finalUserId = userId || 0;
       
       // Сохраняем только в таблицу message_links
+      const messagePreview = messageText ? messageText.substring(0, 500) : null;
       const save = db.query(`
         INSERT INTO message_links (
           channel_message_id,
@@ -159,11 +161,12 @@ async function saveUserMessageLink(
           message_type,
           user_id,
           reply_to_message_id,
+          message_preview,
           created_at
-        ) VALUES (?, ?, 'user', ?, ?, datetime('now'))
+        ) VALUES (?, ?, 'user', ?, ?, ?, datetime('now'))
       `);
-      
-      save.run(0, userMessageId, finalUserId, replyToBotMessageId || null);
+
+      save.run(0, userMessageId, finalUserId, replyToBotMessageId || null, messagePreview);
       return;
     }
     
@@ -183,6 +186,7 @@ async function saveUserMessageLink(
     }
     
     // Также сохраняем в отдельную таблицу для полной истории
+    const messagePreview = messageText ? messageText.substring(0, 500) : null;
     const save = db.query(`
       INSERT INTO message_links (
         channel_message_id,
@@ -190,11 +194,12 @@ async function saveUserMessageLink(
         message_type,
         user_id,
         reply_to_message_id,
+        message_preview,
         created_at
-      ) VALUES (?, ?, 'user', ?, ?, datetime('now'))
+      ) VALUES (?, ?, 'user', ?, ?, ?, datetime('now'))
     `);
-    
-    save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId);
+
+    save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId, messagePreview);
     
     // Обновляем основную таблицу если есть что обновлять
     if (Object.keys(updateData).length > 0) {

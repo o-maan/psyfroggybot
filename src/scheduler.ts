@@ -55,7 +55,31 @@ export class Scheduler {
     {
       messageData: any;
       relaxationType: 'body' | 'breathing';
-      currentStep: 'waiting_negative' | 'waiting_schema' | 'waiting_positive' | 'waiting_practice' | 'finished';
+      currentStep:
+        | 'waiting_negative'
+        | 'waiting_emotions_clarification'
+        | 'waiting_emotions_addition'
+        | 'waiting_emotions'
+        | 'waiting_positive_emotions_clarification'
+        | 'waiting_schema'
+        | 'waiting_positive'
+        | 'waiting_practice'
+        | 'finished'
+        | 'deep_waiting_situations_list'
+        | 'deep_waiting_negative'
+        | 'deep_waiting_thoughts'
+        | 'deep_waiting_distortions'
+        | 'deep_waiting_harm'
+        | 'deep_waiting_rational'
+        | 'deep_waiting_positive'
+        | 'deep_waiting_positive_emotions_clarification'
+        | 'deep_waiting_practice'
+        | 'schema_waiting_trigger'
+        | 'schema_waiting_thoughts'
+        | 'schema_waiting_emotions'
+        | 'schema_waiting_emotions_clarification'
+        | 'schema_waiting_behavior'
+        | 'schema_waiting_correction';
       startTime: string;
       messageId?: number;
       channelMessageId?: number; // ID поста в канале для использования как thread_id
@@ -64,6 +88,11 @@ export class Scheduler {
       practiceCompleted?: boolean;
       practicePostponed?: boolean;
       postponedUntil?: number;
+      confirmationPromptMessageId?: number; // ID сообщения "Все описал?" для удаления и переотправки
+      userStartedTyping?: boolean; // Флаг что пользователь начал отвечать на "Выгрузку"
+      reminderTimeout?: NodeJS.Timeout; // Таймер для напоминания "Если ты все описал - нажми кнопку Готово"
+      reminderSent?: boolean; // Флаг что напоминание уже отправлено (отправляем только 1 раз)
+      reminderMessageId?: number; // ID сообщения с напоминанием для удаления
     }
   > = new Map();
 
@@ -245,6 +274,24 @@ export class Scheduler {
   // Удалить интерактивную сессию
   public deleteInteractiveSession(userId: number) {
     this.interactiveSessions.delete(userId);
+  }
+
+  // Отменить таймер напоминания для пользователя
+  public cancelReminderTimeout(userId: number): boolean {
+    const session = this.interactiveSessions.get(userId);
+    if (session?.reminderTimeout) {
+      clearTimeout(session.reminderTimeout);
+      session.reminderTimeout = undefined;
+      session.reminderSent = true; // Отмечаем что пользователь ответил
+      schedulerLogger.info({ userId }, '⏰ Таймер напоминания отменен');
+      return true;
+    } else if (session) {
+      // Таймера нет, но отмечаем что пользователь ответил
+      session.reminderSent = true;
+      schedulerLogger.debug({ userId }, '✅ Таймера не было, но отмечено что пользователь ответил');
+      return false;
+    }
+    return false;
   }
 
   // Получить экземпляр бота
@@ -3882,12 +3929,34 @@ ${userMessages}
     }
 
     // Создаем объект session из данных БД для обратной совместимости
-    const session = {
-      messageData: activePost.message_data,
-      relaxationType: activePost.relaxation_type,
-      channelMessageId: channelMessageId,
-      currentStep: this.determineCurrentStep(activePost),
-    };
+    // Получаем или создаем сессию из Map
+    let session = this.interactiveSessions.get(userId);
+
+    if (!session) {
+      // Создаем новую сессию если её нет
+      session = {
+        messageData: activePost.message_data,
+        relaxationType: activePost.relaxation_type,
+        channelMessageId: channelMessageId,
+        currentStep: this.determineCurrentStep(activePost) as any,
+        startTime: new Date().toISOString(),
+        confirmationPromptMessageId: undefined,
+        userStartedTyping: false,
+      };
+      this.interactiveSessions.set(userId, session);
+    } else {
+      // Обновляем существующую сессию
+      session.messageData = activePost.message_data;
+      session.relaxationType = activePost.relaxation_type;
+      session.channelMessageId = channelMessageId;
+      session.currentStep = this.determineCurrentStep(activePost) as any;
+    }
+
+    // Проверка на случай если session все еще undefined (не должно быть, но для TypeScript)
+    if (!session) {
+      schedulerLogger.error({ userId }, 'Критическая ошибка: не удалось создать сессию');
+      return false;
+    }
 
     schedulerLogger.info(
       {
@@ -4461,120 +4530,172 @@ ${userMessages}
       }
 
       if (session.currentStep === 'waiting_negative') {
-        // Пользователь ответил на первое задание
+        // Пользователь ответил на первое задание (Выгрузка)
         schedulerLogger.info(
           {
             userId,
             channelMessageId,
             messageText: messageText.substring(0, 50),
           },
-          'Получен ответ на первое задание'
+          'Получен ответ на "Выгрузку неприятных переживаний"'
         );
 
         // Импортируем функции из БД
-        const { updateInteractivePostState, updateTaskStatus } = await import('./db');
+        const { updateInteractivePostState } = await import('./db');
 
         // Сохраняем ID сообщения пользователя
         updateInteractivePostState(channelMessageId, 'waiting_negative', {
           user_task1_message_id: messageId,
         });
 
-        // Сразу анализируем ответ на наличие эмоций
-        // Импортируем функцию подсчета эмоций
-        const { countEmotions, getEmotionHelpMessage } = await import('./utils/emotions');
-
-        // Проверяем количество эмоций в ответе
-        const emotionAnalysis = countEmotions(messageText, 'negative');
-
-        schedulerLogger.debug(
-          {
-            userId,
-            channelMessageId,
-            emotionsCount: emotionAnalysis.count,
-            emotions: emotionAnalysis.emotions,
-            categories: emotionAnalysis.categories,
-          },
-          'Анализ эмоций в ответе пользователя'
-        );
-
-        // Если меньше 3 эмоций - предлагаем дополнить
-        if (emotionAnalysis.count < 3) {
-          const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'negative');
-
-          const sendOptions: any = {
-            parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
-                [{ text: 'В другой раз', callback_data: `skip_neg_${channelMessageId}` }],
-              ],
-            },
-          };
-
+        // Если есть предыдущее сообщение "Все описал?" - удаляем его
+        if (session.confirmationPromptMessageId) {
           try {
-            const helpMessageResult = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
-              {
-                chatId: userId,
-                messageType: 'emotions_help',
-                maxAttempts: 10,
-                intervalMs: 5000,
-              }
+            await this.bot.telegram.deleteMessage(replyToChatId, session.confirmationPromptMessageId);
+            schedulerLogger.info(
+              { userId, oldMessageId: session.confirmationPromptMessageId },
+              '🗑 Удалено предыдущее сообщение "Все описал?"'
             );
-
-            // Обновляем состояние в БД сразу после успешной отправки
-            updateInteractivePostState(channelMessageId, 'waiting_emotions_clarification', {
-              user_schema_message_id: messageId,
-            });
-
-            // Обновляем состояние сессии
-            session.currentStep = 'waiting_emotions_clarification';
-            return true;
-          } catch (helpError) {
-            schedulerLogger.error({ error: helpError }, 'Ошибка отправки помощи с эмоциями, продолжаем с плюшками');
-            // Продолжаем дальше если ошибка
+          } catch (deleteError) {
+            schedulerLogger.warn(
+              { error: deleteError, messageId: session.confirmationPromptMessageId },
+              'Не удалось удалить предыдущее сообщение "Все описал?" (возможно уже удалено)'
+            );
           }
         }
 
-        // Если эмоций достаточно или произошла ошибка - отправляем плюшки
+        // Удаляем напоминание "Если ты все описал - нажми кнопку Готово" если оно было отправлено
+        if (session.reminderMessageId) {
+          try {
+            await this.bot.telegram.deleteMessage(replyToChatId, session.reminderMessageId);
+            schedulerLogger.info(
+              { userId, oldReminderMessageId: session.reminderMessageId },
+              '🗑 Удалено напоминание "Если ты все описал - нажми кнопку Готово"'
+            );
+            session.reminderMessageId = undefined;
+          } catch (deleteError) {
+            schedulerLogger.warn(
+              { error: deleteError, reminderMessageId: session.reminderMessageId },
+              'Не удалось удалить напоминание (возможно уже удалено)'
+            );
+          }
+        }
+
+        // Отправляем новое сообщение "Все описал?" с кнопкой
+        const confirmationText = 'Все описал? 📝';
+        const confirmationKeyboard = {
+          inline_keyboard: [[{ text: 'Да ☑️', callback_data: `confirm_negative_${channelMessageId}` }]],
+        };
+
         try {
-          // Отмечаем первое задание как выполненное
-          updateTaskStatus(channelMessageId, 1, true);
-
-          // Отправляем плюшки с новым текстом
-          const fallbackText =
-            '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
-
-          const fallbackMessage = await this.sendWithRetry(
+          const confirmationMessage = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-                parse_mode: 'HTML',
+              this.bot.telegram.sendMessage(replyToChatId, confirmationText, {
                 reply_parameters: { message_id: messageId },
-                reply_markup: {
-                  inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-                },
+                reply_markup: confirmationKeyboard,
               }),
             {
               chatId: userId,
-              messageType: 'positive_task',
+              messageType: 'negative_confirmation',
               maxAttempts: 5,
-              intervalMs: 3000,
+              intervalMs: 2000,
             }
           );
 
-          // Обновляем состояние
-          updateInteractivePostState(channelMessageId, 'waiting_positive', {
-            bot_task2_message_id: fallbackMessage.message_id,
-          });
+          // Сохраняем ID нового сообщения "Все описал?" для последующего удаления
+          session.confirmationPromptMessageId = confirmationMessage.message_id;
+          session.userStartedTyping = true;
 
-          session.currentStep = 'waiting_positive';
+          schedulerLogger.info(
+            { userId, confirmationMessageId: confirmationMessage.message_id },
+            '✅ Отправлено сообщение "Все описал?" с кнопкой'
+          );
+
+          // Отменяем предыдущий таймер напоминания если он есть
+          if (session.reminderTimeout) {
+            clearTimeout(session.reminderTimeout);
+            schedulerLogger.debug({ userId }, '⏰ Отменен предыдущий таймер напоминания');
+          }
+
+          // Запускаем таймер напоминания (если напоминание еще не отправлялось)
+          if (!session.reminderSent) {
+            const reminderDelay = this.isTestBot() ? 60 * 1000 : 10 * 60 * 1000; // 1 мин в тесте, 10 мин в проде
+
+            session.reminderTimeout = setTimeout(async () => {
+              try {
+                schedulerLogger.info(
+                  { userId },
+                  '⏰ Таймер сработал - отправляем напоминание "Если ты все описал - нажми кнопку Готово"'
+                );
+
+                // Удаляем предыдущее сообщение "Все описал?"
+                if (session.confirmationPromptMessageId) {
+                  try {
+                    await this.bot.telegram.deleteMessage(replyToChatId, session.confirmationPromptMessageId);
+                    schedulerLogger.info(
+                      { userId, oldMessageId: session.confirmationPromptMessageId },
+                      '🗑 Удалено сообщение "Все описал?" перед отправкой напоминания'
+                    );
+                  } catch (deleteError) {
+                    schedulerLogger.warn(
+                      { error: deleteError },
+                      'Не удалось удалить "Все описал?" перед напоминанием'
+                    );
+                  }
+                }
+
+                // Отправляем напоминание
+                const reminderText = 'Если ты все описал - нажми кнопку "Готово"';
+                const reminderKeyboard = {
+                  inline_keyboard: [[{ text: 'Готово ☑️', callback_data: `confirm_negative_${channelMessageId}` }]],
+                };
+
+                const reminderMessage = await this.sendWithRetry(
+                  () =>
+                    this.bot.telegram.sendMessage(replyToChatId, reminderText, {
+                      reply_parameters: { message_id: messageId },
+                      reply_markup: reminderKeyboard,
+                    }),
+                  {
+                    chatId: userId,
+                    messageType: 'negative_reminder',
+                    maxAttempts: 5,
+                    intervalMs: 2000,
+                  }
+                );
+
+                // Сохраняем ID напоминания и отмечаем что оно отправлено
+                session.reminderMessageId = reminderMessage.message_id;
+                session.reminderSent = true;
+                session.confirmationPromptMessageId = undefined; // Больше нет "Все описал?"
+                session.reminderTimeout = undefined; // Очищаем ссылку на таймер
+
+                schedulerLogger.info(
+                  { userId, reminderMessageId: reminderMessage.message_id },
+                  '✅ Напоминание "Если ты все описал - нажми Готово" отправлено'
+                );
+              } catch (error) {
+                schedulerLogger.error(
+                  { error, userId },
+                  'Ошибка отправки напоминания "Если ты все описал - нажми Готово"'
+                );
+              }
+            }, reminderDelay);
+
+            schedulerLogger.debug(
+              { userId, delayMs: reminderDelay },
+              `⏰ Запущен таймер напоминания (${reminderDelay / 1000 / 60} мин)`
+            );
+          }
+
           return true;
-        } catch (fallbackError2) {
-          schedulerLogger.error({ error: fallbackError2 }, 'Критическая ошибка: не удалось отправить плюшки');
-          return false;
+        } catch (confirmationError) {
+          schedulerLogger.error(
+            { error: confirmationError },
+            'Ошибка отправки сообщения "Все описал?", пропускаем этот шаг'
+          );
+          // Если не удалось отправить подтверждение - ничего страшного, просто не будет этой фичи
+          return true;
         }
       } else if (session.currentStep === 'waiting_emotions') {
         // Пользователь ответил на вопрос про эмоции
@@ -4701,11 +4822,7 @@ ${userMessages}
       } else if (session.currentStep === 'waiting_emotions_clarification') {
         // Пользователь дополнил ответ про эмоции
         schedulerLogger.info(
-          {
-            userId,
-            channelMessageId,
-            messageText: messageText.substring(0, 50),
-          },
+          { userId, channelMessageId, messageText: messageText.substring(0, 50) },
           'Получен дополненный ответ про эмоции'
         );
 
@@ -4716,87 +4833,214 @@ ${userMessages}
           saveMessage(userId, messageText, new Date().toISOString(), user.id);
         }
 
-        // Отмечаем первое задание как выполненное
-        updateTaskStatus(channelMessageId, 1, true);
+        // Получаем текущий шаг из БД
+        const { getInteractivePost, updateInteractivePostState } = await import('./db');
+        const post = getInteractivePost(channelMessageId);
 
-        // Сохраняем ID ответа пользователя
+        // СТАРАЯ ЛОГИКА: 1 сообщение без пошагового уточнения → сразу Плюшки
+        if (!post || !post.message_data?.emotions_clarification_messages) {
+          schedulerLogger.info({ channelMessageId }, '✅ СТАРАЯ ЛОГИКА: 1 сообщение, отправляем Плюшки сразу');
+
+          // Отмечаем первое задание как выполненное
+          updateTaskStatus(channelMessageId, 1, true);
+
+          // Сохраняем ID ответа пользователя
+          updateInteractivePostState(channelMessageId, 'waiting_positive', {
+            user_emotions_clarification_message_id: messageId,
+          });
+
+          // Отправляем Плюшки с рандомным текстом поддержки (СТАРАЯ ЛОГИКА)
+          const { EMOTIONS_SUPPORT_TEXTS } = await import('./constants/emotions-support-texts');
+          const { getLastUsedEmotionsSupportTexts, addUsedEmotionsSupportText } = await import('./db');
+
+          // Получаем последние 5 использованных текстов
+          const lastUsed = getLastUsedEmotionsSupportTexts(5);
+
+          // Выбираем случайный текст, исключая последние 5
+          let availableTexts = EMOTIONS_SUPPORT_TEXTS.map((_, idx) => idx).filter(idx => !lastUsed.includes(idx));
+
+          // Если все использованы - используем все
+          if (availableTexts.length === 0) {
+            availableTexts = EMOTIONS_SUPPORT_TEXTS.map((_, idx) => idx);
+          }
+
+          const randomIndex = availableTexts[Math.floor(Math.random() * availableTexts.length)];
+          const randomSupportText = EMOTIONS_SUPPORT_TEXTS[randomIndex];
+
+          // Сохраняем использованный текст
+          addUsedEmotionsSupportText(randomIndex);
+          const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+
+          const sendOptions: any = {
+            parse_mode: 'HTML',
+            reply_parameters: { message_id: messageId },
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+            },
+          };
+
+          try {
+            const task2Message = await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+              { chatId: userId, messageType: 'plushki_after_old_clarification', maxAttempts: 10, intervalMs: 5000 }
+            );
+
+            saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+
+            updateInteractivePostState(channelMessageId, 'waiting_positive', {
+              bot_task2_message_id: task2Message.message_id,
+            });
+
+            session.currentStep = 'waiting_positive';
+            return true;
+          } catch (plushkiError) {
+            schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек (старая логика)');
+            return false;
+          }
+        }
+
+        // НОВАЯ ЛОГИКА: пошаговое уточнение для нескольких сообщений
+        schedulerLogger.info({ channelMessageId }, '📊 НОВАЯ ЛОГИКА: пошаговое уточнение');
+
+        const clarificationMessages = post.message_data.emotions_clarification_messages as number[];
+        const currentStep = (post.message_data.emotions_clarification_step as number) || 0;
+        const nextStep = currentStep + 1;
+
+        schedulerLogger.info(
+          { channelMessageId, currentStep, nextStep, totalMessages: clarificationMessages.length },
+          '📊 Пошаговое уточнение: текущий шаг'
+        );
+
+        if (nextStep < clarificationMessages.length) {
+          // Есть еще сообщения для уточнения → отправляем следующий запрос
+          const updatedMessageData = {
+            ...post.message_data,
+            emotions_clarification_messages: clarificationMessages,
+            emotions_clarification_step: nextStep,
+          };
+
+          const { db } = await import('./db');
+          const updateQuery = db.query(`
+            UPDATE interactive_posts
+            SET current_state = ?, message_data = ?
+            WHERE channel_message_id = ?
+          `);
+          updateQuery.run('waiting_emotions_clarification', JSON.stringify(updatedMessageData), channelMessageId);
+
+          // Отправляем следующий запрос эмоций
+          const nextMessageId = clarificationMessages[nextStep];
+          const { sendEmotionsClarificationStep } = await import('./handlers/callbacks/confirm_negative');
+          await sendEmotionsClarificationStep(this.bot, replyToChatId, userId, channelMessageId, nextMessageId, nextStep, clarificationMessages.length);
+
+          return true;
+        } else {
+          // Все сообщения обработаны → переходим к плюшкам
+          schedulerLogger.info({ channelMessageId }, '✅ Все шаги уточнения завершены, переходим к плюшкам');
+
+          // Отмечаем первое задание как выполненное
+          updateTaskStatus(channelMessageId, 1, true);
+
+          // Отправляем плюшки
+          const plushkiText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+
+          const sendOptions: any = {
+            parse_mode: 'HTML',
+            reply_parameters: { message_id: messageId },
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+            },
+          };
+
+          try {
+            const task2Message = await this.sendWithRetry(
+              () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+              { chatId: userId, messageType: 'plushki_after_clarification', maxAttempts: 10, intervalMs: 5000 }
+            );
+
+            saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+
+            updateInteractivePostState(channelMessageId, 'waiting_positive', {
+              bot_task2_message_id: task2Message.message_id,
+            });
+
+            session.currentStep = 'waiting_positive';
+            return true;
+          } catch (plushkiError) {
+            schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек после уточнения');
+            return false;
+          }
+        }
+      } else if (session.currentStep === 'waiting_emotions_addition') {
+        // Пользователь добавляет эмоции (B1/B4: все 0 или >3 с <3)
+        // Логика: скользящая кнопка "Описал" как в waiting_negative
+        schedulerLogger.info(
+          { userId, channelMessageId, messageText: messageText.substring(0, 50) },
+          'Получен ответ на запрос добавления эмоций (B1/B4)'
+        );
+
+        // Сохраняем ответ пользователя
+        const { getUserByChatId } = await import('./db');
+        const user = getUserByChatId(userId);
+        if (user) {
+          saveMessage(userId, messageText, new Date().toISOString(), user.id);
+        }
+
         const { updateInteractivePostState } = await import('./db');
-        updateInteractivePostState(channelMessageId, 'waiting_positive', {
-          user_emotions_clarification_message_id: messageId,
+
+        // Сохраняем ID сообщения пользователя
+        updateInteractivePostState(channelMessageId, 'waiting_emotions_addition', {
+          user_task1_message_id: messageId,
         });
 
-        // Отправляем плюшки с рандомным текстом поддержки
-        const emotionsSupportTexts = [
-          'Теперь ты лучше понимаешь свои эмоции 🙌🏻',
-          'Спасибо, что назвал непростые эмоции 🩶',
-          'Ты молодец, что смог это описать 🌟',
-          'Важно, что ты осознаешь свои чувства, даже когда это совсем непросто ❤️‍🩹',
-          'Хорошо, что получилось назвать эмоции ✨',
-          'Ты справился с непростой задачей 🎯',
-          'С каждым разом ты все лучше разбираешься в своих эмоциях 🎉',
-          'Ты учишься понимать себя - это ценно! Я с тобой 🫂',
-          'Ты делаешь важные шаги к пониманию себя 👣',
-          'Я горжусь тобой! Ты смог назвать эмоции 🤍',
-          'Молодец! Теперь эмоции стали понятнее 🔮',
-          'Ты проделал важную работу с чувствами 💪🏻',
-          'Ты учишься слышать себя - это важно 👂🏻',
-          'Уфф.. непростая работа проделана с неприятными эмоциями! Ты молодец ❣️',
-          'Ты становишься ближе к себе 🤲🏻',
-          'Каждая названная эмоция - это победа 🏆',
-          'Ты смог! И это очень ценно 💎',
-          'Ты справился! Это был важный шаг 👏🏻',
-          'Ты на правильном пути! Продолжай',
-          'Ты отлично справляешься! Я в тебя верю 🌱',
-          'Спасибо, что доверился и назвал свои чувства 🤍',
-          'Я вижу твои переживания. Ты смог их озвучить 🫶🏻',
-          'Это было непросто, но ты справился 💚',
-          'Твои чувства важны. Хорошо, что ты их назвал 🕊️',
-          'Понимаю, как это сложно. Ты молодец 💜',
-          'Я рядом. Ты смог назвать то, что тревожит 🤲🏻',
-          'Это требовало смелости. Ты справился 🌱',
-          'Благодарю за доверие и честность 💫',
-          'Ты проделал непростую работу с эмоциями 🌊',
-          'Я слышу тебя. Ты смог это выразить 👐🏻',
-        ];
-        const randomSupportText = emotionsSupportTexts[Math.floor(Math.random() * emotionsSupportTexts.length)];
-        const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+        // Если есть предыдущее сообщение "Когда опишешь..." - удаляем его
+        if (session.confirmationPromptMessageId) {
+          try {
+            await this.bot.telegram.deleteMessage(replyToChatId, session.confirmationPromptMessageId);
+            schedulerLogger.info(
+              { userId, oldMessageId: session.confirmationPromptMessageId },
+              '🗑 Удалено предыдущее сообщение "Когда опишешь..."'
+            );
+          } catch (deleteError) {
+            schedulerLogger.warn(
+              { error: deleteError, messageId: session.confirmationPromptMessageId },
+              'Не удалось удалить предыдущее сообщение (возможно уже удалено)'
+            );
+          }
+        }
 
-        const sendOptions: any = {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
-          reply_markup: {
-            inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-          },
+        // Отправляем новое сообщение "Когда опишешь все переживания - жми кнопку" с кнопкой "Описал"
+        const confirmationText = 'Когда опишешь все переживания - жми кнопку';
+        const confirmationKeyboard = {
+          inline_keyboard: [[{ text: 'Описал ☑️', callback_data: `emotions_addition_done_${channelMessageId}` }]],
         };
 
         try {
-          const task2Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+          const confirmationMessage = await this.sendWithRetry(
+            () =>
+              this.bot.telegram.sendMessage(replyToChatId, confirmationText, {
+                reply_parameters: { message_id: messageId },
+                reply_markup: confirmationKeyboard,
+              }),
             {
               chatId: userId,
-              messageType: 'plushki_after_clarification',
-              maxAttempts: 10,
-              intervalMs: 5000,
+              messageType: 'emotions_addition_confirmation',
+              maxAttempts: 5,
+              intervalMs: 2000,
             }
           );
 
-          // Сохраняем сообщение в БД
-          saveMessage(userId, plushkiText, new Date().toISOString(), 0);
+          // Сохраняем ID нового сообщения для последующего удаления
+          session.confirmationPromptMessageId = confirmationMessage.message_id;
 
-          // Обновляем состояние в БД
-          updateInteractivePostState(channelMessageId, 'waiting_positive', {
-            bot_task2_message_id: task2Message.message_id,
-          });
-
-          // Обновляем состояние - теперь ждем плюшки
-          session.currentStep = 'waiting_positive';
-          return true;
-        } catch (plushkiError) {
-          schedulerLogger.error({ error: plushkiError }, 'Ошибка отправки плюшек после уточнения');
-          return false;
+          schedulerLogger.info(
+            { userId, confirmationMessageId: confirmationMessage.message_id },
+            '✅ Отправлено сообщение "Когда опишешь..." с кнопкой "Описал"'
+          );
+        } catch (error) {
+          schedulerLogger.error({ error }, 'Ошибка отправки подтверждения добавления эмоций');
         }
+
+        return true;
       } else if (session.currentStep === 'waiting_schema') {
         // Пользователь ответил на схему разбора
         schedulerLogger.info(
