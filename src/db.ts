@@ -1165,6 +1165,17 @@ export const updateMorningPostButtonMessage = (channelMessageId: number, buttonM
   update.run(buttonMessageId, channelMessageId);
 };
 
+// Обновить время последнего финального сообщения (для определения начала нового цикла)
+export const updateMorningPostFinalMessageTime = (channelMessageId: number, timestamp: string) => {
+  const update = db.query(`
+    UPDATE morning_posts
+    SET last_final_message_time = ?
+    WHERE channel_message_id = ?
+  `);
+  update.run(timestamp, channelMessageId);
+  databaseLogger.info({ channelMessageId, timestamp }, 'Обновлено время финального сообщения');
+};
+
 // Получить все утренние посты пользователя
 export const getUserMorningPosts = (userId: number) => {
   const query = db.query(`
@@ -1179,4 +1190,165 @@ export const getUserMorningPosts = (userId: number) => {
     created_at: string;
     current_step: string;
   }>;
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОЧНИКАМИ РАДОСТИ =============
+
+// Добавить источник радости
+export const addJoySource = (chatId: number, text: string, sourceType: 'manual' | 'auto' = 'manual') => {
+  const insert = db.query(`
+    INSERT INTO joy_sources (chat_id, text, source_type, created_at)
+    VALUES (?, ?, ?, datetime('now'))
+  `);
+  insert.run(chatId, text, sourceType);
+  databaseLogger.info({ chatId, sourceType }, 'Добавлен источник радости');
+};
+
+// Получить все источники радости пользователя
+export const getAllJoySources = (chatId: number) => {
+  const get = db.query(`
+    SELECT * FROM joy_sources
+    WHERE chat_id = ?
+    ORDER BY created_at DESC
+  `);
+  return get.all(chatId) as Array<{
+    id: number;
+    chat_id: number;
+    text: string;
+    source_type: string;
+    created_at: string;
+  }>;
+};
+
+// Сохранить эмоцию радости/любви для последующего анализа
+export const saveJoyEmotion = (
+  chatId: number,
+  text: string,
+  emotionType: 'joy' | 'love',
+  sourceContext: 'morning_post' | 'main_post' | 'plushki'
+) => {
+  const insert = db.query(`
+    INSERT INTO joy_emotions (chat_id, text, emotion_type, source_context, created_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `);
+  insert.run(chatId, text, emotionType, sourceContext);
+  databaseLogger.info({ chatId, emotionType, sourceContext }, 'Сохранена эмоция радости/любви');
+};
+
+// Получить эмоции радости/любви пользователя за последнюю неделю
+export const getJoyEmotionsLastWeek = (chatId: number) => {
+  const get = db.query(`
+    SELECT * FROM joy_emotions
+    WHERE chat_id = ?
+    AND datetime(created_at) > datetime('now', '-7 days')
+    ORDER BY created_at DESC
+  `);
+  return get.all(chatId) as Array<{
+    id: number;
+    chat_id: number;
+    text: string;
+    emotion_type: string;
+    source_context: string;
+    created_at: string;
+  }>;
+};
+
+// Получить сообщения пользователя только для текущего цикла утренней лягушки
+// (с момента создания утреннего поста до текущего момента)
+// ВАЖНО: Используется для получения ВСЕГО контекста дня (для связности)
+export const getMorningPostUserMessages = (chatId: number, channelMessageId: number) => {
+  // Получаем время создания утреннего поста
+  const morningPost = getMorningPost(channelMessageId);
+  if (!morningPost) {
+    databaseLogger.warn({ chatId, channelMessageId }, 'Утренний пост не найден для получения сообщений');
+    return [];
+  }
+
+  const postCreatedAt = morningPost.created_at;
+
+  // Получаем все сообщения пользователя после создания утреннего поста
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time, m.author_id, u.id as user_id
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ?
+    AND m.author_id = u.chat_id
+    AND datetime(m.sent_time) > datetime(?)
+    ORDER BY m.sent_time ASC
+  `);
+
+  const messages = getMessages.all(chatId, postCreatedAt) as Array<{
+    message_text: string;
+    sent_time: string;
+    author_id: number;
+    user_id: number;
+  }>;
+
+  databaseLogger.info(
+    {
+      chatId,
+      channelMessageId,
+      postCreatedAt,
+      messagesCount: messages.length,
+      timeRange: `> ${postCreatedAt}`
+    },
+    '📋 Получены ВСЕ сообщения утреннего дня'
+  );
+
+  return messages;
+};
+
+// Получить сообщения пользователя ПОСЛЕ последнего финального ответа бота
+// (для анализа НОВОЙ ситуации в текущем цикле)
+export const getMorningPostMessagesAfterLastFinal = (chatId: number, channelMessageId: number) => {
+  // Получаем утренний пост
+  const morningPost = getMorningPost(channelMessageId) as {
+    id: number;
+    channel_message_id: number;
+    user_id: number;
+    created_at: string;
+    current_step: string;
+    last_final_message_time?: string | null;
+  } | undefined;
+
+  if (!morningPost) {
+    databaseLogger.warn({ chatId, channelMessageId }, 'Утренний пост не найден');
+    return [];
+  }
+
+  // Используем время последнего финального сообщения из поля last_final_message_time
+  // Если его нет - берем created_at (это первый цикл)
+  const afterTime = morningPost.last_final_message_time || morningPost.created_at;
+
+  // Получаем все сообщения пользователя после последнего финального ответа
+  const getMessages = db.query(`
+    SELECT m.message_text, m.sent_time, m.author_id, u.id as user_id
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE u.chat_id = ?
+    AND m.author_id = u.chat_id
+    AND datetime(m.sent_time) > datetime(?)
+    ORDER BY m.sent_time ASC
+  `);
+
+  const messages = getMessages.all(chatId, afterTime) as Array<{
+    message_text: string;
+    sent_time: string;
+    author_id: number;
+    user_id: number;
+  }>;
+
+  databaseLogger.info(
+    {
+      chatId,
+      channelMessageId,
+      afterTime,
+      hasLastFinal: !!morningPost.last_final_message_time,
+      messagesCount: messages.length,
+      timeRange: `> ${afterTime}`
+    },
+    '📋 Получены сообщения НОВОГО цикла (после последнего финального ответа)'
+  );
+
+  return messages;
 };

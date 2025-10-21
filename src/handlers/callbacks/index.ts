@@ -35,6 +35,7 @@ import {
   handleSchemaContinue,
   handleSkipNegSchema
 } from './deep_work_buttons';
+import { handleJoyAdd, handleJoyAddMore, handleJoyView } from './joy_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Общий обработчик callback_query
@@ -100,6 +101,11 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
     const { handleDayRating } = await import('./day_rating');
     await handleDayRating(ctx);
   });
+
+  // Обработчики кнопок списка радости
+  bot.action(/joy_add_(\d+)/, ctx => handleJoyAdd(ctx, bot, scheduler));
+  bot.action(/joy_add_more_(\d+)/, ctx => handleJoyAddMore(ctx, bot, scheduler));
+  bot.action(/joy_view_(\d+)/, ctx => handleJoyView(ctx, bot, scheduler));
 }
 
 // Export individual handlers for backwards compatibility

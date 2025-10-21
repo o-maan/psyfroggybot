@@ -207,9 +207,23 @@ bun run lint                   # TypeScript type checking
 ### Database Schema
 
 - `users`: chat_id, username, response stats
-- `messages`: message history with timestamps
+- `messages`: message history with timestamps (author_id указывает кто отправил: 0 = бот, user_id = пользователь)
 - `user_tokens`: Google OAuth tokens per user
 - `user_image_indexes`: per-user image rotation state
+- `morning_posts`: утренние посты с отслеживанием текущего шага диалога
+
+**ВАЖНО: Сохранение сообщений пользователя в БД**
+
+Все сообщения от пользователя ВСЕГДА должны сохраняться в таблицу `messages` через функцию `saveMessage(chatId, messageText, timestamp, authorId)`:
+- `authorId = userId` для сообщений от пользователя
+- `authorId = 0` для сообщений от бота
+
+Это позволяет:
+1. Анализировать историю диалога для генерации контекстных ответов
+2. Отслеживать активность пользователей
+3. Фильтровать сообщения по конкретным сценариям (например, только для текущего цикла утренней лягушки)
+
+При добавлении новых сценариев взаимодействия с пользователем - обязательно добавляй `saveMessage()` для каждого сообщения пользователя.
 
 ### Environment Variables
 

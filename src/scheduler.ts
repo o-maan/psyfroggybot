@@ -20,6 +20,7 @@ import {
   incrementAngryPostUserResponse,
   saveMessage,
   saveUserImageIndex,
+  updateMorningPostFinalMessageTime,
 } from './db';
 import { generateFrogImage, generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
@@ -98,6 +99,22 @@ export class Scheduler {
 
   // Для хранения ID пересланных сообщений
   private forwardedMessages: Map<number, number> = new Map(); // channelMessageId -> discussionMessageId
+
+  // Для хранения активных сессий списка радости
+  private joySessions: Map<number, {
+    channelMessageId: number;
+    forwardedMessageId?: number; // ID пересланного сообщения в группе комментариев
+    userId: number;
+    chatId: number;
+  }> = new Map(); // userId -> session data
+
+  // Для хранения накопленных сообщений пользователя (перед сохранением в БД)
+  // ПУБЛИЧНОЕ - используется в JoyHandler через callback handlers
+  public joyPendingMessages: Map<string, string[]> = new Map(); // sessionKey -> messages
+
+  // Для хранения ID последнего скользящего сообщения с кнопкой
+  // ПУБЛИЧНОЕ - используется в JoyHandler через callback handlers
+  public joyLastButtonMessageId: Map<string, number> = new Map(); // sessionKey -> messageId
 
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
@@ -3256,7 +3273,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         // Отправляем первое сообщение в комментарии асинхронно
         this.sendFirstTaskAsync(
           messageId,
-          'Когда будешь готов поделиться - просто напиши! Я здесь для тебя 🤗',
+          'Когда будешь готов поделиться - просто напиши!\nЯ не смогу ответить на твои вопросы, но всегда готов выслушать. Иногда это именно то, что нужно 🤗',
           undefined,
           'morning_initial',
           chatId,
@@ -3330,7 +3347,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем сообщение с кнопкой "Ответь мне"
-      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
@@ -3378,7 +3395,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Пользователь продолжает писать, повторяем сообщение с кнопкой
-      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
@@ -3443,7 +3460,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем кнопку "Ответь мне"
-      const responseText = 'Дописал? Тыкай на кнопку 🐸';
+      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
 
       const sentMessage = await this.sendWithRetry(
         () =>
@@ -3502,17 +3519,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string }
   ) {
     const { updateMorningPostStep } = await import('./db');
-    const { getLastNMessages } = await import('./db');
+    const { getMorningPostUserMessages, getMorningPostMessagesAfterLastFinal } = await import('./db');
 
-    // Получаем все сообщения пользователя за эту сессию
-    const messages = getLastNMessages(userId, 10);
-    const userMessages = messages
-      .filter(m => m.author_id === userId)
+    // Получаем ВСЕ сообщения за день (для контекста)
+    const allDayMessages = getMorningPostUserMessages(userId, morningPost.channel_message_id);
+    const allDayUserMessages = allDayMessages
       .map(m => m.message_text)
-      .reverse()
       .join('\n');
 
-    schedulerLogger.info({ userId, messagesCount: messages.length }, 'ШАГ 3: Финальный ответ с поддержкой');
+    // Получаем сообщения НОВОГО цикла (после последнего финального ответа)
+    const newCycleMessages = getMorningPostMessagesAfterLastFinal(userId, morningPost.channel_message_id);
+    const newCycleUserMessages = newCycleMessages
+      .map(m => m.message_text)
+      .join('\n');
+
+    schedulerLogger.info({
+      userId,
+      allDayMessagesCount: allDayMessages.length,
+      newCycleMessagesCount: newCycleMessages.length
+    }, 'ШАГ 3: Финальный ответ с поддержкой');
 
     // Ставим реакцию 👀 на сообщение пользователя чтобы показать что читаем
     try {
@@ -3528,8 +3553,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // Генерируем финальный ответ в зависимости от sentiment
     let finalPrompt = '';
     if (sentiment === 'negative') {
-      finalPrompt = `Контекст всех сообщений пользователя:
-${userMessages}
+      finalPrompt = `НОВАЯ ситуация (на это отвечай ПРЕИМУЩЕСТВЕННО):
+${newCycleUserMessages}
+
+Контекст всего дня (для связности):
+${allDayUserMessages}
 
 Пользователь поделился негативными эмоциями. Не повторяя предыдущих слов - еще раз кратко вырази поддержку или напиши что-то приятное человеку, чтобы его утешить или поднять настроение.
 
@@ -3542,8 +3570,11 @@ ${userMessages}
 - Мужской род (например, "я рад помочь")
 - ТОЛЬКО текст поддержки, без кавычек, без технической информации`;
     } else {
-      finalPrompt = `Контекст всех сообщений пользователя:
-${userMessages}
+      finalPrompt = `НОВАЯ ситуация (на это отвечай ПРЕИМУЩЕСТВЕННО):
+${newCycleUserMessages}
+
+Контекст всего дня (для связности):
+${allDayUserMessages}
 
 Пользователь поделился позитивными эмоциями. Не повторяя предыдущих слов - пожелай человеку чаще испытывать больше хороших эмоций, похвали или еще раз порадуйся за человека.
 
@@ -3575,6 +3606,11 @@ ${userMessages}
         intervalMs: 3000,
       }
     );
+
+    // Записываем timestamp финального сообщения для определения начала нового цикла
+    const finalMessageTimestamp = new Date().toISOString();
+    updateMorningPostFinalMessageTime(morningPost.channel_message_id, finalMessageTimestamp);
+    schedulerLogger.info({ userId, timestamp: finalMessageTimestamp }, '⏱️ Обновлен timestamp финального сообщения');
 
     // Обновляем шаг на "waiting_more" чтобы бот продолжал слушать (работа по кругу)
     updateMorningPostStep(morningPost.channel_message_id, 'waiting_more');
@@ -3758,6 +3794,53 @@ ${userMessages}
 
         schedulerLogger.info({ userId, responseCount }, '✅ Отправлен ответ на комментарий к злому посту');
         return true; // Возвращаем true, чтобы показать что сообщение обработано
+      }
+    }
+
+    // Проверяем, не является ли это сообщением в joy-сессии
+    const joySession = this.joySessions.get(userId);
+
+    // ДЕБАГ: Логируем проверку
+    schedulerLogger.info(
+      `🔍 DEBUG joy-сессии: userId=${userId}, threadId=${messageThreadId}, ` +
+      `hasSession=${!!joySession}, forwardedId=${joySession?.forwardedMessageId}, ` +
+      `channelId=${joySession?.channelMessageId}, totalSessions=${this.joySessions.size}`
+    );
+
+    if (joySession && messageThreadId && messageThreadId === joySession.forwardedMessageId) {
+      schedulerLogger.info(
+        {
+          userId,
+          messageThreadId,
+          forwardedMessageId: joySession.forwardedMessageId,
+          channelMessageId: joySession.channelMessageId,
+          messageText: messageText.substring(0, 50),
+        },
+        '🤩 Обнаружено сообщение в joy-сессии'
+      );
+
+      try {
+        // Импортируем JoyHandler
+        const { JoyHandler } = await import('./joy-handler');
+
+        // Создаем экземпляр JoyHandler с общими Map для сохранения состояния
+        const joyHandler = new JoyHandler(
+          this.bot,
+          joySession.chatId,
+          userId,
+          joySession.channelMessageId,
+          this.joyPendingMessages,
+          this.joyLastButtonMessageId
+        );
+
+        // Обрабатываем сообщение пользователя
+        await joyHandler.handleUserMessage(messageText, messageId);
+
+        schedulerLogger.info({ userId }, '✅ Сообщение обработано в joy-сессии');
+        return true;
+      } catch (error) {
+        schedulerLogger.error({ error, userId }, 'Ошибка обработки сообщения в joy-сессии');
+        return false;
       }
     }
 
@@ -5843,6 +5926,210 @@ ${userMessages}
     } catch (error) {
       schedulerLogger.error({ error, userId }, 'Ошибка отправки отложенного ответа');
     }
+  }
+
+  /**
+   * Отправка поста "Мои источники радости и энергии"
+   * @param userId - ID пользователя (НЕ chatId!)
+   */
+  async sendJoyPost(userId: number) {
+    try {
+      schedulerLogger.info({ userId }, '🤩 Начало отправки поста со списком радости');
+
+      // Получаем случайную картинку из fallback массива
+      const fallbackImagePath = this.getNextImage(userId);
+
+      // Формируем текст поста
+      const postText = 'Давай соберем твой личный список того, что приносит тебе радость и заряжает энергией ⚡️\n\nПереходи в комментарии и продолжим 🤗';
+
+      // Отправляем пост в канал с картинкой
+      let channelMessage;
+      try {
+        const imageBuffer = fs.readFileSync(fallbackImagePath);
+        channelMessage = await this.bot.telegram.sendPhoto(
+          this.CHANNEL_ID,
+          { source: imageBuffer },
+          {
+            caption: postText,
+            parse_mode: 'HTML'
+          }
+        );
+        schedulerLogger.info(
+          { userId, channelMessageId: channelMessage.message_id },
+          '📸 Пост со списком радости отправлен в канал'
+        );
+      } catch (sendError) {
+        schedulerLogger.error(
+          { error: sendError, userId },
+          'Ошибка отправки поста со списком радости в канал'
+        );
+        throw sendError;
+      }
+
+      // Получаем ID группы комментариев
+      const commentsChatId = this.getChatId();
+      if (!commentsChatId) {
+        throw new Error('CHAT_ID не настроен в переменных окружения');
+      }
+
+      // Сохраняем сессию
+      this.joySessions.set(userId, {
+        channelMessageId: channelMessage.message_id,
+        userId,
+        chatId: commentsChatId
+      });
+
+      // Отправляем первое сообщение в комментарии асинхронно
+      this.sendJoyFirstMessageAsync(channelMessage.message_id, userId, commentsChatId);
+
+      schedulerLogger.info(
+        { userId },
+        '✅ Пост со списком радости успешно отправлен и сессия запущена'
+      );
+    } catch (error) {
+      const err = error as Error;
+      schedulerLogger.error(
+        {
+          error: err.message,
+          stack: err.stack,
+          userId,
+        },
+        '❌ Ошибка отправки поста со списком радости'
+      );
+
+      // Уведомляем админа об ошибке
+      const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+      if (adminChatId) {
+        await this.bot.telegram.sendMessage(
+          adminChatId,
+          `❌ Ошибка отправки поста со списком радости:\n${err.message}`,
+          { parse_mode: 'HTML' }
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Асинхронная отправка первого сообщения в комментарии к joy-посту
+   */
+  private async sendJoyFirstMessageAsync(
+    channelMessageId: number,
+    userId: number,
+    commentsChatId: number
+  ) {
+    try {
+      // Периодически проверяем наличие пересланного сообщения
+      let forwardedMessageId: number | null = null;
+      let attempts = 0;
+      const maxAttempts = 60; // Максимум 60 попыток (5 минут)
+      const checkInterval = 5000; // Проверяем каждые 5 секунд
+
+      schedulerLogger.info(
+        {
+          channelMessageId,
+          commentsChatId,
+          checkInterval: `${checkInterval / 1000}s`,
+        },
+        '🔍 Начинаем периодическую проверку пересланного сообщения для joy-поста'
+      );
+
+      while (!forwardedMessageId && attempts < maxAttempts) {
+        attempts++;
+
+        // Проверяем сразу, потом ждем
+        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+
+        if (forwardedMessageId) {
+          schedulerLogger.info(
+            {
+              forwardedMessageId,
+              channelMessageId,
+              attempts,
+              waitedSeconds: (attempts * checkInterval) / 1000,
+            },
+            '✅ Найден ID пересланного сообщения в группе для joy-поста'
+          );
+          break;
+        }
+
+        // Логируем прогресс
+        if (attempts % 3 === 0) {
+          schedulerLogger.debug(
+            {
+              attempts,
+              channelMessageId,
+              waitedMinutes: ((attempts * checkInterval) / 1000 / 60).toFixed(1),
+            },
+            '⏳ Продолжаем ждать пересланное сообщение для joy-поста...'
+          );
+        }
+
+        // Ждем до следующей проверки
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+
+      if (!forwardedMessageId) {
+        schedulerLogger.error(
+          { channelMessageId, attempts },
+          '❌ Не удалось найти пересланное сообщение для joy-поста за отведенное время'
+        );
+        return;
+      }
+
+      // Обновляем сессию с forwardedMessageId
+      const joySession = this.joySessions.get(userId);
+      if (joySession) {
+        joySession.forwardedMessageId = forwardedMessageId;
+        this.joySessions.set(userId, joySession);
+        schedulerLogger.info(
+          { userId, forwardedMessageId, channelMessageId },
+          '💾 Обновлена joy-сессия с forwardedMessageId'
+        );
+      }
+
+      // Импортируем JoyHandler
+      const { JoyHandler } = await import('./joy-handler');
+
+      // Создаем экземпляр JoyHandler с общими Map для сохранения состояния
+      const joyHandler = new JoyHandler(
+        this.bot,
+        commentsChatId,
+        userId,
+        channelMessageId,
+        this.joyPendingMessages,
+        this.joyLastButtonMessageId
+      );
+
+      // Отправляем первое сообщение в комментарии
+      await joyHandler.startInteractiveSession(forwardedMessageId);
+
+      schedulerLogger.info(
+        { channelMessageId, forwardedMessageId, userId },
+        '✅ Первое сообщение joy-поста отправлено в комментарии'
+      );
+    } catch (error) {
+      schedulerLogger.error(
+        { error, channelMessageId, userId },
+        '❌ Ошибка отправки первого сообщения joy-поста в комментарии'
+      );
+    }
+  }
+
+  /**
+   * Получить данные активной joy-сессии пользователя
+   */
+  getJoySession(userId: number) {
+    return this.joySessions.get(userId);
+  }
+
+  /**
+   * Удалить joy-сессию пользователя
+   */
+  removeJoySession(userId: number) {
+    this.joySessions.delete(userId);
+    schedulerLogger.info({ userId }, 'Joy-сессия удалена');
   }
 
   // Очистка всех таймеров при завершении работы

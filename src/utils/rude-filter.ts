@@ -1208,6 +1208,32 @@ export function checkRudeMessage(text: string, userId?: number): RudeResponse {
     // 2. Проверка на фразы из нескольких слов (учитывая знаки препинания)
     const words = normalized.split(/[\s,.:;!?]+/).filter(w => w.length > 0);
     if (words.length > 1) {
+      // 🚨 КРИТИЧЕСКИ ВАЖНО: ПРОВЕРКА НА ЭМОЦИИ ДЛЯ ПСИХОЛОГИЧЕСКОГО БОТА!
+      // Если в тексте есть хотя бы ОДНО слово-эмоция - это автоматически НЕ спам!
+      try {
+        const { NEGATIVE_EMOTIONS, POSITIVE_EMOTIONS } = require('./emotions');
+        const allEmotionWords: string[] = [
+          ...Object.values(NEGATIVE_EMOTIONS).flat(),
+          ...Object.values(POSITIVE_EMOTIONS).flat()
+        ] as string[];
+
+        // Проверяем каждое слово в фразе
+        for (const word of words) {
+          for (const emotion of allEmotionWords) {
+            // Проверяем вхождение эмоции в слово (для форм типа "тревожно")
+            if (word.includes(emotion.toLowerCase())) {
+              botLogger.debug({
+                text: normalized.substring(0, 100),
+                foundEmotion: emotion
+              }, '✅ Найдена эмоция в тексте - НЕ спам');
+              return { isRude: false };
+            }
+          }
+        }
+      } catch (error) {
+        botLogger.warn({ error }, 'Не удалось загрузить словарь эмоций');
+      }
+
       // НОВОЕ ПРАВИЛО: для длинных предложений (10+ слов или 50+ символов) -
       // если только 1-2 слова похожи на спам - пропускаем! Явно что-то написано
       const isLongSentence = words.length >= 10 || normalized.length >= 50;
@@ -1224,6 +1250,17 @@ export function checkRudeMessage(text: string, userId?: number): RudeResponse {
             wordsCount: words.length,
             spamWordsCount: spamWords.length
           }, '✅ Длинное предложение с 1-2 спам словами - пропускаем');
+          return { isRude: false };
+        }
+
+        // ✅ НОВОЕ ПРАВИЛО: если в фразе 3+ нормальных слова (не спам) - фраза не спам
+        // Это защитит фразы типа "и мне тревожно" даже если какое-то слово не в словаре
+        const normalWords = longWords.length - spamWords.length;
+        if (normalWords >= 3) {
+          botLogger.debug({
+            text: normalized.substring(0, 100),
+            normalWordsCount: normalWords
+          }, '✅ В фразе 3+ нормальных слова - НЕ спам');
           return { isRude: false };
         }
 
@@ -1244,7 +1281,29 @@ export function checkRudeMessage(text: string, userId?: number): RudeResponse {
       return { isRude: false };
     }
     
-    // 3. Проверка на другой язык (ТОЛЬКО если это весь текст)
+    // 3. 🚨 КРИТИЧЕСКИ ВАЖНО: ПРОВЕРКА НА ЭМОЦИИ ДЛЯ ОДИНОЧНЫХ СЛОВ!
+    // Это защитит от ложных срабатываний для слов типа "тревожусь", "встревожен"
+    try {
+      const { NEGATIVE_EMOTIONS, POSITIVE_EMOTIONS } = require('./emotions');
+      const allEmotionWords: string[] = [
+        ...Object.values(NEGATIVE_EMOTIONS).flat(),
+        ...Object.values(POSITIVE_EMOTIONS).flat()
+      ] as string[];
+
+      for (const emotion of allEmotionWords) {
+        if (normalized.includes(emotion.toLowerCase())) {
+          botLogger.debug({
+            text: normalized,
+            foundEmotion: emotion
+          }, '✅ Одиночное слово-эмоция - НЕ спам');
+          return { isRude: false };
+        }
+      }
+    } catch (error) {
+      botLogger.warn({ error }, 'Не удалось загрузить словарь эмоций для проверки одиночного слова');
+    }
+
+    // 4. Проверка на другой язык (ТОЛЬКО если это весь текст)
     if (isNonRussianText(normalized)) {
       botLogger.info({ text: normalized }, 'Обнаружен текст на другом языке');
       return {
@@ -1253,8 +1312,8 @@ export function checkRudeMessage(text: string, userId?: number): RudeResponse {
         needsCounter: false
       };
     }
-    
-    // 4. Проверка на набор букв (ТОЛЬКО если это весь текст)
+
+    // 5. Проверка на набор букв (ТОЛЬКО если это весь текст)
     if (isKeyboardSpam(normalized)) {
       const response = getKeyboardSpamResponse(userId);
       if (response) {
