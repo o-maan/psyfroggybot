@@ -78,8 +78,21 @@ jobs:
             # Остановка текущего приложения
             pm2 stop psy_froggy_bot || true
 
-            # Backup базы данных (без sudo)
-            cp /var/www/databases/psy_froggy_bot/froggy.db /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S) || true
+            # Создание директории для БД если не существует
+            mkdir -p /var/www/databases/psy_froggy_bot
+
+            # Проверка и создание файла БД
+            if [ ! -f /var/www/databases/psy_froggy_bot/froggy.db ]; then
+              echo "📦 База данных не найдена, создаем новую..."
+              touch /var/www/databases/psy_froggy_bot/froggy.db
+              echo "✅ Пустой файл БД создан"
+            else
+              echo "✅ База данных существует"
+              # Backup существующей БД
+              cp /var/www/databases/psy_froggy_bot/froggy.db \
+                 /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S)
+              echo "✅ Backup БД создан"
+            fi
 
             # Обновление кода
             git fetch origin
@@ -88,7 +101,8 @@ jobs:
             # Установка зависимостей (без frozen lockfile из-за разных версий Bun)
             bun install
 
-            # Запуск миграций
+            # Запуск миграций (теперь файл БД точно существует)
+            echo "🔄 Запуск миграций..."
             bun run knex migrate:latest --knexfile knexfile.cjs
 
             # Компиляция TypeScript в JavaScript
