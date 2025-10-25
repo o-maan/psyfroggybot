@@ -1352,3 +1352,63 @@ export const getMorningPostMessagesAfterLastFinal = (chatId: number, channelMess
 
   return messages;
 };
+
+// ============================================
+// Функции для работы с индексами утренних сообщений
+// ============================================
+
+// Получить индексы утренних сообщений пользователя
+export const getMorningMessageIndexes = (userId: number) => {
+  const query = db.query(`
+    SELECT weekday_index, weekend_index, greeting_index,
+           used_mon, used_wed, used_thu, used_sun, updated_at
+    FROM morning_message_indexes
+    WHERE user_id = ?
+    LIMIT 1
+  `);
+  return query.get(userId) as {
+    weekday_index: number;
+    weekend_index: number;
+    greeting_index: number;
+    used_mon: number;
+    used_wed: number;
+    used_thu: number;
+    used_sun: number;
+    updated_at: string;
+  } | undefined;
+};
+
+// Сохранить индексы утренних сообщений пользователя
+export const saveMorningMessageIndexes = (
+  userId: number,
+  weekdayIndex: number,
+  weekendIndex: number,
+  greetingIndex: number,
+  usedMon: boolean,
+  usedWed: boolean,
+  usedThu: boolean,
+  usedSun: boolean
+) => {
+  try {
+    const upsert = db.query(`
+      INSERT INTO morning_message_indexes
+        (user_id, weekday_index, weekend_index, greeting_index,
+         used_mon, used_wed, used_thu, used_sun, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id) DO UPDATE SET
+        weekday_index = excluded.weekday_index,
+        weekend_index = excluded.weekend_index,
+        greeting_index = excluded.greeting_index,
+        used_mon = excluded.used_mon,
+        used_wed = excluded.used_wed,
+        used_thu = excluded.used_thu,
+        used_sun = excluded.used_sun,
+        updated_at = excluded.updated_at
+    `);
+    upsert.run(userId, weekdayIndex, weekendIndex, greetingIndex, usedMon ? 1 : 0, usedWed ? 1 : 0, usedThu ? 1 : 0, usedSun ? 1 : 0);
+    databaseLogger.debug({ userId, weekdayIndex, weekendIndex, greetingIndex }, 'Индексы утренних сообщений сохранены');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения индексов утренних сообщений');
+  }
+};

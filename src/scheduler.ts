@@ -3191,12 +3191,37 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Показываем, что бот "пишет"
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
 
-      // Генерируем текст утреннего сообщения
-      const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
-      const morningText = await generateMessage(morningPrompt);
-      const cleanedText = cleanLLMText(morningText);
+      // Определяем день недели (0 = воскресенье, 1 = понедельник, ..., 5 = пятница, 6 = суббота)
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const isFriday = dayOfWeek === 5;
 
-      schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст утреннего сообщения');
+      let captionWithComment = '';
+
+      // Пятница: используем LLM как раньше
+      if (isFriday) {
+        schedulerLogger.info({ chatId, dayOfWeek }, '📅 Пятница - генерируем текст через LLM');
+
+        try {
+          const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
+          const morningText = await generateMessage(morningPrompt);
+          const cleanedText = cleanLLMText(morningText);
+          captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
+          schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст через LLM для пятницы');
+        } catch (llmError) {
+          schedulerLogger.error({ error: llmError, chatId }, 'Ошибка генерации через LLM, используем fallback из списка');
+          // Fallback: используем обычный текст из списка
+          const { buildMorningPost } = await import('./morning-messages');
+          const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+          captionWithComment = buildMorningPost(userId, dayOfWeek, false);
+        }
+      } else {
+        // Остальные дни: используем тексты из списка
+        schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка');
+        const { buildMorningPost } = await import('./morning-messages');
+        const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+        captionWithComment = buildMorningPost(userId, dayOfWeek, false);
+      }
 
       // Генерируем изображение лягушки
       let imageBuffer: Buffer | null = null;
@@ -3216,9 +3241,6 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
       }
 
-      // Добавляем текст "Переходи в комментарии и продолжим 😉"
-      const captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
-
       // Отправляем основной пост БЕЗ кнопок
       let sentMessage;
       if (imageBuffer) {
@@ -3233,7 +3255,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         schedulerLogger.info(
           {
             chatId,
-            messageLength: cleanedText.length,
+            messageLength: captionWithComment.length,
             imageSize: imageBuffer.length,
           },
           'Утреннее сообщение с сгенерированным изображением отправлено'
@@ -3252,7 +3274,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         schedulerLogger.info(
           {
             chatId,
-            messageLength: cleanedText.length,
+            messageLength: captionWithComment.length,
             imagePath,
           },
           'Утреннее сообщение с изображением из ротации отправлено (fallback)'
