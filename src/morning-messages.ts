@@ -5,6 +5,17 @@ import { getMorningMessageIndexes, saveMorningMessageIndexes } from './db';
 // Константы
 const WEEKDAY_MESSAGES_FILE = 'assets/morning-messages.md';
 
+// Вводное сообщение (показывается только один раз)
+const MORNING_INTRO_TEXT = `ЛЯГУХА С ТОБОЙ ЦЕЛЫЙ ДЕНЬ 🤗
+
+Каждое утро я буду присылать тебе пост с короткой мыслью 💭 или упражнением, которые будут помогать тебе глубже понимать себя 🧘🏻✨ и делать шаги 👣 к улучшению качества твоей жизни 🔥
+
+<b>Ты можешь писать мне ✍🏻 в течение дня обо всем, что тебя волнует</b> – такой дневник, где ты фиксируешь, что с тобой происходит 👁‍🗨 и твою реакцию в моменте – она многое говорит о тебе
+
+Со временем ты начнешь замечать закономерности ⚙️ и паттерны своего поведения
+
+P.S. Можно попробовать прямо сейчас 🙃`;
+
 // Пороги для проверки спец.текстов
 const SPECIAL_TEXT_THRESHOLDS = {
   WED: 14, // После 14 текста проверяем СР
@@ -199,10 +210,13 @@ export function getNextGreeting(userId: number): string {
       !!indexes.used_mon,
       !!indexes.used_wed,
       !!indexes.used_thu,
-      !!indexes.used_sun
+      !!indexes.used_sun,
+      indexes.evening_index ?? 0,
+      !!indexes.morning_intro_shown,
+      !!indexes.evening_intro_shown
     );
   } else {
-    saveMorningMessageIndexes(userId, 0, 0, nextIndex, false, false, false, false);
+    saveMorningMessageIndexes(userId, 0, 0, nextIndex, false, false, false, false, 0, false, false);
   }
 
   return greeting;
@@ -222,10 +236,13 @@ export function getMorningMessageText(userId: number, dayOfWeek: number): string
     weekday_index: 0,
     weekend_index: 0,
     greeting_index: 0,
+    evening_index: 0,
     used_mon: 0,
     used_wed: 0,
     used_thu: 0,
     used_sun: 0,
+    morning_intro_shown: 0,
+    evening_intro_shown: 0,
     updated_at: new Date().toISOString(),
   };
 
@@ -325,10 +342,56 @@ export function getMorningMessageText(userId: number, dayOfWeek: number): string
     newUsedMon,
     newUsedWed,
     newUsedThu,
-    newUsedSun
+    newUsedSun,
+    indexes.evening_index ?? 0,
+    !!indexes.morning_intro_shown,
+    !!indexes.evening_intro_shown
   );
 
   return selectedText;
+}
+
+// Проверить нужно ли показать вводное сообщение (только первый раз)
+export function shouldShowMorningIntro(userId: number): boolean {
+  const indexes = getMorningMessageIndexes(userId);
+  // Если флаг НЕ установлен - нужно показать вводное
+  return !indexes || !indexes.morning_intro_shown;
+}
+
+// Получить вводное сообщение и установить флаг
+export function getMorningIntro(userId: number): string {
+  const indexes = getMorningMessageIndexes(userId) ?? {
+    weekday_index: 0,
+    weekend_index: 0,
+    greeting_index: 0,
+    evening_index: 0,
+    used_mon: 0,
+    used_wed: 0,
+    used_thu: 0,
+    used_sun: 0,
+    morning_intro_shown: 0,
+    evening_intro_shown: 0,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Устанавливаем флаг, что вводное сообщение показано
+  // ВАЖНО: индексы НЕ меняем
+  saveMorningMessageIndexes(
+    userId,
+    indexes.weekday_index,
+    indexes.weekend_index,
+    indexes.greeting_index,
+    !!indexes.used_mon,
+    !!indexes.used_wed,
+    !!indexes.used_thu,
+    !!indexes.used_sun,
+    indexes.evening_index,
+    true, // morning_intro_shown = true
+    !!indexes.evening_intro_shown
+  );
+
+  schedulerLogger.info({ userId }, '📢 Показываем вводное сообщение для утренней лягушки');
+  return MORNING_INTRO_TEXT;
 }
 
 // Собрать полный текст поста

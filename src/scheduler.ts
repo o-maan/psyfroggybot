@@ -1601,8 +1601,33 @@ ${weekendPromptContent}`;
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
 
-      // Генерируем интерактивное сообщение
-      const { json, firstPart, relaxationType } = await this.generateInteractiveScheduledMessage(chatId);
+      // ПРОВЕРЯЕМ: нужно ли показать вводное сообщение (только первый раз)
+      const { shouldShowEveningIntro, getEveningIntro } = await import('./evening-messages');
+      let json, firstPart, relaxationType;
+      let isIntroPost = false;
+
+      if (shouldShowEveningIntro(chatId)) {
+        // Это первый пост - используем вводное сообщение
+        schedulerLogger.info({ chatId }, '📢 Первый пост - показываем вводное сообщение для вечерней лягушки');
+
+        const introText = getEveningIntro(chatId);
+
+        // Упрощенная структура для вводного
+        json = {
+          encouragement: { text: introText },
+          negative_part: { additional_text: '' },
+          positive_part: { additional_text: '' },
+        };
+        firstPart = introText;
+        relaxationType = 'breathing';
+        isIntroPost = true;  // Помечаем что это вводное
+      } else {
+        // Обычный пост - генерируем как всегда
+        const result = await this.generateInteractiveScheduledMessage(chatId);
+        json = result.json;
+        firstPart = result.firstPart;
+        relaxationType = result.relaxationType;
+      }
 
       // Получаем события календаря для генерации изображения
       let calendarEvents = null;
@@ -1641,8 +1666,10 @@ ${weekendPromptContent}`;
         );
       }
 
-      // Добавляем текст "Переходи в комментарии и продолжим 😉"
-      const captionWithComment = firstPart + '\n\nПереходи в комментарии и продолжим 😉';
+      // Добавляем текст "Переходи в комментарии и продолжим 😉" (ТОЛЬКО если НЕ вводное)
+      const captionWithComment = isIntroPost
+        ? firstPart  // Вводное - текст как есть
+        : firstPart + '\n\nПереходи в комментарии и продолжим 😉';  // Обычный пост
 
       // Используем дефолтные слова поддержки для первой отправки (генерация будет асинхронно)
       const { getDefaultSupportWords } = await import('./utils/support-words');
@@ -3226,36 +3253,43 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Показываем, что бот "пишет"
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
 
-      // Определяем день недели (0 = воскресенье, 1 = понедельник, ..., 5 = пятница, 6 = суббота)
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const isFriday = dayOfWeek === 5;
+      // Определяем пользователя
+      const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
 
+      // ПРОВЕРЯЕМ: нужно ли показать вводное сообщение (только первый раз)
+      const { shouldShowMorningIntro, getMorningIntro, buildMorningPost } = await import('./morning-messages');
       let captionWithComment = '';
 
-      // Пятница: используем LLM как раньше
-      if (isFriday) {
-        schedulerLogger.info({ chatId, dayOfWeek }, '📅 Пятница - генерируем текст через LLM');
+      if (shouldShowMorningIntro(userId)) {
+        // Это первый пост - используем вводное сообщение
+        schedulerLogger.info({ chatId, userId }, '📢 Первый пост - показываем вводное сообщение для утренней лягушки');
+        captionWithComment = getMorningIntro(userId); // БЕЗ добавления "Переходи в комментарии" - текст уже готов
+      } else {
+        // Обычный пост - определяем день недели
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const isFriday = dayOfWeek === 5;
 
-        try {
-          const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
-          const morningText = await generateMessage(morningPrompt);
-          const cleanedText = cleanLLMText(morningText);
-          captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
-          schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст через LLM для пятницы');
-        } catch (llmError) {
-          schedulerLogger.error({ error: llmError, chatId }, 'Ошибка генерации через LLM, используем fallback из списка');
-          // Fallback: используем обычный текст из списка
-          const { buildMorningPost } = await import('./morning-messages');
-          const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+        // Пятница: используем LLM как раньше
+        if (isFriday) {
+          schedulerLogger.info({ chatId, dayOfWeek }, '📅 Пятница - генерируем текст через LLM');
+
+          try {
+            const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
+            const morningText = await generateMessage(morningPrompt);
+            const cleanedText = cleanLLMText(morningText);
+            captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
+            schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст через LLM для пятницы');
+          } catch (llmError) {
+            schedulerLogger.error({ error: llmError, chatId }, 'Ошибка генерации через LLM, используем fallback из списка');
+            // Fallback: используем обычный текст из списка
+            captionWithComment = buildMorningPost(userId, dayOfWeek, false);
+          }
+        } else {
+          // Остальные дни: используем тексты из списка
+          schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка');
           captionWithComment = buildMorningPost(userId, dayOfWeek, false);
         }
-      } else {
-        // Остальные дни: используем тексты из списка
-        schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка');
-        const { buildMorningPost } = await import('./morning-messages');
-        const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
-        captionWithComment = buildMorningPost(userId, dayOfWeek, false);
       }
 
       // Генерируем изображение лягушки
