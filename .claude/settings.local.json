@@ -25,7 +25,8 @@
       "Bash(mv:*)",
       "Bash(npx tsc:*)",
       "Bash(bun:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }
