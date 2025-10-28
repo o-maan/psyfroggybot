@@ -28,6 +28,7 @@ import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { isLLMError } from './utils/llm-error-check';
+import { getEveningMessageText } from './evening-messages';
 
 // Функция экранирования для HTML (Telegram)
 function escapeHTML(text: string): string {
@@ -692,6 +693,21 @@ export class Scheduler {
 
   // Основная функция генерации сообщения для запланированной отправки
   public async generateScheduledMessage(chatId: number): Promise<string> {
+    // Проверяем день недели: ЧТ(4) и СБ(6) = LLM, остальные = список
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=ВС, 1=ПН, 2=ВТ, 3=СР, 4=ЧТ, 5=ПТ, 6=СБ
+    const useTextList = dayOfWeek !== 4 && dayOfWeek !== 6; // НЕ четверг и НЕ суббота
+
+    if (useTextList) {
+      // Используем текст из списка для всех дней кроме ЧТ и СБ
+      schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка (не ЧТ/СБ)');
+      const messageText = getEveningMessageText(chatId);
+      return messageText;
+    }
+
+    // Для ЧТ и СБ используем LLM (текущая логика)
+    schedulerLogger.info({ chatId, dayOfWeek }, '🤖 Используем LLM генерацию (ЧТ или СБ)');
+
     // Получаем данные пользователя, включая имя и пол
     const user = getUserByChatId(chatId);
     const userName = user?.name || null;
@@ -704,7 +720,6 @@ export class Scheduler {
     }
 
     // Get events for the evening
-    const now = new Date();
     const evening = new Date(now);
     evening.setHours(18, 0, 0, 0);
     const tomorrow = new Date(now);
@@ -805,11 +820,10 @@ export class Scheduler {
 
       // Проверяем на ошибку до очистки
       if (rawText === 'HF_JSON_ERROR') {
-        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (flight)');
-        const fallbackBusy =
-          'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
-        saveMessage(chatId, fallbackBusy, new Date().toISOString());
-        return fallbackBusy;
+        schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (flight), используем текст из списка');
+        const fallbackText = getEveningMessageText(chatId);
+        saveMessage(chatId, fallbackText, new Date().toISOString());
+        return fallbackText;
       }
 
       // Удаляем теги <think>...</think>
@@ -820,12 +834,11 @@ export class Scheduler {
       if (!jsonText || jsonText === 'HF_JSON_ERROR') {
         schedulerLogger.warn(
           { chatId, extractedLength: jsonText?.length || 0 },
-          '❌ После извлечения JSON пустой (flight)'
+          '❌ После извлечения JSON пустой (flight), используем текст из списка'
         );
-        const fallbackBusy =
-          'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
-        saveMessage(chatId, fallbackBusy, new Date().toISOString());
-        return fallbackBusy;
+        const fallbackText = getEveningMessageText(chatId);
+        saveMessage(chatId, fallbackText, new Date().toISOString());
+        return fallbackText;
       }
 
       // --- Новая логика: парсим JSON и собираем только encouragement + flight ---
@@ -878,11 +891,11 @@ export class Scheduler {
           return encouragement;
         }
       } catch {}
-      // Fallback для занятого пользователя
-      const fallbackBusy =
-        'Кажется чатик не хочет работать - негодяй!\n\nКайфового дня :) Давай когда будет свободная минутка подумаешь о приятном, просто перечисляй все, что тебя радует, приносит удовольствие... можно нафантазировать)\n\nГлавное пострайся при этом почувствовать что-то хорошее ♥';
-      saveMessage(chatId, fallbackBusy, new Date().toISOString());
-      return fallbackBusy;
+      // Fallback для занятого пользователя - используем текст из списка
+      schedulerLogger.warn({ chatId }, '❌ Ошибка парсинга JSON (flight), используем текст из списка');
+      const fallbackText = getEveningMessageText(chatId);
+      saveMessage(chatId, fallbackText, new Date().toISOString());
+      return fallbackText;
     } else {
       // Обычный день — используем структуру с пунктами
       schedulerLogger.info({ chatId }, '📅 Пользователь не занят, используем обычный промпт');
@@ -1031,8 +1044,31 @@ export class Scheduler {
     firstPart: string;
     relaxationType: 'body' | 'breathing';
   }> {
-    // Для поста используем простое сообщение
-    const postFallback = 'Надеюсь, у тебя был хороший день!';
+    // Проверяем день недели: ЧТ(4) и СБ(6) = LLM, остальные = список
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=ВС, 1=ПН, 2=ВТ, 3=СР, 4=ЧТ, 5=ПТ, 6=СБ
+    const useTextList = dayOfWeek !== 4 && dayOfWeek !== 6; // НЕ четверг и НЕ суббота
+
+    if (useTextList) {
+      // Используем текст из списка для всех дней кроме ЧТ и СБ
+      schedulerLogger.info({ chatId, dayOfWeek }, '📋 Интерактивный режим: используем текст из списка (не ЧТ/СБ)');
+      const messageText = getEveningMessageText(chatId);
+
+      // Возвращаем простую структуру с текстом из списка
+      return {
+        json: {
+          encouragement: { text: messageText },
+          negative_part: { additional_text: '' },
+          positive_part: { additional_text: '' },
+        },
+        firstPart: messageText,
+        relaxationType: 'breathing',
+      };
+    }
+
+    // Для ЧТ и СБ используем LLM (текущая логика)
+    schedulerLogger.info({ chatId, dayOfWeek }, '🤖 Интерактивный режим: используем LLM генерацию (ЧТ или СБ)');
+
     // Получаем данные пользователя, включая имя и пол
     const user = getUserByChatId(chatId);
     const userName = user?.name || null;
@@ -1045,7 +1081,6 @@ export class Scheduler {
     }
 
     // Get events for the evening
-    const now = new Date();
     const evening = new Date(now);
     evening.setHours(18, 0, 0, 0);
     const tomorrow = new Date(now);
@@ -1173,8 +1208,8 @@ ${weekendPromptContent}`;
 
     // Проверяем на ошибку до очистки
     if (rawJsonText === 'HF_JSON_ERROR') {
-      schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме (до очистки)');
-      const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме (до очистки), используем текст из списка');
+      const fallback = getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1182,7 +1217,7 @@ ${weekendPromptContent}`;
           fallbackText: fallback,
           fallbackLength: fallback.length,
         },
-        '🔄 Используем fallback текст как encouragement (HF_JSON_ERROR до очистки)'
+        '🔄 Используем текст из списка как encouragement (HF_JSON_ERROR до очистки)'
       );
 
       // Возвращаем fallback как JSON
@@ -1192,7 +1227,7 @@ ${weekendPromptContent}`;
           negative_part: { additional_text: '' },
           positive_part: { additional_text: '' },
         },
-        firstPart: postFallback,
+        firstPart: fallback,
         relaxationType: 'breathing',
       };
     }
@@ -1215,9 +1250,9 @@ ${weekendPromptContent}`;
     if (!jsonText || jsonText === 'HF_JSON_ERROR') {
       schedulerLogger.warn(
         { chatId, extractedLength: jsonText?.length || 0 },
-        '❌ После извлечения JSON пустой или ошибка в интерактивном режиме'
+        '❌ После извлечения JSON пустой или ошибка в интерактивном режиме, используем текст из списка'
       );
-      const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      const fallback = getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1225,7 +1260,7 @@ ${weekendPromptContent}`;
           fallbackText: fallback,
           fallbackLength: fallback.length,
         },
-        '🔄 Используем fallback текст как encouragement (после извлечения пустой/ошибка)'
+        '🔄 Используем текст из списка как encouragement (после извлечения пустой/ошибка)'
       );
 
       return {
@@ -1235,7 +1270,7 @@ ${weekendPromptContent}`;
           positive_part: { additional_text: '' },
           feels_and_emotions: { additional_text: null },
         },
-        firstPart: postFallback,
+        firstPart: fallback,
         relaxationType: 'breathing' as const,
       };
     }
@@ -1350,9 +1385,9 @@ ${weekendPromptContent}`;
           errorContext,
           syntaxErrorPosition: syntaxErrorMatch ? syntaxErrorMatch[1] : null,
         },
-        '❌ JSON парсинг не удался в интерактивном режиме, используем fallback'
+        '❌ JSON парсинг не удался в интерактивном режиме, используем текст из списка'
       );
-      const fallback = readFileSync('assets/fallback_text', 'utf-8');
+      const fallback = getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1360,7 +1395,7 @@ ${weekendPromptContent}`;
           fallbackText: fallback,
           fallbackLength: fallback.length,
         },
-        '🔄 Используем fallback текст как encouragement (ошибка парсинга)'
+        '🔄 Используем текст из списка как encouragement (ошибка парсинга)'
       );
 
       return {
@@ -1369,7 +1404,7 @@ ${weekendPromptContent}`;
           negative_part: { additional_text: '' },
           positive_part: { additional_text: '' },
         },
-        firstPart: postFallback,
+        firstPart: fallback,
         relaxationType: 'breathing',
       };
     }

@@ -27,6 +27,7 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
       botLogger.info('✅ Первый ответ отправлен');
 
       // Используем интерактивный метод с флагом ручной команды
+      // (логика выбора текста: ЧТ/СБ = LLM, остальные = список)
       botLogger.info('🚀 Запускаем sendInteractiveDailyMessage...');
       await scheduler.sendInteractiveDailyMessage(chatId, true);
       botLogger.info('✅ sendInteractiveDailyMessage завершен');

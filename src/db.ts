@@ -1360,7 +1360,7 @@ export const getMorningPostMessagesAfterLastFinal = (chatId: number, channelMess
 // Получить индексы утренних сообщений пользователя
 export const getMorningMessageIndexes = (userId: number) => {
   const query = db.query(`
-    SELECT weekday_index, weekend_index, greeting_index,
+    SELECT weekday_index, weekend_index, greeting_index, evening_index,
            used_mon, used_wed, used_thu, used_sun, updated_at
     FROM morning_message_indexes
     WHERE user_id = ?
@@ -1370,6 +1370,7 @@ export const getMorningMessageIndexes = (userId: number) => {
     weekday_index: number;
     weekend_index: number;
     greeting_index: number;
+    evening_index: number;
     used_mon: number;
     used_wed: number;
     used_thu: number;
@@ -1387,28 +1388,30 @@ export const saveMorningMessageIndexes = (
   usedMon: boolean,
   usedWed: boolean,
   usedThu: boolean,
-  usedSun: boolean
+  usedSun: boolean,
+  eveningIndex: number = 0
 ) => {
   try {
     const upsert = db.query(`
       INSERT INTO morning_message_indexes
-        (user_id, weekday_index, weekend_index, greeting_index,
+        (user_id, weekday_index, weekend_index, greeting_index, evening_index,
          used_mon, used_wed, used_thu, used_sun, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         weekday_index = excluded.weekday_index,
         weekend_index = excluded.weekend_index,
         greeting_index = excluded.greeting_index,
+        evening_index = excluded.evening_index,
         used_mon = excluded.used_mon,
         used_wed = excluded.used_wed,
         used_thu = excluded.used_thu,
         used_sun = excluded.used_sun,
         updated_at = excluded.updated_at
     `);
-    upsert.run(userId, weekdayIndex, weekendIndex, greetingIndex, usedMon ? 1 : 0, usedWed ? 1 : 0, usedThu ? 1 : 0, usedSun ? 1 : 0);
-    databaseLogger.debug({ userId, weekdayIndex, weekendIndex, greetingIndex }, 'Индексы утренних сообщений сохранены');
+    upsert.run(userId, weekdayIndex, weekendIndex, greetingIndex, eveningIndex, usedMon ? 1 : 0, usedWed ? 1 : 0, usedThu ? 1 : 0, usedSun ? 1 : 0);
+    databaseLogger.debug({ userId, weekdayIndex, weekendIndex, greetingIndex, eveningIndex }, 'Индексы сообщений сохранены');
   } catch (e) {
     const error = e as Error;
-    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения индексов утренних сообщений');
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения индексов сообщений');
   }
 };

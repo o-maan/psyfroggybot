@@ -26,7 +26,8 @@
       "Bash(npx tsc:*)",
       "Bash(bun:*)",
       "Bash(node:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Read(///**)"
     ],
     "deny": []
   }
