@@ -35,7 +35,20 @@ import {
   handleSchemaContinue,
   handleSkipNegSchema
 } from './deep_work_buttons';
-import { handleJoyAdd, handleJoyAddMore, handleJoyView } from './joy_buttons';
+import {
+  handleJoyAdd,
+  handleJoyAddMore,
+  handleJoyView,
+  handleJoySundayHint,
+  handleJoySundaySkip,
+  handleJoyContinue,
+  handleJoyRemove,
+  handleJoyRemoveConfirm,
+  handleJoyClearAll,
+  handleJoyClearConfirm,
+  handleJoyClearCancel,
+  handleJoyLater
+} from './joy_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Общий обработчик callback_query
@@ -106,6 +119,19 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/joy_add_(\d+)/, ctx => handleJoyAdd(ctx, bot, scheduler));
   bot.action(/joy_add_more_(\d+)/, ctx => handleJoyAddMore(ctx, bot, scheduler));
   bot.action(/joy_view_(\d+)/, ctx => handleJoyView(ctx, bot, scheduler));
+
+  // Обработчики кнопок воскресного вводного Joy
+  bot.action(/joy_sunday_hint_(\d+)/, ctx => handleJoySundayHint(ctx, bot, scheduler));
+  bot.action(/joy_sunday_skip_(\d+)/, ctx => handleJoySundaySkip(ctx, bot, scheduler));
+  bot.action(/joy_continue_(\d+)/, ctx => handleJoyContinue(ctx, bot, scheduler));
+
+  // Обработчики удаления источников радости
+  bot.action(/joy_remove_(\d+)/, ctx => handleJoyRemove(ctx, bot, scheduler));
+  bot.action(/joy_remove_confirm_(\d+)/, ctx => handleJoyRemoveConfirm(ctx, bot, scheduler));
+  bot.action(/joy_clear_all_(\d+)/, ctx => handleJoyClearAll(ctx, bot, scheduler));
+  bot.action(/joy_clear_confirm_(\d+)/, ctx => handleJoyClearConfirm(ctx, bot, scheduler));
+  bot.action(/joy_clear_cancel_(\d+)/, ctx => handleJoyClearCancel(ctx, bot, scheduler));
+  bot.action(/joy_later_(\d+)/, ctx => handleJoyLater(ctx, bot, scheduler));
 }
 
 // Export individual handlers for backwards compatibility

@@ -1,0 +1,119 @@
+import { Telegraf } from 'telegraf';
+import { Scheduler } from '../../scheduler';
+import { botLogger } from '../../logger';
+import { updateUserResponse, saveMessage } from '../../db';
+
+/**
+ * Обработчик редактированных сообщений
+ * Применяется везде, где важен контент сообщений пользователя
+ */
+export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler) {
+  bot.on('edited_message', async ctx => {
+    // Проверяем, что это текстовое сообщение
+    if (!('text' in ctx.editedMessage)) {
+      return;
+    }
+
+    const message = ctx.editedMessage.text;
+    const chatId = ctx.chat.id;
+    const userId = ctx.from?.id || 0;
+    const messageId = ctx.editedMessage.message_id;
+    const messageThreadId = (ctx.editedMessage as any).message_thread_id;
+
+    botLogger.info(
+      {
+        message: message.substring(0, 100),
+        chatId,
+        userId,
+        messageId,
+        messageThreadId,
+        chatType: ctx.chat.type,
+        isBot: ctx.from?.is_bot,
+        timestamp: new Date().toISOString(),
+      },
+      '✏️ Получено редактированное сообщение'
+    );
+
+    // Пропускаем команды
+    if (message.startsWith('/')) {
+      return;
+    }
+
+    // Проверяем, что сообщение не от самого бота
+    if (ctx.from?.is_bot) {
+      botLogger.debug({ userId, chatId, isBot: ctx.from?.is_bot }, 'Игнорируем редактированное сообщение от бота');
+      return;
+    }
+
+    // Получаем ID чата и канала
+    const CHAT_ID = scheduler.getChatId();
+    const CHANNEL_ID = scheduler.CHANNEL_ID;
+
+    // Проверяем, что сообщение из релевантного чата
+    const isFromChannel = chatId === CHANNEL_ID;
+    const isFromChat = CHAT_ID && chatId === CHAT_ID;
+    const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
+
+    if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
+      botLogger.debug(
+        { chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type },
+        'Редактированное сообщение не из целевого канала/чата, игнорируем'
+      );
+      return;
+    }
+
+    // Для личных чатов не обрабатываем
+    if (ctx.chat.type === 'private') {
+      botLogger.debug({ userId, chatType: ctx.chat.type }, 'Игнорируем личное редактированное сообщение');
+      return;
+    }
+
+    // Константа для целевого пользователя
+    const TARGET_USER_ID = scheduler.getTargetUserId();
+
+    // Обновляем время ответа для целевого пользователя
+    if (userId === TARGET_USER_ID) {
+      const responseTime = new Date().toISOString();
+      updateUserResponse(userId, responseTime);
+      botLogger.info(
+        { userId, responseTime, messageId, edited: true },
+        `✅ Обновлено время ответа для целевого пользователя (редактированное сообщение)`
+      );
+    }
+
+    // Очищаем напоминание
+    scheduler.clearReminder(userId);
+
+    try {
+      // Обновляем сообщение в БД (сохраняем как новое с тем же messageId)
+      const editTime = new Date().toISOString();
+      saveMessage(userId, message, editTime, userId);
+
+      // Проверяем, есть ли активная интерактивная сессия
+      const isInteractive = await scheduler.handleInteractiveUserResponse(
+        userId,
+        message,
+        chatId,
+        messageId,
+        messageThreadId
+      );
+
+      if (isInteractive) {
+        botLogger.info({ userId, messageId }, '✅ Редактированное сообщение обработано в интерактивном режиме');
+        return;
+      }
+
+      // Для остальных случаев - просто логируем, без автоответов
+      botLogger.info(
+        { userId, chatId, messageId, messageLength: message.length },
+        '📝 Редактированное сообщение сохранено'
+      );
+    } catch (error) {
+      const err = error as Error;
+      botLogger.error(
+        { error: err.message, stack: err.stack, userId, chatId, messageId },
+        'Ошибка обработки редактированного сообщения'
+      );
+    }
+  });
+}

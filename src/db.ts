@@ -1220,6 +1220,29 @@ export const getAllJoySources = (chatId: number) => {
   }>;
 };
 
+// Удалить источники радости по ID
+export const deleteJoySourcesByIds = (chatId: number, ids: number[]) => {
+  if (ids.length === 0) return;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const deleteQuery = db.query(`
+    DELETE FROM joy_sources
+    WHERE chat_id = ? AND id IN (${placeholders})
+  `);
+  deleteQuery.run(chatId, ...ids);
+  databaseLogger.info({ chatId, idsCount: ids.length }, 'Удалены источники радости по ID');
+};
+
+// Очистить весь список источников радости
+export const clearAllJoySources = (chatId: number) => {
+  const deleteQuery = db.query(`
+    DELETE FROM joy_sources
+    WHERE chat_id = ?
+  `);
+  deleteQuery.run(chatId);
+  databaseLogger.info({ chatId }, 'Очищен весь список источников радости');
+};
+
 // Сохранить эмоцию радости/любви для последующего анализа
 export const saveJoyEmotion = (
   chatId: number,
@@ -1433,5 +1456,167 @@ export const saveMorningMessageIndexes = (
   } catch (e) {
     const error = e as Error;
     databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения индексов сообщений');
+  }
+};
+
+// ========================================
+// ФУНКЦИИ ДЛЯ РАБОТЫ С ПОЗИТИВНЫМИ СОБЫТИЯМИ (СПИСОК РАДОСТИ)
+// ========================================
+
+/**
+ * Сохранить позитивное событие
+ * @param userId - ID пользователя
+ * @param eventText - Текст события
+ * @param emotionsText - Текст эмоций (может быть пустым)
+ * @param postType - Тип поста ('morning' или 'evening')
+ * @param cycleIdentifier - ID цикла (channel_message_id)
+ */
+export const savePositiveEvent = (
+  userId: number,
+  eventText: string,
+  emotionsText: string,
+  postType: 'morning' | 'evening',
+  cycleIdentifier?: string
+) => {
+  try {
+    const stmt = db.query(`
+      INSERT INTO positive_events (user_id, event_text, emotions_text, created_at, post_type, cycle_identifier)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(userId, eventText, emotionsText || '', new Date().toISOString(), postType, cycleIdentifier || null);
+    databaseLogger.info({ userId, postType, cycleIdentifier }, 'Позитивное событие сохранено');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения позитивного события');
+  }
+};
+
+/**
+ * Получить позитивные события с последнего checkpoint
+ * @param userId - ID пользователя
+ * @param checkpointTime - ISO timestamp последнего checkpoint
+ * @returns Массив позитивных событий
+ */
+export const getPositiveEventsSinceCheckpoint = (userId: number, checkpointTime: string) => {
+  try {
+    const stmt = db.query(`
+      SELECT * FROM positive_events
+      WHERE user_id = ? AND created_at > ?
+      ORDER BY created_at ASC
+    `);
+
+    return stmt.all(userId, checkpointTime) as Array<{
+      id: number;
+      user_id: number;
+      event_text: string;
+      emotions_text: string;
+      created_at: string;
+      post_type: string;
+      cycle_identifier: string | null;
+    }>;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка получения позитивных событий');
+    return [];
+  }
+};
+
+/**
+ * Получить checkpoint пользователя (время последнего изменения списка радости)
+ * @param userId - ID пользователя
+ * @returns Объект с checkpoint_time или null
+ */
+export const getJoyCheckpoint = (userId: number) => {
+  try {
+    const stmt = db.query(`
+      SELECT * FROM joy_list_checkpoints WHERE user_id = ?
+    `);
+
+    return stmt.get(userId) as { id: number; user_id: number; checkpoint_time: string } | null;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка получения checkpoint');
+    return null;
+  }
+};
+
+/**
+ * Обновить checkpoint пользователя (время последнего изменения списка радости)
+ * @param userId - ID пользователя
+ * @param checkpointTime - ISO timestamp
+ */
+export const updateJoyCheckpoint = (userId: number, checkpointTime: string) => {
+  try {
+    const stmt = db.query(`
+      INSERT INTO joy_list_checkpoints (user_id, checkpoint_time)
+      VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET checkpoint_time = ?
+    `);
+
+    stmt.run(userId, checkpointTime, checkpointTime);
+    databaseLogger.info({ userId, checkpointTime }, 'Checkpoint списка радости обновлен');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка обновления checkpoint');
+  }
+};
+
+/**
+ * Проверить пустой ли список радости (для выбора вводный/основной сценарий)
+ * @param userId - ID пользователя
+ * @returns true если список пустой, false если содержит хотя бы один пункт
+ */
+export const isJoyListEmpty = (userId: number): boolean => {
+  try {
+    const sources = getAllJoySources(userId);
+    return sources.length === 0;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка проверки пустоты списка радости');
+    return true; // По умолчанию считаем пустым в случае ошибки
+  }
+};
+
+/**
+ * Проверка, достаточно ли взаимодействий пользователя в вечерних постах для показа Joy
+ * @param userId - ID пользователя (НЕ chat_id!)
+ * @param minInteractions - минимальное количество взаимодействий (по умолчанию 2)
+ * @returns true если пользователь взаимодействовал достаточно раз, false если нет
+ */
+export const hasEnoughEveningInteractions = (userId: number, minInteractions: number = 2): boolean => {
+  try {
+    // Подсчитываем количество уникальных дней, когда пользователь писал сообщения
+    // (author_id = userId означает что сообщение от пользователя, а не от бота)
+    const stmt = db.query(`
+      SELECT COUNT(DISTINCT DATE(sent_time)) as interaction_days
+      FROM messages
+      WHERE user_id = ?
+      AND author_id = ?
+      AND sent_time IS NOT NULL
+    `);
+
+    const result = stmt.get(userId, userId) as { interaction_days: number } | undefined;
+
+    if (!result) {
+      databaseLogger.warn({ userId }, 'Нет данных о взаимодействиях пользователя, не показываем Joy');
+      return false;
+    }
+
+    const interactionDays = result.interaction_days || 0;
+
+    databaseLogger.info(
+      { userId, interactionDays, minInteractions },
+      'Проверка активности пользователя в вечерних постах'
+    );
+
+    return interactionDays >= minInteractions;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, userId },
+      'Ошибка проверки активности пользователя'
+    );
+    return false; // По умолчанию не показываем Joy в случае ошибки
   }
 };

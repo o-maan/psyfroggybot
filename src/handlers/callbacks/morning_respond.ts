@@ -163,6 +163,19 @@ export async function handleMorningRespond(ctx: BotContext) {
       updateMorningPostFinalMessageTime(channelMessageId, finalMessageTimestamp);
       botLogger.info({ userId, timestamp: finalMessageTimestamp }, '⏱️ Обновлен timestamp финального сообщения');
 
+      // Сохраняем позитивное событие если sentiment = positive
+      if (analysisData.sentiment === 'positive' && analysisData.emotions_count >= 1) {
+        const { savePositiveEvent } = await import('../../db');
+        savePositiveEvent(
+          userId,
+          newCycleUserMessages,
+          '',
+          'morning',
+          channelMessageId.toString()
+        );
+        botLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено (утро)');
+      }
+
       // Обновляем шаг на "waiting_more" чтобы бот продолжал слушать (работа по кругу)
       updateMorningPostStep(channelMessageId, 'waiting_more');
 
