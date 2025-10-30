@@ -24,18 +24,31 @@ export class JoyHandler {
 
   // Хранилище для накопленных сообщений пользователя (перед сохранением)
   // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
-  private pendingMessages: Map<string, string[]>;
+  // Формат: Map<sessionKey, Map<messageId, text>> для поддержки редактирования
+  private pendingMessages: Map<string, Map<number, string>>;
   // ID последнего скользящего сообщения с кнопкой "Добавить 🔥"
   // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
   private lastButtonMessageId: Map<string, number>;
+  // ID сообщения со списком радости (НЕ скользящее, постоянное)
+  // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
+  private listMessageId: Map<string, number>;
+  // Флаг активной сессии добавления источников радости
+  // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
+  private addingSessions: Map<string, boolean>;
+  // Флаг показа списка радости (для отслеживания момента после показа списка)
+  // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
+  private listShown: Map<string, boolean>;
 
   constructor(
     bot: Telegraf,
     chatId: number,
     userId: number,
     channelMessageId: number,
-    pendingMessages: Map<string, string[]>,
-    lastButtonMessageId: Map<string, number>
+    pendingMessages: Map<string, Map<number, string>>,
+    lastButtonMessageId: Map<string, number>,
+    listMessageId: Map<string, number>,
+    addingSessions: Map<string, boolean>,
+    listShown: Map<string, boolean>
   ) {
     this.bot = bot;
     this.chatId = chatId;
@@ -43,6 +56,9 @@ export class JoyHandler {
     this.channelMessageId = channelMessageId;
     this.pendingMessages = pendingMessages;
     this.lastButtonMessageId = lastButtonMessageId;
+    this.listMessageId = listMessageId;
+    this.addingSessions = addingSessions;
+    this.listShown = listShown;
   }
 
   /**
@@ -96,6 +112,10 @@ export class JoyHandler {
         parse_mode: 'HTML'
       });
 
+      // Устанавливаем флаг активной сессии добавления
+      const sessionKey = `${this.userId}_${this.channelMessageId}`;
+      this.addingSessions.set(sessionKey, true);
+
       botLogger.info(
         { chatId: this.chatId, channelMessageId: this.channelMessageId },
         'Запущена интерактивная сессия списка радости'
@@ -117,48 +137,152 @@ export class JoyHandler {
    */
   async handleUserMessage(userMessage: string, userMessageId: number) {
     try {
+      // СНАЧАЛА проверяем на спам/грубость
+      const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
+      const rudeCheck = checkRudeMessage(userMessage, this.userId);
+
+      if (rudeCheck.isRude && rudeCheck.response) {
+        // Отправляем предупреждение о спаме
+        await this.sendMessage(rudeCheck.response, userMessageId);
+
+        // Сбрасываем счетчик если это был просто спам
+        if (!rudeCheck.needsCounter) {
+          resetKeyboardSpamCounter(this.userId);
+        }
+
+        return; // Прекращаем обработку
+      }
+
+      // Сбрасываем счетчик спама при нормальном сообщении
+      resetKeyboardSpamCounter(this.userId);
+
       // Получаем ключ для хранения сообщений этой сессии
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
 
-      // Добавляем сообщение к накопленным
-      const messages = this.pendingMessages.get(sessionKey) || [];
-      messages.push(userMessage);
-      this.pendingMessages.set(sessionKey, messages);
+      // Проверяем, есть ли активная сессия добавления
+      const isAddingSession = this.addingSessions.get(sessionKey) || false;
+      // Проверяем, был ли показан список
+      const wasListShown = this.listShown.get(sessionKey) || false;
 
-      botLogger.info(
-        { userId: this.userId, messagesCount: messages.length },
-        'Добавлено сообщение в накопитель'
-      );
-
-      // Удаляем предыдущее скользящее сообщение если оно есть
-      const lastButtonId = this.lastButtonMessageId.get(sessionKey);
-      if (lastButtonId) {
-        try {
-          await this.bot.telegram.deleteMessage(this.chatId, lastButtonId);
-        } catch (error) {
-          botLogger.warn(
-            { error, messageId: lastButtonId },
-            'Не удалось удалить предыдущее скользящее сообщение'
-          );
+      if (isAddingSession) {
+        // АКТИВНАЯ СЕССИЯ ДОБАВЛЕНИЯ
+        // Удаляем предыдущее скользящее сообщение если оно есть
+        const lastButtonId = this.lastButtonMessageId.get(sessionKey);
+        if (lastButtonId) {
+          try {
+            await this.bot.telegram.deleteMessage(this.chatId, lastButtonId);
+          } catch (error) {
+            botLogger.warn(
+              { error, messageId: lastButtonId },
+              'Не удалось удалить предыдущее скользящее сообщение'
+            );
+          }
         }
+
+        // Добавляем/обновляем сообщение к накопленным (Map поддерживает редактирование)
+        const messages = this.pendingMessages.get(sessionKey) || new Map<number, string>();
+        messages.set(userMessageId, userMessage);
+        this.pendingMessages.set(sessionKey, messages);
+
+        botLogger.info(
+          { userId: this.userId, messagesCount: messages.size },
+          'Добавлено сообщение в накопитель'
+        );
+
+        // Отправляем новое скользящее сообщение с кнопкой "Добавить 🔥"
+        const buttonText = 'Когда перечислишь все - нажми кнопку ниже';
+        const result = await this.sendMessage(
+          buttonText,
+          userMessageId,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('Добавить 🔥', `joy_add_${this.channelMessageId}`)]
+          ])
+        );
+
+        // Сохраняем ID скользящего сообщения
+        if (result && result.message_id) {
+          this.lastButtonMessageId.set(sessionKey, result.message_id);
+        }
+
+        return result;
+      } else if (wasListShown) {
+        // ПОСЛЕ ПОКАЗА СПИСКА - пользователь написал сообщение
+        // Удаляем кнопки под списком (список с кнопками - это одно сообщение)
+        const lastButtonId = this.lastButtonMessageId.get(sessionKey);
+        if (lastButtonId) {
+          try {
+            await this.bot.telegram.deleteMessage(this.chatId, lastButtonId);
+          } catch (error) {
+            botLogger.warn(
+              { error, messageId: lastButtonId },
+              'Не удалось удалить список с кнопками'
+            );
+          }
+        }
+
+        // Показываем меню с опциями
+        const menuText = 'Что хочешь сделать?';
+        const result = await this.sendMessage(
+          menuText,
+          userMessageId,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${this.channelMessageId}`)],
+            [Markup.button.callback('Посмотреть список 📝', `joy_view_${this.channelMessageId}`)],
+            [Markup.button.callback('Идем дальше', `joy_continue_${this.channelMessageId}`)]
+          ])
+        );
+
+        // Сохраняем ID скользящего сообщения
+        if (result && result.message_id) {
+          this.lastButtonMessageId.set(sessionKey, result.message_id);
+        }
+
+        // Сбрасываем флаг показа списка
+        this.listShown.delete(sessionKey);
+
+        return result;
+      } else {
+        // ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ - работаем как обычно (накапливаем + показываем "Добавить 🔥")
+        // Удаляем предыдущее скользящее сообщение если оно есть
+        const lastButtonId = this.lastButtonMessageId.get(sessionKey);
+        if (lastButtonId) {
+          try {
+            await this.bot.telegram.deleteMessage(this.chatId, lastButtonId);
+          } catch (error) {
+            botLogger.warn(
+              { error, messageId: lastButtonId },
+              'Не удалось удалить предыдущее скользящее сообщение'
+            );
+          }
+        }
+
+        // Добавляем/обновляем сообщение к накопленным (Map поддерживает редактирование)
+        const messages = this.pendingMessages.get(sessionKey) || new Map<number, string>();
+        messages.set(userMessageId, userMessage);
+        this.pendingMessages.set(sessionKey, messages);
+
+        botLogger.info(
+          { userId: this.userId, messagesCount: messages.size },
+          'Добавлено сообщение в накопитель (обычный режим)'
+        );
+
+        // Отправляем новое скользящее сообщение с кнопкой "Добавить 🔥"
+        const buttonText = 'Когда перечислишь все - нажми кнопку ниже';
+        const result = await this.sendMessage(
+          buttonText,
+          userMessageId,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('Добавить 🔥', `joy_add_${this.channelMessageId}`)]
+          ])
+        );
+
+        // Сохраняем ID скользящего сообщения
+        if (result && result.message_id) {
+          this.lastButtonMessageId.set(sessionKey, result.message_id);
+        }
+
+        return result;
       }
-
-      // Отправляем новое скользящее сообщение с кнопкой
-      const buttonText = 'Когда перечислишь все - нажми кнопку ниже';
-      const result = await this.sendMessage(
-        buttonText,
-        userMessageId,
-        Markup.inlineKeyboard([
-          [Markup.button.callback('Добавить 🔥', `joy_add_${this.channelMessageId}`)]
-        ])
-      );
-
-      // Сохраняем ID скользящего сообщения
-      if (result && result.message_id) {
-        this.lastButtonMessageId.set(sessionKey, result.message_id);
-      }
-
-      return result;
     } catch (error) {
       botLogger.error(
         { error, userId: this.userId },
@@ -174,7 +298,8 @@ export class JoyHandler {
   async saveJoySources(replyToMessageId?: number) {
     try {
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
-      const messages = this.pendingMessages.get(sessionKey) || [];
+      const messagesMap = this.pendingMessages.get(sessionKey) || new Map<number, string>();
+      const messages = Array.from(messagesMap.values());
 
       if (messages.length === 0) {
         await this.sendMessage(
@@ -183,6 +308,12 @@ export class JoyHandler {
         );
         return;
       }
+
+      // Показываем пользователю, что начали обработку
+      await this.sendMessage(
+        'Froggy собирает твои ответы...',
+        replyToMessageId
+      );
 
       // Получаем существующие источники радости
       const existingSources = getAllJoySources(this.userId);
@@ -198,11 +329,13 @@ ${existingSources.length > 0 ? existingSources.map((s, i) => `${i + 1}. ${s.text
 ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
 
 ИНСТРУКЦИИ:
-1. Исправь грамматические и орфографические ошибки в новых источниках
-2. Убери дубликаты:
+1. НЕ МЕНЯЙ формулировки пользователя! Сохраняй авторский стиль и слова как есть.
+2. Исправляй ТОЛЬКО орфографические ошибки и опечатки в словах (например: "котикок" → "котиков")
+3. НЕ заменяй слова синонимами (например: "мимишить" НЕ заменять на "тискать")
+4. ВСЕ пункты списка должны начинаться с МАЛЕНЬКОЙ буквы (например: "печеньки", а не "Печеньки")
+5. Убери дубликаты:
    - Если новый источник по смыслу совпадает с уже существующим - НЕ добавляй его
    - Если новый источник повторяется несколько раз - оставь только один
-3. Сохрани краткость и естественность формулировок
 
 ФОРМАТ ОТВЕТА - строго JSON массив:
 ["исправленный источник 1", "исправленный источник 2"]
@@ -239,6 +372,13 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
         addJoySource(this.userId, source, 'manual');
       }
 
+      // Обновляем checkpoint (время последнего изменения списка радости)
+      if (uniqueSources.length > 0) {
+        const { updateJoyCheckpoint } = await import('./db');
+        updateJoyCheckpoint(this.userId, new Date().toISOString());
+        botLogger.info({ userId: this.userId }, '🔄 Checkpoint списка радости обновлен');
+      }
+
       botLogger.info(
         { userId: this.userId, newCount: messages.length, savedCount: uniqueSources.length },
         'Сохранены источники радости (после фильтрации дубликатов)'
@@ -250,6 +390,9 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
       // НЕ удаляем скользящее сообщение при нажатии "Добавить" - оно должно остаться!
       // Просто очищаем ссылку на него
       this.lastButtonMessageId.delete(sessionKey);
+
+      // Сбрасываем флаг активной сессии добавления
+      this.addingSessions.delete(sessionKey);
 
       // Показываем только меню (список показывается по кнопке "Посмотреть")
       await this.showMenu(replyToMessageId);
@@ -271,22 +414,47 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
       const sources = getAllJoySources(this.userId);
 
       if (sources.length === 0) {
-        await this.sendMessage(
-          'Твой список пока пуст 🤷\nНапиши, что тебя радует!',
-          replyToMessageId
-        );
+        const emptyText = `Твой список пуст 🙀
+Давай это исправим!
+
+Напиши, что вызывает у тебя приятные эмоции? И что наполняет?`;
+
+        await this.sendMessage(emptyText, replyToMessageId, {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Позже 😔', `joy_later_${this.channelMessageId}`)]
+          ])
+        });
         return;
       }
 
-      // Формируем список
+      // Формируем список с нумерацией
       let listText = '<b>Мои источники радости и энергии 🤩</b>\n\n';
-      sources.forEach((source) => {
-        listText += `⚡️ ${source.text}\n`;
+      sources.forEach((source, index) => {
+        listText += `${index + 1} ⚡️ ${source.text}\n`;
       });
 
-      await this.sendMessage(listText, replyToMessageId, {
-        parse_mode: 'HTML'
-      });
+      // Отправляем список с кнопками
+      const sessionKey = `${this.userId}_${this.channelMessageId}`;
+      const result = await this.sendMessage(
+        listText,
+        replyToMessageId,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${this.channelMessageId}`)],
+            [Markup.button.callback('Убрать лишнее 🙅🏻', `joy_remove_${this.channelMessageId}`)],
+            [Markup.button.callback('Идем дальше', `joy_continue_${this.channelMessageId}`)]
+          ])
+        }
+      );
+
+      // Сохраняем ID сообщения со списком в отдельную Map (НЕ скользящее - постоянное)
+      if (result && result.message_id) {
+        this.listMessageId.set(sessionKey, result.message_id);
+      }
+
+      // Устанавливаем флаг показа списка
+      this.listShown.set(sessionKey, true);
 
       botLogger.info(
         { userId: this.userId, count: sources.length },
@@ -313,7 +481,8 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
         replyToMessageId,
         Markup.inlineKeyboard([
           [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${this.channelMessageId}`)],
-          [Markup.button.callback('Посмотреть', `joy_view_${this.channelMessageId}`)]
+          [Markup.button.callback('Посмотреть список 📝', `joy_view_${this.channelMessageId}`)],
+          [Markup.button.callback('Идем дальше', `joy_continue_${this.channelMessageId}`)]
         ])
       );
     } catch (error) {
@@ -333,6 +502,12 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
       const text = 'Напиши, что еще хочешь добавить';
 
       await this.sendMessage(text, replyToMessageId);
+
+      // Устанавливаем флаг активной сессии добавления
+      const sessionKey = `${this.userId}_${this.channelMessageId}`;
+      this.addingSessions.set(sessionKey, true);
+      // Сбрасываем флаг показа списка
+      this.listShown.delete(sessionKey);
 
       botLogger.info(
         { userId: this.userId },
@@ -366,7 +541,7 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
    */
   hasPendingMessages(): boolean {
     const sessionKey = `${this.userId}_${this.channelMessageId}`;
-    const messages = this.pendingMessages.get(sessionKey) || [];
-    return messages.length > 0;
+    const messages = this.pendingMessages.get(sessionKey);
+    return messages ? messages.size > 0 : false;
   }
 }

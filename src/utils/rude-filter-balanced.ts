@@ -1,35 +1,37 @@
 // Сбалансированная модель определения спама
+// ВНИМАНИЕ: Этот файл не используется в проекте, но оставлен для возможных экспериментов
 
 // Основной принцип: комбинация простых правил с весами
-function isKeyboardSpamBalanced(text: string): boolean {
+export function isKeyboardSpamBalanced(text: string): boolean {
   const normalized = text.trim().toLowerCase();
-  
+
   // 1. ЯВНЫЙ СПАМ - сразу возвращаем true
-  
+
   // 1.1 Повторы одного символа (аааа, ддддд)
   if (/^(.)\1{2,}$/.test(normalized)) {
     return true;
   }
-  
+
   // 1.2 Клавиатурные ряды
-  if (/^[йцукен]{3,}$/.test(normalized) || 
-      /^[фывапр]{3,}$/.test(normalized) || 
+  if (/^[йцукен]{3,}$/.test(normalized) ||
+      /^[фывапр]{3,}$/.test(normalized) ||
       /^[ячсмит]{3,}$/.test(normalized) ||
       /^[qwerty]{3,}$/i.test(normalized) ||
       /^[asdfgh]{3,}$/i.test(normalized) ||
       /^[zxcvbn]{3,}$/i.test(normalized)) {
     return true;
   }
-  
+
   // 1.3 Только согласные 5+ подряд
   if (/^[бвгджзйклмнпрстфхцчшщ]{5,}$/.test(normalized)) {
     return true;
   }
-  
-  // 2. ПРОВЕРКА ПО СЛОВАРЮ - если есть в словаре, сразу false
-  if (russianWordsSet.has(normalized)) {
-    return false;
-  }
+
+  // 2. ПРОВЕРКА ПО СЛОВАРЮ - отключена, так как словарь не импортируется
+  // TODO: если понадобится использовать этот файл, импортировать russianWordsSet из rude-filter.ts
+  // if (russianWordsSet.has(normalized)) {
+  //   return false;
+  // }
   
   // 3. КОРОТКИЕ СЛОВА (1-3 буквы) - минимальный белый список
   if (normalized.length <= 3) {

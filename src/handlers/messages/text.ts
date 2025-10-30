@@ -124,12 +124,27 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
 
       // Проверяем, есть ли активная интерактивная сессия
       const messageThreadId = (ctx.message as any).message_thread_id;
-      
+
       // Для интерактивных постов не обрабатываем сообщения из личных чатов
       if (ctx.chat.type === 'private') {
         botLogger.debug({ userId, chatType: ctx.chat.type }, 'Игнорируем личное сообщение для интерактивных постов');
         return; // ВАЖНО: выходим из обработчика для личных сообщений
       } else {
+        // СНАЧАЛА проверяем Joy-сессии (они имеют приоритет!)
+        const isJoyMessage = await scheduler.handleJoyUserMessage(
+          userId,
+          message,
+          replyToChatId,
+          ctx.message.message_id,
+          messageThreadId
+        );
+
+        if (isJoyMessage) {
+          // Сообщение обработано в Joy-режиме
+          return;
+        }
+
+        // ПОТОМ проверяем интерактивные посты (только если не Joy)
         const isInteractive = await scheduler.handleInteractiveUserResponse(
           userId,
           message,
