@@ -3419,7 +3419,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     messageText: string,
     replyToChatId: number,
     messageId: number,
-    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string; last_button_message_id?: number }
+    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string; last_button_message_id?: number },
+    messageThreadId?: number
   ) {
     const { updateMorningPostStep, updateMorningPostButtonMessage, saveMessage } = await import('./db');
     const { getLastNMessages } = await import('./db');
@@ -3471,17 +3472,24 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем сообщение с кнопкой "Ответь мне"
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
 
+      const sendOptions: any = {
+        reply_markup: keyboard,
+      };
+
+      // Используем messageThreadId для отправки в комментарии
+      if (messageThreadId) {
+        sendOptions.reply_to_message_id = messageThreadId;
+      }
+
       const sentMessage = await this.sendWithRetry(
         () =>
-          this.bot.telegram.sendMessage(replyToChatId, responseText, {
-            reply_parameters: { message_id: messageId },
-            reply_markup: keyboard,
-          }),
+          this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1',
@@ -3519,17 +3527,24 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Пользователь продолжает писать, повторяем сообщение с кнопкой
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
 
+      const sendOptions: any = {
+        reply_markup: keyboard,
+      };
+
+      // Используем messageThreadId для отправки в комментарии
+      if (messageThreadId) {
+        sendOptions.reply_to_message_id = messageThreadId;
+      }
+
       const sentMessage = await this.sendWithRetry(
         () =>
-          this.bot.telegram.sendMessage(replyToChatId, responseText, {
-            reply_parameters: { message_id: messageId },
-            reply_markup: keyboard,
-          }),
+          this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1_repeat',
@@ -3556,7 +3571,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Переходим к анализу и ШАГу 3
-      await this.processMorningStep3(userId, messageText, replyToChatId, messageId, morningPost);
+      await this.processMorningStep3(userId, messageText, replyToChatId, messageId, morningPost, messageThreadId);
     } else if (morningPost.current_step === 'waiting_more') {
       // Пользователь продолжает делиться после финального ответа
 
@@ -3573,7 +3588,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Удаляем предыдущую кнопку если есть
       const { getMorningPost } = await import('./db');
-      const currentPost = getMorningPost(morningPost.channel_message_id);
+      const currentPost = getMorningPost(morningPost.channel_message_id) as any;
       if (currentPost?.last_button_message_id) {
         try {
           await this.bot.telegram.deleteMessage(replyToChatId, currentPost.last_button_message_id);
@@ -3584,16 +3599,23 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем кнопку "Ответь мне"
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+
+      const sendOptions: any = {
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
+        },
+      };
+
+      // Используем messageThreadId для отправки в комментарии
+      if (messageThreadId) {
+        sendOptions.reply_to_message_id = messageThreadId;
+      }
 
       const sentMessage = await this.sendWithRetry(
         () =>
-          this.bot.telegram.sendMessage(replyToChatId, responseText, {
-            reply_parameters: { message_id: messageId },
-            reply_markup: {
-              inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
-            },
-          }),
+          this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1_repeat',
@@ -3617,11 +3639,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Сессия завершена (старая логика, больше не используется)
       const finalText = 'Спасибо что делишься! Я всегда рад тебя слушать 🤗';
 
+      const completedOptions: any = {};
+      if (messageThreadId) {
+        completedOptions.reply_to_message_id = messageThreadId;
+      }
+
       await this.sendWithRetry(
         () =>
-          this.bot.telegram.sendMessage(replyToChatId, finalText, {
-            reply_parameters: { message_id: messageId },
-          }),
+          this.bot.telegram.sendMessage(replyToChatId, finalText, completedOptions),
         {
           chatId: userId,
           messageType: 'morning_completed',
@@ -3640,7 +3665,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     messageText: string,
     replyToChatId: number,
     messageId: number,
-    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string }
+    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string },
+    messageThreadId?: number
   ) {
     const { updateMorningPostStep } = await import('./db');
     const { getMorningPostUserMessages, getMorningPostMessagesAfterLastFinal } = await import('./db');
@@ -3718,11 +3744,14 @@ ${allDayUserMessages}
     // Добавляем фразу "Если захочешь еще чем-то поделиться - я рядом 🤗"
     const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
 
+    const step3Options: any = {};
+    if (messageThreadId) {
+      step3Options.reply_to_message_id = messageThreadId;
+    }
+
     await this.sendWithRetry(
       () =>
-        this.bot.telegram.sendMessage(replyToChatId, fullMessage, {
-          reply_parameters: { message_id: messageId },
-        }),
+        this.bot.telegram.sendMessage(replyToChatId, fullMessage, step3Options),
       {
         chatId: userId,
         messageType: 'morning_step3',
@@ -3941,10 +3970,16 @@ ${allDayUserMessages}
           .filter(n => !isNaN(n) && n > 0);
 
         if (numbers.length === 0) {
+          // Отправляем сообщение об ошибке БЕЗ reply
+          const errorOptions: any = {};
+          if (joySession.forwardedMessageId) {
+            errorOptions.reply_to_message_id = joySession.forwardedMessageId;
+          }
+
           await this.bot.telegram.sendMessage(
             joySession.chatId,
             'Пожалуйста, укажи номера через запятую или пробел, например: 1, 3, 5',
-            { reply_parameters: { message_id: messageId } }
+            errorOptions
           );
           return true;
         }
@@ -3970,15 +4005,24 @@ ${allDayUserMessages}
 
         // Показываем скользящую кнопку "Готово"
         const confirmText = 'Готово? Или еще что-то убрать?';
+
+        // Извлекаем messageThreadId из joySession
+        const messageThreadIdJoy = joySession.forwardedMessageId;
+
+        const sendOptions: any = {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Готово', `joy_remove_confirm_${joySession.channelMessageId}`)]
+          ])
+        };
+
+        if (messageThreadIdJoy) {
+          sendOptions.reply_to_message_id = messageThreadIdJoy;
+        }
+
         const confirmMessage = await this.bot.telegram.sendMessage(
           joySession.chatId,
           confirmText,
-          {
-            reply_parameters: { message_id: messageId },
-            ...Markup.inlineKeyboard([
-              [Markup.button.callback('Готово', `joy_remove_confirm_${joySession.channelMessageId}`)]
-            ])
-          }
+          sendOptions
         );
 
         // Сохраняем ID скользящего сообщения
@@ -4077,13 +4121,14 @@ ${allDayUserMessages}
         }
 
         // Отправляем ответ
+        const sendOptions: any = {};
+        if (messageThreadId) {
+          sendOptions.reply_to_message_id = messageThreadId;
+        }
+
         await this.sendWithRetry(
           () =>
-            this.bot.telegram.sendMessage(replyToChatId, responseText, {
-              reply_parameters: {
-                message_id: messageId,
-              },
-            }),
+            this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
           {
             chatId: userId,
             messageType: 'angry_post_response',
@@ -4145,7 +4190,8 @@ ${allDayUserMessages}
           messageText,
           replyToChatId,
           messageId,
-          morningPost
+          morningPost,
+          messageThreadId
         );
 
         return true; // Возвращаем true, чтобы показать что сообщение обработано
@@ -4402,15 +4448,19 @@ ${allDayUserMessages}
         };
 
         // Отправляем второе сообщение с кнопкой
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
+        const secondTaskSendOptions: any = {
+          parse_mode: 'HTML',
+          reply_markup: emotionsTableKeyboard,
+        };
+
+        if (messageThreadId) {
+          secondTaskSendOptions.reply_to_message_id = messageThreadId;
+        }
+
         const secondTaskMessage = await this.sendWithRetry(
           () =>
-            this.bot.telegram.sendMessage(replyToChatId, secondTaskText, {
-              parse_mode: 'HTML',
-              reply_markup: emotionsTableKeyboard,
-              reply_parameters: {
-                message_id: messageId,
-              },
-            }),
+            this.bot.telegram.sendMessage(replyToChatId, secondTaskText, secondTaskSendOptions),
           {
             chatId: userId,
             messageType: 'deep_second_task',
@@ -4445,7 +4495,7 @@ ${allDayUserMessages}
 
         // Импортируем функцию получения обработчика глубокой работы
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
 
         // Анализируем ответ и выбираем технику
         await deepHandler.analyzeUserResponse(channelMessageId, messageText, userId, messageId);
@@ -4456,43 +4506,38 @@ ${allDayUserMessages}
       // Обработка глубоких состояний
       if (session.currentStep === 'deep_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'deep_waiting_distortions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleDistortionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'deep_waiting_harm') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleHarmResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'deep_waiting_rational') {
         // Завершаем работу с фильтрами
-        const sendOptions: any = {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
-        };
-
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
         const sendOptionsWithButton: any = {
           parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
           reply_markup: {
             inline_keyboard: [[{ text: 'Вперед 🔥', callback_data: `deep_continue_to_treats_${channelMessageId}` }]],
           },
         };
+
+        if (messageThreadId) {
+          sendOptionsWithButton.reply_to_message_id = messageThreadId;
+        }
 
         await this.sendWithRetry(
           () =>
@@ -4554,11 +4599,9 @@ ${allDayUserMessages}
         if (emotionAnalysis.count < 3 && !negativeEmotionsWereRequested) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'positive');
 
+          // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
           const sendOptions: any = {
             parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
@@ -4566,6 +4609,10 @@ ${allDayUserMessages}
               ],
             },
           };
+
+          if (messageThreadId) {
+            sendOptions.reply_to_message_id = messageThreadId;
+          }
 
           try {
             await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
@@ -4624,20 +4671,12 @@ ${allDayUserMessages}
           ],
         };
 
-        const finalOptions: any = {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
-          reply_markup: practiceKeyboard,
-        };
-
         // Логируем перед отправкой видео
         schedulerLogger.info(
           {
             channelMessageId,
             replyToChatId,
-            messageId,
+            messageThreadId,
             practiceVideoPath: this.PRACTICE_VIDEO_PATH,
             step: 'before_deep_video_send',
             isTestBot: this.isTestBot(),
@@ -4647,18 +4686,25 @@ ${allDayUserMessages}
         );
 
         // Отправляем видео с дыхательной практикой
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
         const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
         const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
+        const deepVideoOptions: any = {
+          caption: finalMessage,
+          parse_mode: 'HTML',
+          reply_markup: practiceKeyboard,
+          thumbnail: { source: thumbnailBuffer },
+        };
+
+        // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
+        if (messageThreadId) {
+          deepVideoOptions.reply_to_message_id = messageThreadId;
+        }
+
         const task3Message = await this.sendWithRetry(
           () =>
-            this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-              caption: finalMessage,
-              parse_mode: 'HTML',
-              reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-              reply_markup: practiceKeyboard,
-              thumbnail: { source: thumbnailBuffer },
-            } as any),
+            this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, deepVideoOptions as any),
           {
             chatId: userId,
             messageType: 'deep_practice_video',
@@ -4741,15 +4787,20 @@ ${allDayUserMessages}
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
+          const deepVideoOptions2: any = {
+            caption: finalMessage,
+            parse_mode: 'HTML',
+            reply_markup: practiceKeyboard,
+            thumbnail: { source: thumbnailBuffer },
+          };
+
+          if (messageThreadId) {
+            deepVideoOptions2.reply_to_message_id = messageThreadId;
+          }
+
           const task3Message = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-                caption: finalMessage,
-                parse_mode: 'HTML',
-                reply_to_message_id: messageId,
-                reply_markup: practiceKeyboard,
-                thumbnail: { source: thumbnailBuffer },
-              } as any),
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, deepVideoOptions2 as any),
             {
               chatId: userId,
               messageType: 'deep_practice_video_after_positive_clarification',
@@ -4842,42 +4893,42 @@ ${allDayUserMessages}
       // Обработка состояний разбора по схеме
       if (session.currentStep === 'schema_waiting_trigger') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleTriggerResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleSchemaThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_emotions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleSchemaEmotionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_emotions_clarification') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleSchemaEmotionsClarificationResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_behavior') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleSchemaBehaviorResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_correction') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
         await deepHandler.handleSchemaCorrectionResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
@@ -4935,18 +4986,25 @@ ${allDayUserMessages}
         }
 
         // Отправляем новое сообщение "Все описал?" с кнопкой
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
         const confirmationText = 'Все описал? 📝';
         const confirmationKeyboard = {
           inline_keyboard: [[{ text: 'Да ☑️', callback_data: `confirm_negative_${channelMessageId}` }]],
         };
 
+        const sendOptions: any = {
+          reply_markup: confirmationKeyboard,
+        };
+
+        // Используем messageThreadId для отправки в комментарии
+        if (messageThreadId) {
+          sendOptions.reply_to_message_id = messageThreadId;
+        }
+
         try {
           const confirmationMessage = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendMessage(replyToChatId, confirmationText, {
-                reply_parameters: { message_id: messageId },
-                reply_markup: confirmationKeyboard,
-              }),
+              this.bot.telegram.sendMessage(replyToChatId, confirmationText, sendOptions),
             {
               chatId: userId,
               messageType: 'negative_confirmation',
@@ -4998,17 +5056,24 @@ ${allDayUserMessages}
                 }
 
                 // Отправляем напоминание
+                // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
                 const reminderText = 'Если ты все описал - нажми кнопку "Готово"';
                 const reminderKeyboard = {
                   inline_keyboard: [[{ text: 'Готово ☑️', callback_data: `confirm_negative_${channelMessageId!}` }]],
                 };
 
+                const reminderSendOptions: any = {
+                  reply_markup: reminderKeyboard,
+                };
+
+                // Используем messageThreadId для отправки в комментарии
+                if (messageThreadId) {
+                  reminderSendOptions.reply_to_message_id = messageThreadId;
+                }
+
                 const reminderMessage = await this.sendWithRetry(
                   () =>
-                    this.bot.telegram.sendMessage(replyToChatId, reminderText, {
-                      reply_parameters: { message_id: messageId },
-                      reply_markup: reminderKeyboard,
-                    }),
+                    this.bot.telegram.sendMessage(replyToChatId, reminderText, reminderSendOptions),
                   {
                     chatId: userId,
                     messageType: 'negative_reminder',
@@ -5084,9 +5149,6 @@ ${allDayUserMessages}
 
           const sendOptions: any = {
             parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
@@ -5094,6 +5156,10 @@ ${allDayUserMessages}
               ],
             },
           };
+
+          if (messageThreadId) {
+            sendOptions.reply_to_message_id = messageThreadId;
+          }
 
           try {
             const helpMessageResult = await this.sendWithRetry(
@@ -5138,13 +5204,14 @@ ${allDayUserMessages}
 
         const sendOptions: any = {
           parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
           reply_markup: {
             inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
           },
         };
+
+        if (messageThreadId) {
+          sendOptions.reply_to_message_id = messageThreadId;
+        }
 
         try {
           const task2Message = await this.sendWithRetry(
@@ -5226,11 +5293,14 @@ ${allDayUserMessages}
 
           const sendOptions: any = {
             parse_mode: 'HTML',
-            reply_parameters: { message_id: messageId },
             reply_markup: {
               inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
             },
           };
+
+          if (messageThreadId) {
+            sendOptions.reply_to_message_id = messageThreadId;
+          }
 
           try {
             const task2Message = await this.sendWithRetry(
@@ -5298,11 +5368,14 @@ ${allDayUserMessages}
 
           const sendOptions: any = {
             parse_mode: 'HTML',
-            reply_parameters: { message_id: messageId },
             reply_markup: {
               inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
             },
           };
+
+          if (messageThreadId) {
+            sendOptions.reply_to_message_id = messageThreadId;
+          }
 
           try {
             const task2Message = await this.sendWithRetry(
@@ -5367,13 +5440,18 @@ ${allDayUserMessages}
           inline_keyboard: [[{ text: 'Описал ☑️', callback_data: `emotions_addition_done_${channelMessageId}` }]],
         };
 
+        const emotionsConfirmOptions: any = {
+          reply_markup: confirmationKeyboard,
+        };
+
+        if (messageThreadId) {
+          emotionsConfirmOptions.reply_to_message_id = messageThreadId;
+        }
+
         try {
           const confirmationMessage = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendMessage(replyToChatId, confirmationText, {
-                reply_parameters: { message_id: messageId },
-                reply_markup: confirmationKeyboard,
-              }),
+              this.bot.telegram.sendMessage(replyToChatId, confirmationText, emotionsConfirmOptions),
             {
               chatId: userId,
               messageType: 'emotions_addition_confirmation',
@@ -5420,10 +5498,11 @@ ${allDayUserMessages}
 
         const sendOptions: any = {
           parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
         };
+
+        if (messageThreadId) {
+          sendOptions.reply_to_message_id = messageThreadId;
+        }
 
         try {
           const task2Message = await this.sendWithRetry(
@@ -5453,12 +5532,17 @@ ${allDayUserMessages}
           // Fallback: отправляем минимальные плюшки без доп. текста
           try {
             const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+            const fallbackOptions: any = {
+              parse_mode: 'HTML',
+            };
+
+            if (messageThreadId) {
+              fallbackOptions.reply_to_message_id = messageThreadId;
+            }
+
             const fallbackMessage = await this.sendWithRetry(
               () =>
-                this.bot.telegram.sendMessage(replyToChatId, fallbackText, {
-                  parse_mode: 'HTML',
-                  reply_parameters: { message_id: messageId },
-                }),
+                this.bot.telegram.sendMessage(replyToChatId, fallbackText, fallbackOptions),
               {
                 chatId: userId,
                 messageType: 'plushki_fallback',
@@ -5527,11 +5611,9 @@ ${allDayUserMessages}
         if (emotionAnalysis.count < 3 && !negativeEmotionsWereRequested) {
           const helpMessage = getEmotionHelpMessage(emotionAnalysis.emotions, 'positive');
 
+          // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
           const sendOptions: any = {
             parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: messageId,
-            },
             reply_markup: {
               inline_keyboard: [
                 [{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }],
@@ -5539,6 +5621,10 @@ ${allDayUserMessages}
               ],
             },
           };
+
+          if (messageThreadId) {
+            sendOptions.reply_to_message_id = messageThreadId;
+          }
 
           try {
             await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
@@ -5629,16 +5715,16 @@ ${allDayUserMessages}
           ],
         };
 
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
         const finalOptions: any = {
           parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: messageId,
-          },
           reply_markup: practiceKeyboard,
         };
 
-        // Для обычных групп с комментариями не нужен message_thread_id
-        // Используем только reply_to_message_id который уже установлен выше
+        // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
+        if (messageThreadId) {
+          finalOptions.reply_to_message_id = messageThreadId;
+        }
 
         schedulerLogger.info(
           {
@@ -5659,15 +5745,22 @@ ${allDayUserMessages}
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
+          // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
+          const videoOptions: any = {
+            caption: finalMessage,
+            parse_mode: 'HTML',
+            reply_markup: practiceKeyboard,
+            thumbnail: { source: thumbnailBuffer },
+          };
+
+          // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
+          if (messageThreadId) {
+            videoOptions.reply_to_message_id = messageThreadId;
+          }
+
           const task3Message = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-                caption: finalMessage,
-                parse_mode: 'HTML',
-                reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-                reply_markup: practiceKeyboard,
-                thumbnail: { source: thumbnailBuffer },
-              } as any),
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, videoOptions as any),
             {
               chatId: userId,
               messageType: 'practice_video',
@@ -5735,14 +5828,19 @@ ${allDayUserMessages}
             const fallbackVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
             const fallbackThumbnail = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
+            const fallbackVideoOptions: any = {
+              caption: fallbackFinalText,
+              parse_mode: 'HTML',
+              thumbnail: { source: fallbackThumbnail },
+            };
+
+            if (messageThreadId) {
+              fallbackVideoOptions.reply_to_message_id = messageThreadId;
+            }
+
             await this.sendWithRetry(
               () =>
-                this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, {
-                  caption: fallbackFinalText,
-                  parse_mode: 'HTML',
-                  reply_to_message_id: messageId, // Используем reply_to_message_id вместо reply_parameters
-                  thumbnail: { source: fallbackThumbnail },
-                } as any),
+                this.bot.telegram.sendVideo(replyToChatId, { source: fallbackVideo }, fallbackVideoOptions as any),
               {
                 chatId: userId,
                 messageType: 'practice_video_fallback',
@@ -5807,15 +5905,20 @@ ${allDayUserMessages}
           const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
           const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
+          const practiceVideoOptions: any = {
+            caption: finalMessage,
+            parse_mode: 'HTML',
+            reply_markup: practiceKeyboard,
+            thumbnail: { source: thumbnailBuffer },
+          };
+
+          if (messageThreadId) {
+            practiceVideoOptions.reply_to_message_id = messageThreadId;
+          }
+
           const practiceResult = await this.sendWithRetry(
             () =>
-              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, {
-                caption: finalMessage,
-                parse_mode: 'HTML',
-                reply_to_message_id: messageId,
-                reply_markup: practiceKeyboard,
-                thumbnail: { source: thumbnailBuffer },
-              } as any),
+              this.bot.telegram.sendVideo(replyToChatId, { source: practiceVideo }, practiceVideoOptions as any),
             {
               chatId: userId,
               messageType: 'practice_video_after_positive_clarification',
@@ -5859,13 +5962,14 @@ ${allDayUserMessages}
         if (!post?.practice_reminder_sent) {
           // Отправляем напоминание только один раз
           try {
+            const reminderOptions: any = {};
+            if (messageThreadId) {
+              reminderOptions.reply_to_message_id = messageThreadId;
+            }
+
             await this.sendWithRetry(
               () =>
-                this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', {
-                  reply_parameters: {
-                    message_id: messageId,
-                  },
-                }),
+                this.bot.telegram.sendMessage(replyToChatId, 'Выполни практику и нажми "Сделал" после ее завершения', reminderOptions),
               {
                 chatId: userId,
                 messageType: 'practice_reminder',
@@ -6349,19 +6453,24 @@ ${allDayUserMessages}
 
 💡 Одно и то же может давать и радость, и энергию 🤩`;
 
+    const introOptions: any = {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('Дай подсказку 🙌🏻', `joy_sunday_hint_${channelMessageId}`)],
+        [Markup.button.callback('В другой раз', `joy_sunday_skip_${channelMessageId}`)]
+      ])
+    };
+
+    if (forwardedMessageId) {
+      introOptions.reply_to_message_id = forwardedMessageId;
+    }
+
     await sendWithRetry(
       async () => {
         return await this.bot.telegram.sendMessage(
           commentsChatId,
           explanationText,
-          {
-            reply_parameters: { message_id: replyToMessageId },
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [Markup.button.callback('Дай подсказку 🙌🏻', `joy_sunday_hint_${channelMessageId}`)],
-              [Markup.button.callback('В другой раз', `joy_sunday_skip_${channelMessageId}`)]
-            ])
-          }
+          introOptions
         );
       },
       {
@@ -6407,12 +6516,17 @@ ${formattedEvents}
 
 <b>Хочешь добавить что-то в свой список радости?</b> 💚`;
 
+    const summaryOptions: any = {
+      parse_mode: 'HTML'
+    };
+
+    if (forwardedMessageId) {
+      summaryOptions.reply_to_message_id = forwardedMessageId;
+    }
+
     await sendWithRetry(
       async () => {
-        return await this.bot.telegram.sendMessage(commentsChatId, summaryText, {
-          reply_parameters: { message_id: replyToMessageId },
-          parse_mode: 'HTML'
-        });
+        return await this.bot.telegram.sendMessage(commentsChatId, summaryText, summaryOptions);
       },
       {
         chatId: commentsChatId,

@@ -35,6 +35,7 @@ export async function handleMorningRespond(ctx: BotContext) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     if (!userId) {
       botLogger.error({ channelMessageId }, 'Нет userId в контексте');
@@ -75,9 +76,11 @@ export async function handleMorningRespond(ctx: BotContext) {
 
     // Отправляем случайное сообщение загрузки
     const loadingMessage = getRandomLoadingMessage();
-    await ctx.telegram.sendMessage(chatId, loadingMessage, {
-      reply_parameters: { message_id: replyToMessageId! }
-    });
+    const loadingSendOptions: any = {};
+    if (threadId) {
+      loadingSendOptions.reply_to_message_id = threadId;
+    }
+    await ctx.telegram.sendMessage(chatId, loadingMessage, loadingSendOptions);
 
     // Получаем ВСЕ сообщения за день (для контекста и связности)
     const allDayMessages = getMorningPostUserMessages(userId, channelMessageId);
@@ -148,8 +151,8 @@ export async function handleMorningRespond(ctx: BotContext) {
       const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
 
       const sendOptions: any = { parse_mode: 'HTML' };
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = { message_id: replyToMessageId };
+      if (threadId) {
+        sendOptions.reply_to_message_id = threadId;
       }
 
       await callbackSendWithRetry(
@@ -412,8 +415,8 @@ ${allDayUserMessages}
     }
 
     const sendOptions: any = { parse_mode: 'HTML' };
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = { message_id: replyToMessageId };
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
     }
     if (keyboard) {
       sendOptions.reply_markup = keyboard;

@@ -6,11 +6,13 @@ import { DeepWorkHandler } from '../../deep-work-handler';
 // Храним экземпляры обработчиков для каждого чата/треда
 const deepWorkHandlers = new Map<string, DeepWorkHandler>();
 
-export function getDeepWorkHandler(bot: Telegraf, chatId: number): DeepWorkHandler {
-  if (!deepWorkHandlers.has(`${chatId}`)) {
-    deepWorkHandlers.set(`${chatId}`, new DeepWorkHandler(bot, chatId));
+export function getDeepWorkHandler(bot: Telegraf, chatId: number, threadId?: number): DeepWorkHandler {
+  // Ключ теперь включает threadId для правильного кэширования
+  const key = threadId ? `${chatId}_${threadId}` : `${chatId}`;
+  if (!deepWorkHandlers.has(key)) {
+    deepWorkHandlers.set(key, new DeepWorkHandler(bot, chatId, threadId));
   }
-  return deepWorkHandlers.get(`${chatId}`)!;
+  return deepWorkHandlers.get(key)!;
 }
 
 // Обработчик выбора ситуации
@@ -31,7 +33,8 @@ export async function handleDeepSituationChoice(ctx: BotContext, bot: Telegraf) 
     }, 'Выбрана ситуация для разбора');
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
     
     // Получаем рекомендованную технику из БД
     const { getInteractivePost } = await import('../../db');
@@ -49,9 +52,8 @@ export async function handleDeepSituationChoice(ctx: BotContext, bot: Telegraf) 
       // Используем текст ситуации для контекста (можно улучшить, сохранив текст ситуации)
       await handler.generateAndSaveSupportWords(channelMessageId, 'выбранная ситуация', userId!);
     }
-    
-    const messageId = ctx.callbackQuery.message?.message_id;
-    await handler.startTechnique(channelMessageId, techniqueType, userId!, messageId);
+
+    await handler.startTechnique(channelMessageId, techniqueType, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка выбора ситуации');
@@ -72,10 +74,10 @@ export async function handleDeepFiltersStart(ctx: BotContext, bot: Telegraf) {
       userId
     }, 'Начало работы с фильтрами восприятия');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.handleFiltersStart(channelMessageId, userId!, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.handleFiltersStart(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка начала фильтров');
@@ -88,9 +90,9 @@ export async function handleDeepFiltersExample(ctx: BotContext, bot: Telegraf) {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
     
     // Проверяем, не исчерпаны ли примеры
     const key = `examples_${channelMessageId}`;
@@ -109,7 +111,7 @@ export async function handleDeepFiltersExample(ctx: BotContext, bot: Telegraf) {
     }
     
     await ctx.answerCbQuery(callbackText);
-    await handler.showThoughtsExample(channelMessageId, userId!, messageId);
+    await handler.showThoughtsExample(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера');
@@ -139,10 +141,10 @@ export async function handleDeepShowFilters(ctx: BotContext, bot: Telegraf) {
 
     await ctx.answerCbQuery('🎴 Показываю фильтры');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.showFiltersCards(channelMessageId, userId!, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.showFiltersCards(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа фильтров');
@@ -163,10 +165,10 @@ export async function handleDeepContinueToTreats(ctx: BotContext, bot: Telegraf)
       userId
     }, 'Переход к плюшкам после фильтров');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.continueToPluskas(channelMessageId, userId!, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.continueToPluskas(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам');
@@ -189,10 +191,10 @@ export async function handleShowFilters(ctx: any, bot: Telegraf) {
       return;
     }
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.showFilters(channelMessageId, userId, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.showFilters(channelMessageId, userId);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа фильтров');
@@ -213,10 +215,10 @@ export async function handleSchemaStart(ctx: BotContext, bot: Telegraf) {
       userId
     }, 'Начало разбора по схеме');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.handleSchemaStart(channelMessageId, userId!, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.handleSchemaStart(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка начала разбора по схеме');
@@ -230,7 +232,8 @@ export async function handleSchemaExample(ctx: BotContext, bot: Telegraf) {
     const userId = ctx.from?.id;
     
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
     
     // Проверяем счетчик примеров
     const key = `schema_examples_${channelMessageId}`;
@@ -251,7 +254,7 @@ export async function handleSchemaExample(ctx: BotContext, bot: Telegraf) {
     await ctx.answerCbQuery(callbackText);
 
     const messageId = ctx.callbackQuery.message?.message_id;
-    await handler.showSchemaExample(channelMessageId, userId!, messageId);
+    await handler.showSchemaExample(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка показа примера для схемы');
@@ -272,10 +275,10 @@ export async function handleSchemaContinue(ctx: BotContext, bot: Telegraf) {
       userId
     }, 'Переход к плюшкам после разбора по схеме');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
-    await handler.continueToPluskas(channelMessageId, userId!, messageId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    await handler.continueToPluskas(channelMessageId, userId!);
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка перехода к плюшкам из схемы');
@@ -296,9 +299,9 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
       userId
     }, 'Пропуск уточнения эмоций в схеме');
 
-    const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const handler = getDeepWorkHandler(bot, chatId);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    const handler = getDeepWorkHandler(bot, chatId, threadId);
     
     // Получаем пост для слов поддержки
     const { getInteractivePost } = await import('../../db');
@@ -323,14 +326,21 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
     }
     
     // Отправляем сообщение напрямую через Telegram API
+    // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      ...messageOptions
+    };
+
+    // Используем threadId из handler для отправки в комментарии
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     await bot.telegram.sendMessage(
       chatId,
       supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
-      {
-        parse_mode: 'HTML',
-        reply_parameters: messageId ? { message_id: messageId } : undefined,
-        ...messageOptions
-      }
+      sendOptions
     );
 
     // Обновляем состояние

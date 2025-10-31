@@ -11,6 +11,7 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     await ctx.answerCbQuery('✅ Переходим к практике');
 
@@ -48,13 +49,18 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
       const thumbnailBuffer = readFileSync(PRACTICE_VIDEO_THUMBNAIL_PATH);
       
       // Отправляем видео с практикой
-      const result = await bot.telegram.sendVideo(chatId!, { source: practiceVideo }, {
+      const videoOptions: any = {
         caption: finalMessage,
         parse_mode: 'HTML',
-        reply_to_message_id: messageId!, // ⚠️ НЕ reply_parameters для видео!
         reply_markup: practiceKeyboard,
         thumbnail: { source: thumbnailBuffer },
-      });
+      };
+
+      if (threadId) {
+        videoOptions.reply_to_message_id = threadId;
+      }
+
+      const result = await bot.telegram.sendVideo(chatId!, { source: practiceVideo }, videoOptions as any);
 
       // Обновляем состояние в БД
       const { updateInteractivePostState, updateTaskStatus, saveMessage } = await import('../../db');
@@ -90,11 +96,16 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
       botLogger.error({ error: (error as Error).message }, 'Ошибка отправки практики после пропуска позитивных эмоций');
       
       // Fallback: отправляем текстовое сообщение
-      await bot.telegram.sendMessage(chatId!, finalMessage, {
+      const fallbackSendOptions: any = {
         parse_mode: 'HTML',
-        reply_parameters: { message_id: messageId! },
         reply_markup: practiceKeyboard,
-      });
+      };
+
+      if (threadId) {
+        fallbackSendOptions.reply_to_message_id = threadId;
+      }
+
+      await bot.telegram.sendMessage(chatId!, finalMessage, fallbackSendOptions);
     }
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки кнопки пропуска позитивных эмоций');

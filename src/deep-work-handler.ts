@@ -67,11 +67,13 @@ export class DeepWorkHandler {
   private exampleCounters: Map<string, number> = new Map();
   private schemaExampleCounters: Map<string, number> = new Map();
   private chatId: number; // ID чата откуда пришло сообщение (как replyToChatId в упрощенном сценарии)
+  private threadId?: number; // ID треда комментариев (forwardedMessageId) для отправки БЕЗ реплая
 
-  constructor(bot: Telegraf, chatId: number) {
+  constructor(bot: Telegraf, chatId: number, threadId?: number) {
     this.bot = bot;
     // ВАЖНО: используем переданный chatId (это replyToChatId из handleInteractiveUserResponse)
     this.chatId = chatId;
+    this.threadId = threadId;
   }
 
   // Получить текст кнопки в зависимости от количества нажатий
@@ -97,8 +99,10 @@ export class DeepWorkHandler {
   }
   
   // Универсальный метод отправки сообщений с retry
+  // ВСЕГДА отправка БЕЗ reply (через reply_to_message_id на первое сообщение треда)
+  // replyToMessageId больше НЕ используется - параметр оставлен для совместимости
   private async sendMessage(
-    text: string, 
+    text: string,
     replyToMessageId?: number,
     options: {
       parse_mode?: string;
@@ -110,14 +114,12 @@ export class DeepWorkHandler {
       parse_mode: options.parse_mode || 'HTML',
       ...options
     };
-    
-    // ВСЕГДА добавляем reply_parameters если есть messageId
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = {
-        message_id: replyToMessageId
-      };
+
+    // ВСЕГДА отправляем БЕЗ визуального reply, используя threadId
+    if (this.threadId) {
+      sendOptions.reply_to_message_id = this.threadId;
     }
-    
+
     // Используем sendWithRetry для всех отправок
     return await sendWithRetry(
       () => this.bot.telegram.sendMessage(this.chatId, text, sendOptions),
@@ -332,10 +334,10 @@ export class DeepWorkHandler {
         parse_mode: 'HTML',
         reply_markup
       };
-      
-      // Используем старый формат reply_to_message_id (как в первом задании)
-      if (replyToMessageId) {
-        sendOptions.reply_to_message_id = replyToMessageId;
+
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+      if (this.threadId) {
+        sendOptions.reply_to_message_id = this.threadId;
       }
       
       const message = await sendWithRetry(
@@ -367,11 +369,10 @@ export class DeepWorkHandler {
             ]]
           }
         };
-        
-        if (replyToMessageId) {
-          fallbackOptions.reply_parameters = {
-            message_id: replyToMessageId
-          };
+
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+        if (this.threadId) {
+          fallbackOptions.reply_to_message_id = this.threadId;
         }
         
         await sendWithRetry(
@@ -458,11 +459,10 @@ export class DeepWorkHandler {
           ]]
         }
       };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
+
+      // ВСЕГДА БЕЗ визуального reply, используем threadId
+      if (this.threadId) {
+        sendOptions.reply_to_message_id = this.threadId;
       }
       
       // 4-е нажатие - показываем первое финальное сообщение
@@ -1233,24 +1233,27 @@ export class DeepWorkHandler {
         };
       });
 
-      const sendOptions: any = {};
-      if (replyToMessageId) {
-        sendOptions.reply_to_message_id = replyToMessageId;
+      // Подготавливаем sendOptions для первой группы
+      const sendOptions1: any = {};
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+      if (this.threadId) {
+        sendOptions1.reply_to_message_id = this.threadId;
       }
 
       // Логируем для отладки
       botLogger.info({
         chatId: this.chatId,
-        replyToMessageId,
-        hasSendOptions: !!sendOptions.reply_to_message_id,
-        sendOptions: JSON.stringify(sendOptions),
+        threadId: this.threadId,
+        hasSendOptions: !!sendOptions1.reply_to_message_id,
+        sendOptions: JSON.stringify(sendOptions1),
         channelMessageId,
         userId
       }, 'Отправка фильтров восприятия - параметры');
 
       // Отправляем первую группу
+      botLogger.info({ channelMessageId, userId, groupSize: firstGroup.length }, '📤 Отправка первой группы фильтров');
       await sendWithRetry(
-        () => this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions as any),
+        () => this.bot.telegram.sendMediaGroup(this.chatId, firstGroup, sendOptions1 as any),
         {
           chatId: this.chatId,
           messageType: 'deep_filters_media_group_1'
@@ -1260,10 +1263,24 @@ export class DeepWorkHandler {
           intervalMs: 5000
         }
       );
+      botLogger.info({ channelMessageId, userId }, '✅ Первая группа фильтров отправлена');
+
+      // Подготавливаем sendOptions для второй группы (СВЕЖАЯ копия!)
+      const sendOptions2: any = {};
+      if (this.threadId) {
+        sendOptions2.reply_to_message_id = this.threadId;
+      }
 
       // Отправляем вторую группу
+      botLogger.info({
+        channelMessageId,
+        userId,
+        groupSize: secondGroup.length,
+        sendOptions: JSON.stringify(sendOptions2)
+      }, '📤 Отправка второй группы фильтров');
+
       await sendWithRetry(
-        () => this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions as any),
+        () => this.bot.telegram.sendMediaGroup(this.chatId, secondGroup, sendOptions2 as any),
         {
           chatId: this.chatId,
           messageType: 'deep_filters_media_group_2'
@@ -1273,11 +1290,19 @@ export class DeepWorkHandler {
           intervalMs: 5000
         }
       );
+      botLogger.info({ channelMessageId, userId }, '✅ Вторая группа фильтров отправлена');
 
-      botLogger.info({ channelMessageId, userId }, 'Фильтры восприятия отправлены из файлов');
+      botLogger.info({ channelMessageId, userId }, '✅ Все фильтры восприятия отправлены из файлов');
       
     } catch (error) {
-      botLogger.error({ error, channelMessageId }, 'Ошибка отправки фильтров восприятия');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      botLogger.error({
+        errorMessage,
+        errorStack,
+        channelMessageId,
+        userId
+      }, '❌ Ошибка отправки фильтров восприятия');
       // Fallback - отправляем текстовое описание
       await this.showFiltersCards(channelMessageId, userId, replyToMessageId);
     }

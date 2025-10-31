@@ -76,17 +76,22 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
     };
 
     // Отправляем первое задание
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      reply_markup: firstTaskKeyboard,
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     const firstTaskMessage = await scenarioSendWithRetry(
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, firstTaskFullText, {
-        parse_mode: 'HTML',
-        reply_markup: firstTaskKeyboard,
-        reply_parameters: {
-          message_id: messageId!,
-        },
-      }),
+      () => bot.telegram.sendMessage(chatId!, firstTaskFullText, sendOptions),
       'simplified_first_task'
     );
 

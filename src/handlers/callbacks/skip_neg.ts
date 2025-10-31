@@ -10,6 +10,7 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     await ctx.answerCbQuery('👍 Хорошо! Переходим к плюшкам');
 
@@ -55,14 +56,17 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
         if (!post) {
           // Если всё равно не удалось - отправляем минимальный вариант напрямую
           const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+          const fallbackOptions: any = {
+            parse_mode: 'HTML',
+          };
+          if (threadId) {
+            fallbackOptions.reply_to_message_id = threadId;
+          }
           await scenarioSendWithRetry(
             bot,
             chatId!,
             userId!,
-            () => bot.telegram.sendMessage(chatId!, fallbackText, {
-              parse_mode: 'HTML',
-              reply_parameters: { message_id: messageId! },
-            }),
+            () => bot.telegram.sendMessage(chatId!, fallbackText, fallbackOptions),
             'skip_neg_fallback',
             { maxAttempts: 5, intervalMs: 3000 }
           );
@@ -73,14 +77,17 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
         botLogger.error({ error: fallbackError }, 'Ошибка создания fallback записи');
         // Отправляем хотя бы минимальный текст
         const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
+        const fallbackOptions2: any = {
+          parse_mode: 'HTML',
+        };
+        if (threadId) {
+          fallbackOptions2.reply_to_message_id = threadId;
+        }
         await scenarioSendWithRetry(
           bot,
           chatId!,
           userId!,
-          () => bot.telegram.sendMessage(chatId!, fallbackText, {
-            parse_mode: 'HTML',
-            reply_parameters: { message_id: messageId! },
-          }),
+          () => bot.telegram.sendMessage(chatId!, fallbackText, fallbackOptions2),
           'skip_neg_fallback2',
           { maxAttempts: 3, intervalMs: 2000 }
         );
@@ -112,19 +119,22 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       plushkiText += `\n\n<blockquote>${escapeHTML(post.message_data.positive_part.additional_text)}</blockquote>`;
     }
 
+    const plushkiOptions: any = {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+      },
+    };
+
+    if (threadId) {
+      plushkiOptions.reply_to_message_id = threadId;
+    }
+
     const plushkiMessage = await scenarioSendWithRetry(
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, plushkiText, {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: messageId!,
-        },
-        reply_markup: {
-          inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-        },
-      }),
+      () => bot.telegram.sendMessage(chatId!, plushkiText, plushkiOptions),
       'skip_neg_plushki'
     );
 

@@ -30,17 +30,17 @@ export async function handleHelpEmotions(ctx: BotContext) {
                        'А затем, с помощью таблицы, старайся находить больше слов, которые могут описать то, что ты испытываешь\n' +
                        '<i>С каждым разом будет получаться все лучше 🙃</i>';
     
-    // Получаем chatId и messageId из контекста для правильной отправки в комментарии
+    // Получаем chatId и threadId из контекста для правильной отправки в комментарии
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const replyToMessageId = ctx.callbackQuery.message?.message_id;
-    
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
     // Отправляем через telegram API с reply_to_message_id для работы в комментариях
     const sendOptions: any = {
       caption: captionText,
       parse_mode: 'HTML'
     };
-    if (replyToMessageId) {
-      sendOptions.reply_to_message_id = replyToMessageId;
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
     }
     
     await callbackSendWithRetry(
@@ -59,20 +59,18 @@ export async function handleHelpEmotions(ctx: BotContext) {
     // Фолбэк - отправляем текст с основными эмоциями
     try {
       const chatId = ctx.callbackQuery.message?.chat?.id!;
-      const replyToMessageId = ctx.callbackQuery.message?.message_id;
-      
+      const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
       const fallbackText = '💡 <b>Если пока сложно - начнем с 10 эмоций:</b>\n' +
                           '<i>радость, страх, злость, грусть, интерес, удивление, отвращение, тревога, стыд, вина</i>\n\n' +
                           '<i>P.S. Таблица эмоций не загрузилась, попробуй чуть позже</i>';
-      
+
       const sendOptions: any = {
         parse_mode: 'HTML'
       };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
+
+      if (threadId) {
+        sendOptions.reply_to_message_id = threadId;
       }
       
       await callbackSendWithRetry(

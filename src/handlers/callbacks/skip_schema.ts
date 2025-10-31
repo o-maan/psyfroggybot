@@ -6,6 +6,7 @@ import type { Scheduler } from '../../scheduler';
 export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
     await ctx.answerCbQuery('Переходим к плюшкам! 🌱', { show_alert: false });
 
     botLogger.info(
@@ -27,12 +28,15 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
       // Fallback: отправляем минимальные плюшки
       try {
         const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
-        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
-          parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: ctx.callbackQuery.message!.message_id,
-          },
-        });
+        const fallbackSendOptions: any = {
+          parse_mode: 'HTML'
+        };
+
+        if (threadId) {
+          fallbackSendOptions.reply_to_message_id = threadId;
+        }
+
+        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, fallbackSendOptions);
         botLogger.info({ channelMessageId }, 'Fallback плюшки отправлены после пропуска схемы');
       } catch (fallbackError) {
         botLogger.error({ error: fallbackError }, 'Ошибка отправки fallback для skip_schema');
@@ -65,12 +69,15 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
     const supportText = scheduler.getRandomSupportText();
     const responseText = `<i>${supportText}</i>\n\n${scheduler.buildSecondPart(messageData)}`;
 
-    const task2Message = await ctx.telegram.sendMessage(ctx.chat!.id, responseText, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: ctx.callbackQuery.message!.message_id,
-      },
-    });
+    const sendOptions: any = {
+      parse_mode: 'HTML'
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
+    const task2Message = await ctx.telegram.sendMessage(ctx.chat!.id, responseText, sendOptions);
 
     // Сохраняем ID сообщения с плюшками
     updateInteractivePostState(channelMessageId, 'waiting_positive', {

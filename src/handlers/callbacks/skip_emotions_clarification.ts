@@ -10,6 +10,7 @@ export async function handleSkipEmotionsClarification(ctx: BotContext, bot: Tele
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     await ctx.answerCbQuery('👍 Хорошо! Переходим дальше');
 
@@ -44,16 +45,21 @@ export async function handleSkipEmotionsClarification(ctx: BotContext, bot: Tele
     }
 
     try {
+      const sendOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: plushkiKeyboard,
+      };
+
+      if (threadId) {
+        sendOptions.reply_to_message_id = threadId;
+      }
+
       const plushkiMessage = await scenarioSendWithRetry(
         bot,
         chatId,
         userId,
         () =>
-          bot.telegram.sendMessage(chatId, plushkiText, {
-            parse_mode: 'HTML',
-            reply_parameters: { message_id: messageId },
-            reply_markup: plushkiKeyboard,
-          }),
+          bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
         'skip_emotions_clarification_plushki',
         { maxAttempts: 5, intervalMs: 3000 }
       );

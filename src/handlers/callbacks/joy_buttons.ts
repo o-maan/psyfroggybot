@@ -530,15 +530,20 @@ export async function handleJoyRemove(ctx: BotContext, bot: Telegraf, scheduler:
     const sessionKey = `${userId}_${channelMessageId}`;
     const listMessageId = scheduler.joyListMessageId?.get(sessionKey) || replyToMessageId;
 
-    const instructionMessage = await bot.telegram.sendMessage(chatId, instructionText, {
+    const joyButtonsOptions: any = {
       parse_mode: 'HTML',
-      reply_parameters: { message_id: listMessageId },
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${channelMessageId}`)],
         [Markup.button.callback('Очистить весь список', `joy_clear_all_${channelMessageId}`)],
         [Markup.button.callback('Идем дальше', `joy_continue_${channelMessageId}`)]
       ])
-    });
+    };
+
+    if (messageThreadId) {
+      joyButtonsOptions.reply_to_message_id = messageThreadId;
+    }
+
+    const instructionMessage = await bot.telegram.sendMessage(chatId, instructionText, joyButtonsOptions);
 
     // Сохраняем ID скользящего сообщения
     if (!scheduler.joyLastButtonMessageId) {

@@ -53,10 +53,16 @@ export async function handlePracticePostpone(ctx: BotContext, scheduler: Schedul
               PRACTICE_REMINDER_DELAY_MINUTES === 1 ? 'минуту' : 'минут'
             }`;
 
+      // Получаем threadId для отправки БЕЗ видимого reply
+      const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
       const waitOptions: any = {
         parse_mode: 'HTML',
-        reply_to_message_id: ctx.callbackQuery.message?.message_id,
       };
+
+      if (threadId) {
+        waitOptions.reply_to_message_id = threadId;
+      }
 
       await ctx.telegram.sendMessage(ctx.chat!.id, waitMessage, waitOptions);
 
@@ -78,11 +84,16 @@ export async function handlePracticePostpone(ctx: BotContext, scheduler: Schedul
 
         const reminderMessage = '⏰ Напоминание: давай сделаем практику! Это займет всего несколько минут 💚';
 
-        // В группах с комментариями используем только reply_to_message_id
+        // Получаем threadId для отправки БЕЗ видимого reply
+        const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
         const sendOptions: any = {
           parse_mode: 'HTML',
-          reply_to_message_id: ctx.callbackQuery.message?.message_id,
         };
+
+        if (threadId) {
+          sendOptions.reply_to_message_id = threadId;
+        }
 
         await ctx.telegram.sendMessage(ctx.chat!.id, reminderMessage, sendOptions);
 

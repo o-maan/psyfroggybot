@@ -24,14 +24,14 @@ export async function handleEmotionsTable(ctx: BotContext) {
     const emotionsTablePath = 'assets/images/ТАБЛИЦА ЭМОЦИЙ.png';
     const emotionsTableImage = readFileSync(emotionsTablePath);
     
-    // Получаем chatId и messageId из контекста для правильной отправки в комментарии
+    // Получаем chatId и threadId из контекста для правильной отправки в комментарии
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const replyToMessageId = ctx.callbackQuery.message?.message_id;
-    
-    // Отправляем через telegram API с reply_to_message_id для работы в комментариях
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
+    // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
     const sendOptions: any = {};
-    if (replyToMessageId) {
-      sendOptions.reply_to_message_id = replyToMessageId;
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
     }
     
     await callbackSendWithRetry(
@@ -50,20 +50,19 @@ export async function handleEmotionsTable(ctx: BotContext) {
     // Фолбэк - отправляем текст с основными эмоциями
     try {
       const chatId = ctx.callbackQuery.message?.chat?.id!;
-      const replyToMessageId = ctx.callbackQuery.message?.message_id;
-      
+      const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
       const fallbackText = 'Вот основные эмоции - грусть, радость, злость, страх, вина, стыд\n' +
                           'Попробуй описать ими или постарайся нащупать оттенки\n\n' +
                           '<i>P.S. Таблица эмоций не загрузилась, попробуй чуть позже</i>';
-      
+
+      // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
       const sendOptions: any = {
         parse_mode: 'HTML'
       };
-      
-      if (replyToMessageId) {
-        sendOptions.reply_parameters = {
-          message_id: replyToMessageId
-        };
+
+      if (threadId) {
+        sendOptions.reply_to_message_id = threadId;
       }
       
       await callbackSendWithRetry(

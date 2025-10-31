@@ -11,6 +11,7 @@ export async function handleMorningCantRemember(ctx: BotContext) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     if (!userId) {
       botLogger.error({ channelMessageId }, 'Нет userId в контексте');
@@ -58,8 +59,8 @@ export async function handleMorningCantRemember(ctx: BotContext) {
 
     // Отправляем сообщение "Читаю, минутку..."
     const readingMessageOptions: any = { parse_mode: 'HTML' };
-    if (replyToMessageId) {
-      readingMessageOptions.reply_parameters = { message_id: replyToMessageId };
+    if (threadId) {
+      readingMessageOptions.reply_to_message_id = threadId;
     }
 
     await callbackSendWithRetry(
@@ -84,8 +85,8 @@ export async function handleMorningCantRemember(ctx: BotContext) {
     const cleanedFinalResponse = cleanLLMText(finalResponse);
 
     const sendOptions: any = { parse_mode: 'HTML' };
-    if (replyToMessageId) {
-      sendOptions.reply_parameters = { message_id: replyToMessageId };
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
     }
 
     await callbackSendWithRetry(

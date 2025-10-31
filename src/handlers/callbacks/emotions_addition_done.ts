@@ -17,6 +17,7 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
   const chatId = ctx.chat?.id;
   const messageId = ctx.callbackQuery?.message?.message_id;
   const userId = ctx.from?.id;
+  const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
   botLogger.info({ channelMessageId, chatId, userId }, '✅ Кнопка "Описал" нажата');
 
@@ -73,18 +74,23 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
 
     const { scenarioSendWithRetry } = await import('../../utils/telegram-retry');
 
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+      },
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     const plushkiMessage = await scenarioSendWithRetry(
       bot,
       chatId,
       userId,
       () =>
-        bot.telegram.sendMessage(chatId, plushkiText, {
-          parse_mode: 'HTML',
-          reply_parameters: { message_id: replyToMessageId },
-          reply_markup: {
-            inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-          },
-        }),
+        bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
       'emotions_addition_done_plushki',
       { maxAttempts: 5, intervalMs: 3000 }
     );

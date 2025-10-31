@@ -27,7 +27,11 @@
       "Bash(bun:*)",
       "Bash(node:*)",
       "Bash(cat:*)",
-      "Read(///**)"
+      "Read(///**)",
+      "Bash(for file in *.ts)",
+      "Bash(do grep -q \"const threadId\" \"$file\")",
+      "Bash(echo \"$file\")",
+      "Bash(done)"
     ],
     "deny": []
   }

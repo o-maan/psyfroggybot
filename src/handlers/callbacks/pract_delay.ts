@@ -5,6 +5,7 @@ import type { BotContext } from '../../types';
 export async function handlePractDelay(ctx: BotContext) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
     const isTestBot = process.env.IS_TEST_BOT === 'true';
 
     await ctx.answerCbQuery('⏰ Хорошо, напомню через ' + (isTestBot ? '1 минуту' : 'час'));
@@ -26,12 +27,15 @@ export async function handlePractDelay(ctx: BotContext) {
     // Отправляем сообщение о том, что ждем
     const waitMessage = isTestBot ? '⏳ Жду тебя через 1 минуту (тестовый режим)' : '⏳ Жду тебя через час';
 
-    await ctx.telegram.sendMessage(ctx.chat!.id, waitMessage, {
-      parse_mode: 'HTML',
-      reply_parameters: {
-        message_id: ctx.callbackQuery.message!.message_id,
-      },
-    });
+    const sendOptions: any = {
+      parse_mode: 'HTML'
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
+    await ctx.telegram.sendMessage(ctx.chat!.id, waitMessage, sendOptions);
 
     // Устанавливаем таймер на напоминание
     setTimeout(async () => {
@@ -43,13 +47,16 @@ export async function handlePractDelay(ctx: BotContext) {
           inline_keyboard: [[{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }]],
         };
 
-        await ctx.telegram.sendMessage(ctx.chat!.id, reminderMessage, {
+        const reminderSendOptions: any = {
           parse_mode: 'HTML',
-          reply_parameters: {
-            message_id: ctx.callbackQuery.message!.message_id,
-          },
           reply_markup: practiceKeyboard,
-        });
+        };
+
+        if (threadId) {
+          reminderSendOptions.reply_to_message_id = threadId;
+        }
+
+        await ctx.telegram.sendMessage(ctx.chat!.id, reminderMessage, reminderSendOptions);
 
         botLogger.info({ channelMessageId }, '✅ Напоминание о практике отправлено');
       } catch (error) {

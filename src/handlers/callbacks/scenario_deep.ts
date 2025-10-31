@@ -62,16 +62,21 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
     const firstTaskText = 'Вот это настрой! 🔥\n\n1. <b>Что тебя волнует?</b>\nПеречисли неприятные ситуации, мысли и события, которые тебя беспокоят';
 
     // Отправляем первое сообщение БЕЗ кнопок
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     const firstTaskMessage = await scenarioSendWithRetry(
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, firstTaskText, {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: messageId!,
-        },
-      }),
+      () => bot.telegram.sendMessage(chatId!, firstTaskText, sendOptions),
       'deep_first_task'
     );
 

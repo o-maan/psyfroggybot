@@ -8,6 +8,7 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     await ctx.answerCbQuery('🎉 Отлично! Ты молодец!');
 
@@ -42,15 +43,18 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
           ]]
         };
         
+        const fallbackSendOptions: any = {
+          parse_mode: 'HTML',
+          reply_markup: ratingKeyboard
+        };
+
+        if (threadId) {
+          fallbackSendOptions.reply_to_message_id = threadId;
+        }
+
         await callbackSendWithRetry(
           ctx,
-          () => ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, {
-            parse_mode: 'HTML',
-            reply_parameters: {
-              message_id: ctx.callbackQuery.message!.message_id,
-            },
-            reply_markup: ratingKeyboard
-          }),
+          () => ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, fallbackSendOptions),
           'pract_done_fallback',
           { maxAttempts: 5, intervalMs: 3000 }
         );
@@ -94,15 +98,18 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
       ]]
     };
     
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      reply_markup: ratingKeyboard
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id,
-        },
-        reply_markup: ratingKeyboard
-      }),
+      () => ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, sendOptions),
       'pract_done_rating'
     );
 

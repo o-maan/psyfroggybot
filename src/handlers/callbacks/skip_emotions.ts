@@ -7,6 +7,7 @@ import { callbackSendWithRetry } from '../../utils/telegram-retry';
 export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
     await ctx.answerCbQuery('Отлично! Переходим к плюшкам 🌱');
 
     botLogger.info(
@@ -42,17 +43,20 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
     const supportText = scheduler.getRandomSupportText();
     const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
 
+    const sendOptions: any = {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
+      },
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     const task2Message = await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, plushkiText, {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id,
-        },
-        reply_markup: {
-          inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
-        },
-      }),
+      () => ctx.telegram.sendMessage(ctx.chat!.id, plushkiText, sendOptions),
       'skip_emotions_plushki'
     );
 

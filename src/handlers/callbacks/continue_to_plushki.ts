@@ -10,6 +10,7 @@ export async function handleContinueToPlushki(ctx: BotContext, bot: Telegraf) {
     const messageId = ctx.callbackQuery.message?.message_id;
     const chatId = ctx.callbackQuery.message?.chat?.id;
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     await ctx.answerCbQuery('🚀 Отлично! Продолжаем');
 
@@ -60,16 +61,21 @@ export async function handleContinueToPlushki(ctx: BotContext, bot: Telegraf) {
     };
 
     try {
+      const sendOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: plushkiKeyboard,
+      };
+
+      if (threadId) {
+        sendOptions.reply_to_message_id = threadId;
+      }
+
       const plushkiMessage = await scenarioSendWithRetry(
         bot,
         chatId,
         userId,
         () =>
-          bot.telegram.sendMessage(chatId, plushkiText, {
-            parse_mode: 'HTML',
-            reply_parameters: { message_id: replyToMessageId },
-            reply_markup: plushkiKeyboard,
-          }),
+          bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
         'continue_to_plushki_message',
         { maxAttempts: 5, intervalMs: 3000 }
       );

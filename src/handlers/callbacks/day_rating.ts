@@ -10,6 +10,7 @@ export async function handleDayRating(ctx: BotContext) {
     const channelMessageId = parseInt(match[2]);
     const rating = parseInt(match[3]);
     const userId = ctx.from?.id;
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
     // Эмодзи для callback ответа
     const emojis = {
@@ -39,14 +40,17 @@ export async function handleDayRating(ctx: BotContext) {
     const fullText = supportText + '\nЖду тебя завтра';
 
     // Отправляем слова поддержки
+    const sendOptions: any = {
+      parse_mode: 'HTML'
+    };
+
+    if (threadId) {
+      sendOptions.reply_to_message_id = threadId;
+    }
+
     await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, fullText, {
-        parse_mode: 'HTML',
-        reply_parameters: {
-          message_id: ctx.callbackQuery.message!.message_id,
-        },
-      }),
+      () => ctx.telegram.sendMessage(ctx.chat!.id, fullText, sendOptions),
       'day_rating_support',
       { maxAttempts: 5, intervalMs: 3000 }
     );

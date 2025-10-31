@@ -66,8 +66,8 @@ export class JoyHandler {
 
   /**
    * Универсальный метод отправки сообщений с retry
-   * - С replyToMessageId: отправка с reply (показывает линию ответа через reply_parameters)
-   * - Без replyToMessageId: отправка в тред БЕЗ reply (через reply_to_message_id на первое сообщение треда)
+   * ВСЕГДА отправка БЕЗ reply (через reply_to_message_id на первое сообщение треда)
+   * replyToMessageId больше НЕ используется - параметр оставлен для совместимости
    */
   private async sendMessage(
     text: string,
@@ -79,13 +79,8 @@ export class JoyHandler {
         async () => {
           const sendOptions: any = { ...extra };
 
-          if (replyToMessageId) {
-            // Отправка С reply (показывает линию ответа)
-            sendOptions.reply_parameters = { message_id: replyToMessageId };
-          } else if (this.threadId) {
-            // Отправка БЕЗ reply, но В ТРЕД комментариев
-            // Используем reply_to_message_id (а НЕ message_thread_id!) для комментариев к постам
-            // НО без reply_parameters - это не показывает линию ответа, просто попадает в тред
+          // ВСЕГДА отправляем БЕЗ визуального reply, используя threadId
+          if (this.threadId) {
             sendOptions.reply_to_message_id = this.threadId;
           }
 
@@ -164,6 +159,10 @@ export class JoyHandler {
 
       // Сбрасываем счетчик спама при нормальном сообщении
       resetKeyboardSpamCounter(this.userId);
+
+      // СОХРАНЯЕМ сообщение пользователя в БД
+      const { saveMessage } = await import('./db');
+      saveMessage(this.chatId, userMessage, new Date().toISOString(), this.userId);
 
       // Получаем ключ для хранения сообщений этой сессии
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
@@ -373,7 +372,12 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
 
       let uniqueSources: string[] = [];
       try {
-        const llmResponse = await generateMessage(prompt);
+        // Увеличиваем таймаут до 3 минут для LLM (DeepSeek может быть медленным)
+        const llmPromise = generateMessage(prompt);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('LLM timeout после 180 секунд')), 180000)
+        );
+        const llmResponse = await Promise.race([llmPromise, timeoutPromise]) as string;
 
         // Парсим JSON ответ
         const jsonMatch = llmResponse.match(/\[[\s\S]*\]/);
