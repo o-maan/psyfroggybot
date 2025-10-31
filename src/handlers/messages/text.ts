@@ -120,7 +120,8 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
     try {
       // Сначала сохраняем сообщение пользователя в БД
       const userMessageTime = new Date().toISOString();
-      saveMessage(userId, message, userMessageTime, userId);
+      const messageId = ctx.message.message_id;
+      saveMessage(userId, message, userMessageTime, userId, messageId, chatId);
 
       // Проверяем, есть ли активная интерактивная сессия
       const messageThreadId = (ctx.message as any).message_thread_id;

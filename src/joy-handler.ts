@@ -162,7 +162,7 @@ export class JoyHandler {
 
       // СОХРАНЯЕМ сообщение пользователя в БД
       const { saveMessage } = await import('./db');
-      saveMessage(this.chatId, userMessage, new Date().toISOString(), this.userId);
+      saveMessage(this.chatId, userMessage, new Date().toISOString(), this.userId, userMessageId, this.chatId);
 
       // Получаем ключ для хранения сообщений этой сессии
       const sessionKey = `${this.userId}_${this.channelMessageId}`;

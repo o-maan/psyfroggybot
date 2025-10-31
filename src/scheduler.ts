@@ -3436,7 +3436,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     );
 
     // Сохраняем сообщение пользователя в БД (независимо от того, нажал ли он кнопку)
-    saveMessage(userId, messageText, new Date().toISOString(), userId);
+    saveMessage(userId, messageText, new Date().toISOString(), userId, messageId, replyToChatId);
     schedulerLogger.debug({ userId, messageText: messageText.substring(0, 50) }, '💾 Сообщение пользователя сохранено в БД');
 
     // Проверка на грубость/фигню БЕЗ LLM

@@ -188,12 +188,60 @@ export const getUserByChatId = (chatId: number) => {
 };
 
 // Функции для работы с сообщениями
-export const saveMessage = (chatId: number, messageText: string, sentTime: string, authorId: number = 0) => {
+export const saveMessage = (
+  chatId: number,
+  messageText: string,
+  sentTime: string,
+  authorId: number = 0,
+  telegramMessageId?: number,
+  messageChatId?: number
+) => {
   const insertMessage = db.query(`
-    INSERT INTO messages (user_id, author_id, message_text, sent_time)
-    SELECT id, ?, ?, ? FROM users WHERE chat_id = ?
+    INSERT INTO messages (user_id, author_id, message_text, sent_time, telegram_message_id, chat_id)
+    SELECT id, ?, ?, ?, ?, ? FROM users WHERE chat_id = ?
   `);
-  insertMessage.run(authorId, messageText, sentTime, chatId);
+  insertMessage.run(authorId, messageText, sentTime, telegramMessageId || null, messageChatId || null, chatId);
+};
+
+/**
+ * Обновить существующее сообщение по telegram_message_id
+ * Используется для обработки отредактированных сообщений
+ */
+export const updateMessage = (
+  chatId: number,
+  telegramMessageId: number,
+  messageChatId: number,
+  newText: string,
+  editTime: string
+) => {
+  try {
+    const updateStmt = db.query(`
+      UPDATE messages
+      SET message_text = ?, sent_time = ?
+      WHERE telegram_message_id = ? AND chat_id = ?
+    `);
+    const result = updateStmt.run(newText, editTime, telegramMessageId, messageChatId);
+
+    // Если не нашли сообщение - сохраняем как новое
+    if (result.changes === 0) {
+      databaseLogger.info(
+        { chatId, telegramMessageId, messageChatId },
+        'Сообщение не найдено для обновления, сохраняем как новое'
+      );
+      saveMessage(chatId, newText, editTime, chatId, telegramMessageId, messageChatId);
+    } else {
+      databaseLogger.info(
+        { chatId, telegramMessageId, messageChatId },
+        'Сообщение обновлено'
+      );
+    }
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, chatId, telegramMessageId },
+      'Ошибка обновления сообщения'
+    );
+  }
 };
 
 export const updateMessageResponse = (chatId: number, sentTime: string, responseTime: string) => {

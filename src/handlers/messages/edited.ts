@@ -1,7 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
-import { updateUserResponse, saveMessage } from '../../db';
+import { updateUserResponse, updateMessage } from '../../db';
 
 /**
  * Обработчик редактированных сообщений
@@ -85,9 +85,9 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
     scheduler.clearReminder(userId);
 
     try {
-      // Обновляем сообщение в БД (сохраняем как новое с тем же messageId)
+      // Обновляем сообщение в БД (используем updateMessage для обновления существующего)
       const editTime = new Date().toISOString();
-      saveMessage(userId, message, editTime, userId);
+      updateMessage(userId, messageId, chatId, message, editTime);
 
       // Проверяем, есть ли активная интерактивная сессия
       const isInteractive = await scheduler.handleInteractiveUserResponse(
