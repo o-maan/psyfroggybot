@@ -326,10 +326,11 @@ export async function handleJoySundayHint(ctx: BotContext, bot: Telegraf, schedu
       parse_mode: 'HTML'
     });
 
-    // Начинаем интерактивную сессию (отправит приглашение и установит флаг)
-    await joyHandler.startInteractiveSession();
+    // Устанавливаем флаг активной сессии добавления (БЕЗ отправки приглашения - оно уже было)
+    const sessionKey = `${userId}_${channelMessageId}`;
+    scheduler.joyAddingSessions.set(sessionKey, true);
 
-    botLogger.info({ userId, channelMessageId }, '✅ Подсказка отправлена, начата интерактивная сессия');
+    botLogger.info({ userId, channelMessageId }, '✅ Подсказка отправлена, флаг сессии установлен');
   } catch (error) {
     botLogger.error(
       { error: (error as Error).message, stack: (error as Error).stack },
@@ -519,7 +520,7 @@ export async function handleJoyRemove(ctx: BotContext, bot: Telegraf, scheduler:
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
     // Отправляем инструкцию
-    const instructionText = `Напиши номера пунктов из списка, которые хочешь удалить (например: 1, 5 и 7)
+    const instructionText = `<b>Напиши номера пунктов из списка, которые хочешь удалить</b> (например: 1, 5 и 7)
 
 Чтобы очистить полностью – нажми "Очистить весь список" ☠️
 Или ты можешь еще что-то добавить`;
@@ -530,6 +531,7 @@ export async function handleJoyRemove(ctx: BotContext, bot: Telegraf, scheduler:
     const listMessageId = scheduler.joyListMessageId?.get(sessionKey) || replyToMessageId;
 
     const instructionMessage = await bot.telegram.sendMessage(chatId, instructionText, {
+      parse_mode: 'HTML',
       reply_parameters: { message_id: listMessageId },
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${channelMessageId}`)],
@@ -836,7 +838,12 @@ export async function handleJoyClearConfirm(ctx: BotContext, bot: Telegraf, sche
       ])
     });
 
-    botLogger.info({ userId, channelMessageId }, '✅ Весь список очищен');
+    // Включаем режим накопления для нового списка
+    scheduler.joyAddingSessions.set(sessionKey, true);
+    // КРИТИЧЕСКИ ВАЖНО: удаляем флаг удаления, иначе будет работать логика удаления!
+    scheduler.joyRemovalSessions?.delete(sessionKey);
+
+    botLogger.info({ userId, channelMessageId }, '✅ Весь список очищен, режим накопления включен');
   } catch (error) {
     botLogger.error(
       { error: (error as Error).message, stack: (error as Error).stack },
