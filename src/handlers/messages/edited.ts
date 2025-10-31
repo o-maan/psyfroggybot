@@ -89,7 +89,21 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
       const editTime = new Date().toISOString();
       updateMessage(userId, messageId, chatId, message, editTime);
 
-      // Проверяем, есть ли активная интерактивная сессия
+      // СНАЧАЛА проверяем Joy-сессии (они имеют приоритет!)
+      const isJoyMessage = await scheduler.handleJoyUserMessage(
+        userId,
+        message,
+        chatId,
+        messageId,
+        messageThreadId
+      );
+
+      if (isJoyMessage) {
+        botLogger.info({ userId, messageId }, '✅ Редактированное сообщение обработано в Joy-режиме');
+        return;
+      }
+
+      // ПОТОМ проверяем интерактивные посты (только если не Joy)
       const isInteractive = await scheduler.handleInteractiveUserResponse(
         userId,
         message,

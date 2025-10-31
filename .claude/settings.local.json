@@ -1,38 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "mcp__ide__getDiagnostics",
-      "Bash(git add:*)",
-      "Bash(rg:*)",
-      "Bash(bun run lint:*)",
-      "Bash(grep:*)",
-      "Bash(pm2 logs:*)",
-      "Bash(bun run logs:*)",
-      "Bash(bun test:*)",
-      "Bash(sqlite3:*)",
-      "Bash(find:*)",
-      "Bash(echo $NODE_ENV)",
-      "Bash(lsof:*)",
-      "Bash(kill:*)",
-      "Bash(bun run:*)",
-      "Bash(bun --watch run src/bot.ts)",
-      "Bash(mkdir:*)",
-      "Bash(awk:*)",
-      "Bash(python3:*)",
-      "Bash(npm test:*)",
-      "Bash(npm run lint:*)",
-      "Bash(cp:*)",
-      "Bash(mv:*)",
-      "Bash(npx tsc:*)",
-      "Bash(bun:*)",
-      "Bash(node:*)",
-      "Bash(cat:*)",
-      "Read(///**)",
-      "Bash(for file in *.ts)",
-      "Bash(do grep -q \"const threadId\" \"$file\")",
-      "Bash(echo \"$file\")",
-      "Bash(done)"
+      "Bash(bun run:*)"
     ],
-    "deny": []
+    "deny": [],
+    "ask": []
   }
 }

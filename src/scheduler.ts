@@ -2071,6 +2071,342 @@ ${weekendPromptContent}`;
     }
   }
 
+  // Асинхронная отправка сообщения Joy (вводный сценарий или без событий)
+  private async sendJoyMessageAsync(
+    channelMessageId: number,
+    messageText: string,
+    keyboard: any,
+    messageType: string,
+    userId: number,
+    CHAT_ID: number
+  ) {
+    try {
+      // Периодически проверяем наличие пересланного сообщения
+      let forwardedMessageId: number | null = null;
+      let attempts = 0;
+      const maxAttempts = 60; // Максимум 60 попыток (5 минут)
+      const checkInterval = 5000; // Проверяем каждые 5 секунд
+
+      schedulerLogger.info(
+        {
+          channelMessageId,
+          CHAT_ID,
+          messageType,
+          checkInterval: `${checkInterval / 1000}s`,
+        },
+        '🔍 Начинаем периодическую проверку пересланного сообщения для Joy'
+      );
+
+      while (!forwardedMessageId && attempts < maxAttempts) {
+        attempts++;
+
+        // Проверяем сразу, потом ждем
+        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+
+        if (forwardedMessageId) {
+          break;
+        }
+
+        schedulerLogger.debug(
+          {
+            attempt: attempts,
+            maxAttempts,
+            channelMessageId,
+          },
+          `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+        );
+
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+
+      // Подготавливаем опции сообщения
+      const messageOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+        disable_notification: true,
+      };
+
+      if (forwardedMessageId) {
+        // Обновляем сессию с forwardedMessageId
+        const joySession = this.joySessions.get(userId);
+        if (joySession) {
+          joySession.forwardedMessageId = forwardedMessageId;
+          this.joySessions.set(userId, joySession);
+          schedulerLogger.info(
+            { userId, forwardedMessageId, channelMessageId },
+            '💾 Обновлена joy-сессия с forwardedMessageId (async single)'
+          );
+        }
+
+        // Отправляем как комментарий к посту
+        messageOptions.reply_to_message_id = forwardedMessageId;
+
+        const joyMessage = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, messageText, messageOptions),
+          {
+            chatId: userId,
+            messageType: messageType,
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            joyMessageId: joyMessage.message_id,
+            channelMessageId,
+            forwardedMessageId,
+            chat_id: CHAT_ID,
+            waitedSeconds: (attempts * checkInterval) / 1000,
+          },
+          '✅ Сообщение Joy отправлено как комментарий к посту'
+        );
+      } else {
+        // Таймаут - отправляем в группу с пометкой
+        schedulerLogger.warn(
+          {
+            channelMessageId,
+            attempts,
+            maxAttempts,
+            waitedMinutes: ((maxAttempts * checkInterval) / 1000 / 60).toFixed(1),
+          },
+          '⚠️ Таймаут ожидания пересланного сообщения Joy, отправляем в группу'
+        );
+
+        const joyMessage = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, messageText, messageOptions),
+          {
+            chatId: userId,
+            messageType: messageType,
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            joyMessageId: joyMessage.message_id,
+            channelMessageId,
+            chat_id: CHAT_ID,
+          },
+          '✅ Сообщение Joy отправлено в группу'
+        );
+      }
+    } catch (error) {
+      schedulerLogger.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          channelMessageId,
+          CHAT_ID,
+        },
+        '❌ Ошибка асинхронной отправки сообщения Joy'
+      );
+    }
+  }
+
+  // Асинхронная отправка двух сообщений Joy (список событий + промпт)
+  private async sendJoyRegularMessagesAsync(
+    channelMessageId: number,
+    eventsMessage: string,
+    promptText: string,
+    promptKeyboard: any,
+    userId: number,
+    CHAT_ID: number
+  ) {
+    try {
+      // Периодически проверяем наличие пересланного сообщения
+      let forwardedMessageId: number | null = null;
+      let attempts = 0;
+      const maxAttempts = 60; // Максимум 60 попыток (5 минут)
+      const checkInterval = 5000; // Проверяем каждые 5 секунд
+
+      schedulerLogger.info(
+        {
+          channelMessageId,
+          CHAT_ID,
+          checkInterval: `${checkInterval / 1000}s`,
+        },
+        '🔍 Начинаем периодическую проверку пересланного сообщения для Joy (основной сценарий)'
+      );
+
+      while (!forwardedMessageId && attempts < maxAttempts) {
+        attempts++;
+
+        // Проверяем сразу, потом ждем
+        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+
+        if (forwardedMessageId) {
+          break;
+        }
+
+        schedulerLogger.debug(
+          {
+            attempt: attempts,
+            maxAttempts,
+            channelMessageId,
+          },
+          `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+        );
+
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+
+      // Подготавливаем опции сообщений
+      const eventsOptions: any = {
+        parse_mode: 'HTML',
+        disable_notification: true,
+      };
+
+      const promptOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: promptKeyboard,
+        disable_notification: true,
+      };
+
+      if (forwardedMessageId) {
+        // Обновляем сессию с forwardedMessageId
+        const joySession = this.joySessions.get(userId);
+        if (joySession) {
+          joySession.forwardedMessageId = forwardedMessageId;
+          this.joySessions.set(userId, joySession);
+          schedulerLogger.info(
+            { userId, forwardedMessageId, channelMessageId },
+            '💾 Обновлена joy-сессия с forwardedMessageId (async multi)'
+          );
+        }
+
+        // Отправляем как комментарии к посту
+        eventsOptions.reply_to_message_id = forwardedMessageId;
+        promptOptions.reply_to_message_id = forwardedMessageId;
+
+        // Отправляем список событий
+        const eventsMsg = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, eventsMessage, eventsOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_events_list',
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            eventsMessageId: eventsMsg.message_id,
+            channelMessageId,
+            forwardedMessageId,
+          },
+          '✅ Список событий Joy отправлен как комментарий'
+        );
+
+        // Отправляем промпт с кнопками
+        const promptMsg = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, promptText, promptOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_prompt',
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            promptMessageId: promptMsg.message_id,
+            channelMessageId,
+            forwardedMessageId,
+            waitedSeconds: (attempts * checkInterval) / 1000,
+          },
+          '✅ Промпт Joy отправлен как комментарий к посту'
+        );
+      } else {
+        // Таймаут - отправляем в группу
+        schedulerLogger.warn(
+          {
+            channelMessageId,
+            attempts,
+            maxAttempts,
+            waitedMinutes: ((maxAttempts * checkInterval) / 1000 / 60).toFixed(1),
+          },
+          '⚠️ Таймаут ожидания пересланного сообщения Joy, отправляем в группу'
+        );
+
+        // Отправляем список событий
+        const eventsMsg = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, eventsMessage, eventsOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_events_list',
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            eventsMessageId: eventsMsg.message_id,
+            channelMessageId,
+          },
+          '✅ Список событий Joy отправлен в группу'
+        );
+
+        // Отправляем промпт с кнопками
+        const promptMsg = await sendWithRetry(
+          () => this.bot.telegram.sendMessage(CHAT_ID, promptText, promptOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_prompt',
+            userId
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            promptMessageId: promptMsg.message_id,
+            channelMessageId,
+          },
+          '✅ Промпт Joy отправлен в группу'
+        );
+      }
+    } catch (error) {
+      schedulerLogger.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          channelMessageId,
+          CHAT_ID,
+        },
+        '❌ Ошибка асинхронной отправки сообщений Joy (основной сценарий)'
+      );
+    }
+  }
+
   // Массовая рассылка по всем пользователям
   async sendDailyMessagesToAll(adminChatId: number) {
     // Блокируем автоматическую рассылку для тестового бота
@@ -6325,20 +6661,25 @@ ${allDayUserMessages}
   /**
    * Отправка поста со списком радости в воскресенье (с предпросмотром событий недели)
    * @param userId - ID пользователя (НЕ chatId!)
+   * @param skipInteractionCheck - Пропустить проверку взаимодействий (для тестирования)
    */
-  async sendJoyPostWithWeeklySummary(userId: number) {
+  async sendJoyPostWithWeeklySummary(userId: number, skipInteractionCheck: boolean = false) {
     try {
-      schedulerLogger.info({ userId }, '🌟 Начало воскресной логики со списком радости');
+      schedulerLogger.info({ userId, skipInteractionCheck }, '🌟 Начало воскресной логики со списком радости');
 
-      // 1. Проверяем достаточно ли пользователь взаимодействовал (минимум 2 дня с комментариями)
-      const { hasEnoughEveningInteractions } = await import('./db');
-      const hasEnoughInteractions = hasEnoughEveningInteractions(userId, 2);
+      // 1. Проверяем прошло ли 2 дня с первого вечернего поста
+      if (!skipInteractionCheck) {
+        const { hasPassedDaysSinceFirstEveningPost } = await import('./db');
+        const hasPassedDays = hasPassedDaysSinceFirstEveningPost(userId, 2);
 
-      if (!hasEnoughInteractions) {
-        schedulerLogger.info({ userId }, '⏭️ Недостаточно взаимодействий, пропускаем /joy и показываем обычный пост');
-        // TODO: Вызвать обычную логику вечернего поста (БЕЗ проверки на воскресенье)
-        schedulerLogger.warn({ userId }, '⚠️ PLACEHOLDER: Здесь должен быть обычный вечерний пост');
-        return;
+        if (!hasPassedDays) {
+          schedulerLogger.info({ userId }, '⏭️ Не прошло 2 дней с первого вечернего поста, пропускаем /joy');
+          // TODO: Вызвать обычную логику вечернего поста (БЕЗ проверки на воскресенье)
+          schedulerLogger.warn({ userId }, '⚠️ PLACEHOLDER: Здесь должен быть обычный вечерний пост');
+          return;
+        }
+      } else {
+        schedulerLogger.info({ userId }, '⏭️ Пропускаем все проверки (skipInteractionCheck=true)');
       }
 
       // 2. Проверяем первый ли раз (пустой список радости)
@@ -6358,14 +6699,8 @@ ${allDayUserMessages}
         '📊 Позитивные события с последнего checkpoint'
       );
 
-      // 3. Если событий НЕТ → пропускаем /joy и сразу к обычному посту
-      if (events.length === 0) {
-        schedulerLogger.info({ userId }, '⏭️ Нет позитивных событий, пропускаем /joy и показываем обычный пост');
-
-        // TODO: Вызвать обычную логику вечернего поста (БЕЗ проверки на воскресенье)
-        schedulerLogger.warn({ userId }, '⚠️ PLACEHOLDER: Здесь должен быть обычный вечерний пост');
-        return;
-      }
+      // УБРАНА проверка на пустоту событий - основной сценарий работает и без событий!
+      // Он просто предложит добавить что-то в список
 
       // 4. Отправляем пост в канал
       const fallbackImagePath = this.getNextImage(userId);
@@ -6384,7 +6719,10 @@ ${allDayUserMessages}
 
 Переходи в комментарии и продолжим 😉`;
       } else {
-        postText = 'Давай пополним твой список радости новыми моментами недели ⚡️\n\nПереходи в комментарии и продолжим 🤗';
+        // Для основного сценария берем текст из списка постов
+        const { getJoyMainMessageText } = await import('./joy-main-messages');
+        const mainPostText = getJoyMainMessageText(userId);
+        postText = `${mainPostText}\n\nПереходи в комментарии и продолжим 😉`;
       }
 
       const imageBuffer = fs.readFileSync(fallbackImagePath);
@@ -6431,18 +6769,15 @@ ${allDayUserMessages}
 
   /**
    * Первое сообщение для ВВОДНОГО сценария (список радости пустой)
+   * Использует асинхронную систему ожидания пересланного сообщения
    */
   private async sendJoyFirstTimeMessage(
     channelMessageId: number,
     userId: number,
     commentsChatId: number,
-    events: any[],
-    forwardedMessageId?: number
+    events: any[]
   ) {
     schedulerLogger.info({ userId, channelMessageId, eventsCount: events.length }, '📝 Вводный сценарий');
-
-    // Определяем ID сообщения для ответа (пересланное в группе или оригинальное в канале)
-    const replyToMessageId = forwardedMessageId || channelMessageId;
 
     // В ВВОДНОМ сценарии НЕ показываем события
     // Сразу отправляем объяснение что такое радость и энергия с кнопками
@@ -6453,152 +6788,151 @@ ${allDayUserMessages}
 
 💡 Одно и то же может давать и радость, и энергию 🤩`;
 
-    const introOptions: any = {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('Дай подсказку 🙌🏻', `joy_sunday_hint_${channelMessageId}`)],
-        [Markup.button.callback('В другой раз', `joy_sunday_skip_${channelMessageId}`)]
-      ])
+    const introKeyboard = {
+      inline_keyboard: [
+        [{ text: 'Дай подсказку 🙌🏻', callback_data: `joy_sunday_hint_${channelMessageId}` }],
+        [{ text: 'В другой раз', callback_data: `joy_sunday_skip_${channelMessageId}` }]
+      ]
     };
 
-    if (forwardedMessageId) {
-      introOptions.reply_to_message_id = forwardedMessageId;
-    }
-
-    await sendWithRetry(
-      async () => {
-        return await this.bot.telegram.sendMessage(
-          commentsChatId,
-          explanationText,
-          introOptions
-        );
-      },
-      {
-        chatId: commentsChatId,
-        messageType: 'joy_explanation',
-        userId
-      },
-      {
-        maxAttempts: 5,
-        intervalMs: 3000
-      }
+    // Используем систему асинхронной отправки с ожиданием пересланного сообщения
+    this.sendJoyMessageAsync(
+      channelMessageId,
+      explanationText,
+      introKeyboard,
+      'joy_intro',
+      userId,
+      commentsChatId
     );
 
     // Устанавливаем флаг активной сессии добавления - пользователь может сразу писать
     const sessionKey = `${userId}_${channelMessageId}`;
     this.joyAddingSessions.set(sessionKey, true);
 
-    schedulerLogger.info({ userId, channelMessageId }, '✅ Вводный сценарий отправлен, флаг сессии установлен');
+    schedulerLogger.info({ userId, channelMessageId }, '✅ Вводный сценарий запущен асинхронно, флаг сессии установлен');
   }
 
   /**
    * Первое сообщение для ОСНОВНОГО сценария (список радости уже заполнен)
+   * Использует асинхронную систему ожидания пересланного сообщения
    */
   private async sendJoyRegularMessage(
     channelMessageId: number,
     userId: number,
     commentsChatId: number,
-    events: any[],
-    forwardedMessageId?: number
+    events: any[]
   ) {
     schedulerLogger.info({ userId, channelMessageId, eventsCount: events.length }, '🔄 Основной сценарий');
 
-    // Определяем ID сообщения для ответа (пересланное в группе или оригинальное в канале)
-    const replyToMessageId = forwardedMessageId || channelMessageId;
+    // Подготавливаем данные для отправки после получения forwardedMessageId
+    // Форматируем события через LLM асинхронно
+    const formattedEventsPromise = events.length > 0 ? this.formatEventsWithLLM(events) : Promise.resolve('');
 
-    // 1. Форматируем события через LLM
-    const formattedEvents = await this.formatEventsWithLLM(events);
+    // ЛОГИКА ЗАВИСИТ ОТ НАЛИЧИЯ СОБЫТИЙ
+    if (events.length > 0) {
+      // ЕСТЬ СОБЫТИЯ - показываем список + генерируем его через LLM
 
-    // 2. Показываем события и предлагаем пополнить список
-    const summaryText = `За это время ты делился такими приятными моментами:
+      // Ждем форматированные события
+      const formattedEvents = await formattedEventsPromise;
 
-${formattedEvents}
+      const eventsMessage = `Вот, что вызывало у тебя позитивные эмоции 😍
 
-<b>Хочешь добавить что-то в свой список радости?</b> 💚`;
+${formattedEvents}`;
 
-    const summaryOptions: any = {
-      parse_mode: 'HTML'
-    };
+      const promptText = `<b>Хочешь добавить что-то из этого в свой список?</b>
+Или другое
+<b>Перечисли ниже ❤️‍🔥</b>`;
 
-    if (forwardedMessageId) {
-      summaryOptions.reply_to_message_id = forwardedMessageId;
+      const promptKeyboard = {
+        inline_keyboard: [
+          [{ text: 'Показать список 📝', callback_data: `joy_view_${channelMessageId}` }],
+          [{ text: 'В другой раз 🥲', callback_data: `joy_sunday_skip_${channelMessageId}` }]
+        ]
+      };
+
+      // Отправляем оба сообщения через асинхронную систему
+      this.sendJoyRegularMessagesAsync(
+        channelMessageId,
+        eventsMessage,
+        promptText,
+        promptKeyboard,
+        userId,
+        commentsChatId
+      );
+
+    } else {
+      // НЕТ СОБЫТИЙ - только предложение добавить + кнопки
+      const promptText = `Что хочешь еще добавить в свой список? Напиши ❤️‍🔥`;
+
+      const promptKeyboard = {
+        inline_keyboard: [
+          [{ text: 'Показать список 📝', callback_data: `joy_view_${channelMessageId}` }],
+          [{ text: 'В другой раз 🥲', callback_data: `joy_sunday_skip_${channelMessageId}` }]
+        ]
+      };
+
+      // Отправляем только промпт через асинхронную систему
+      this.sendJoyMessageAsync(
+        channelMessageId,
+        promptText,
+        promptKeyboard,
+        'joy_prompt_no_events',
+        userId,
+        commentsChatId
+      );
     }
 
-    await sendWithRetry(
-      async () => {
-        return await this.bot.telegram.sendMessage(commentsChatId, summaryText, summaryOptions);
-      },
-      {
-        chatId: commentsChatId,
-        messageType: 'joy_summary',
-        userId
-      },
-      {
-        maxAttempts: 5,
-        intervalMs: 3000
-      }
-    );
+    // Устанавливаем флаг активной сессии добавления - пользователь может сразу писать
+    const sessionKey = `${userId}_${channelMessageId}`;
+    this.joyAddingSessions.set(sessionKey, true);
 
-    // 3. Сразу запускаем интерактивную сессию
-    const joyHandler = new JoyHandler(
-      this.bot,
-      commentsChatId,
-      userId,
-      channelMessageId,
-      this.joyPendingMessages,
-      this.joyLastButtonMessageId,
-      this.joyListMessageId,
-      this.joyAddingSessions,
-      this.joyListShown,
-      forwardedMessageId // ID треда для отправки БЕЗ reply
-    );
-
-    await joyHandler.startInteractiveSession();
-
-    schedulerLogger.info({ userId, channelMessageId }, '✅ Основной сценарий отправлен');
+    schedulerLogger.info({ userId, channelMessageId }, '✅ Основной сценарий запущен асинхронно');
   }
 
   /**
    * Форматирование позитивных событий недели через LLM
+   * Формат: список событий с эмоджи 😊, каждый пункт с маленькой буквы
    */
   private async formatEventsWithLLM(events: any[]): Promise<string> {
     try {
       // Формируем список событий для промпта
       const eventsText = events
         .map((event, index) => {
-          const date = new Date(event.created_at).toLocaleDateString('ru-RU', {
-            day: 'numeric',
-            month: 'long'
-          });
-          const postType = event.post_type === 'morning' ? 'утро' : 'вечер';
-          return `${index + 1}. [${date}, ${postType}] ${event.event_text}`;
+          const emotionsPart = event.emotions_text ? ` (эмоции: ${event.emotions_text})` : '';
+          return `${index + 1}. ${event.event_text}${emotionsPart}`;
         })
         .join('\n');
 
-      const prompt = `Ты лягушка-психолог (мужского рода). Пользователь в течение времени делился с тобой позитивными событиями и эмоциями.
+      // Определяем нужно ли фильтровать события (если их больше 30)
+      const shouldFilter = events.length > 30;
+      const filterInstruction = shouldFilter
+        ? '\n⚠️ ВАЖНО: События больше 30! Выбери только САМЫЕ ЯРКИЕ И ВАЖНЫЕ из них. Максимум 15-20 пунктов.'
+        : '';
 
-Твоя задача: красиво и структурированно оформить эти события для показа пользователю.
+      const prompt = `Ты лягушка-психолог (мужского рода). Пользователь в течение времени делился с тобой позитивными событиями.
 
-События (в хронологическом порядке):
-${eventsText}
+Твоя задача: оформить эти события в красивый список.
 
-ТРЕБОВАНИЯ:
-1. Сгруппируй похожие события (если есть повторения)
-2. Оформи списком с эмоджи
-3. Сохрани суть и эмоции, но сделай текст лаконичным
-4. Максимум 10 пунктов (если больше - объедини похожие)
-5. Используй HTML разметку (<b>, <i>)
-6. НЕ добавляй вводные фразы типа "Вот что ты писал"
-7. ТОЛЬКО список событий
+СОБЫТИЯ:
+${eventsText}${filterInstruction}
 
-Пример формата:
-• 🎉 <b>Успешно завершил проект на работе</b> - радость, гордость
-• ☕ <b>Утренний кофе с другом</b> - тепло, спокойствие
-• 🎵 <b>Концерт любимой группы</b> - восторг, вдохновение
+ТРЕБОВАНИЯ К ФОРМАТУ:
+1. Каждый пункт начинается с эмоджи 😊 (именно этот!)
+2. Каждый пункт начинается с МАЛЕНЬКОЙ буквы
+3. Если к событию были описаны эмоции - добавь их в конце через тире
+4. Сохрани авторский стиль формулировок
+5. НЕ добавляй заголовки типа "Вот список событий"
+6. ТОЛЬКО список, ничего больше
 
-Верни ТОЛЬКО отформатированный список без дополнительных комментариев.`;
+ПРИМЕР ПРАВИЛЬНОГО ФОРМАТА:
+😊 пообедал с другом в новом кафе - радость, интерес
+😊 закончил сложный проект на работе - гордость
+😊 прогулка в парке
+😊 вкусный ужин дома - удовольствие, спокойствие
 
-      schedulerLogger.info({ eventsCount: events.length }, '🔄 Форматируем события через LLM');
+Верни ТОЛЬКО отформатированный список.`;
+
+      schedulerLogger.info({ eventsCount: events.length, shouldFilter }, '🔄 Форматируем события через LLM');
 
       const response = await generateMessage(prompt);
       const cleanedResponse = cleanLLMText(response);
@@ -6611,7 +6945,10 @@ ${eventsText}
 
       // Fallback: простое форматирование без LLM
       return events
-        .map((event, index) => `${index + 1}. ${event.event_text}`)
+        .map(event => {
+          const emotionsPart = event.emotions_text ? ` - ${event.emotions_text}` : '';
+          return `😊 ${event.event_text}${emotionsPart}`;
+        })
         .join('\n');
     }
   }
@@ -6803,11 +7140,11 @@ ${eventsText}
       if (isFirstTime) {
         // ВВОДНЫЙ СЦЕНАРИЙ - используем метод из воскресной логики
         schedulerLogger.info({ userId, channelMessageId }, '📝 Отправляем вводный сценарий /joy');
-        await this.sendJoyFirstTimeMessage(channelMessageId, userId, commentsChatId, [], forwardedMessageId);
+        await this.sendJoyFirstTimeMessage(channelMessageId, userId, commentsChatId, []);
       } else {
         // ОСНОВНОЙ СЦЕНАРИЙ - используем метод из воскресной логики
         schedulerLogger.info({ userId, channelMessageId }, '🔄 Отправляем основной сценарий /joy');
-        await this.sendJoyRegularMessage(channelMessageId, userId, commentsChatId, [], forwardedMessageId);
+        await this.sendJoyRegularMessage(channelMessageId, userId, commentsChatId, []);
       }
 
       schedulerLogger.info(

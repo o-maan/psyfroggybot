@@ -25,6 +25,7 @@ import { registerLogsCommand } from './logs';
 import { registerShowLastFilterCommand } from './show_last_filter';
 import { registerTestAngryCommand } from './test-angry';
 import { registerTestMorningCommand } from './test_morning';
+import { registerJoy1Command } from './joy_1';
 
 // Функция для регистрации всех административных команд
 export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
@@ -51,4 +52,5 @@ export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
   registerShowLastFilterCommand(bot, scheduler);
   registerTestAngryCommand(bot, scheduler);
   registerTestMorningCommand(bot, scheduler);
+  registerJoy1Command(bot, scheduler);
 }

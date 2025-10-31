@@ -80,6 +80,7 @@ export function getEveningMessageText(userId: number): string {
     weekend_index: 0,
     greeting_index: 0,
     evening_index: 0,
+    joy_main_index: 0,
     used_mon: 0,
     used_wed: 0,
     used_thu: 0,
@@ -114,7 +115,8 @@ export function getEveningMessageText(userId: number): string {
     !!indexes.used_sun,
     nextIndex,
     !!indexes.morning_intro_shown,
-    !!indexes.evening_intro_shown
+    !!indexes.evening_intro_shown,
+    indexes.joy_main_index ?? 0
   );
 
   // Возвращаем текст БЕЗ фразы про комментарии
@@ -136,6 +138,7 @@ export function getEveningIntro(userId: number): string {
     weekend_index: 0,
     greeting_index: 0,
     evening_index: 0,
+    joy_main_index: 0,
     used_mon: 0,
     used_wed: 0,
     used_thu: 0,
@@ -158,7 +161,8 @@ export function getEveningIntro(userId: number): string {
     !!indexes.used_sun,
     indexes.evening_index, // НЕ увеличиваем!
     !!indexes.morning_intro_shown,
-    true // evening_intro_shown = true
+    true, // evening_intro_shown = true
+    indexes.joy_main_index ?? 0
   );
 
   schedulerLogger.info({ userId }, '📢 Показываем вводное сообщение для вечерней лягушки');

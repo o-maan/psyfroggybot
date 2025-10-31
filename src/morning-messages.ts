@@ -213,10 +213,11 @@ export function getNextGreeting(userId: number): string {
       !!indexes.used_sun,
       indexes.evening_index ?? 0,
       !!indexes.morning_intro_shown,
-      !!indexes.evening_intro_shown
+      !!indexes.evening_intro_shown,
+      indexes.joy_main_index ?? 0
     );
   } else {
-    saveMorningMessageIndexes(userId, 0, 0, nextIndex, false, false, false, false, 0, false, false);
+    saveMorningMessageIndexes(userId, 0, 0, nextIndex, false, false, false, false, 0, false, false, 0);
   }
 
   return greeting;
@@ -237,6 +238,7 @@ export function getMorningMessageText(userId: number, dayOfWeek: number): string
     weekend_index: 0,
     greeting_index: 0,
     evening_index: 0,
+    joy_main_index: 0,
     used_mon: 0,
     used_wed: 0,
     used_thu: 0,
@@ -345,7 +347,8 @@ export function getMorningMessageText(userId: number, dayOfWeek: number): string
     newUsedSun,
     indexes.evening_index ?? 0,
     !!indexes.morning_intro_shown,
-    !!indexes.evening_intro_shown
+    !!indexes.evening_intro_shown,
+    indexes.joy_main_index ?? 0
   );
 
   return selectedText;
@@ -365,6 +368,7 @@ export function getMorningIntro(userId: number): string {
     weekend_index: 0,
     greeting_index: 0,
     evening_index: 0,
+    joy_main_index: 0,
     used_mon: 0,
     used_wed: 0,
     used_thu: 0,
@@ -387,7 +391,8 @@ export function getMorningIntro(userId: number): string {
     !!indexes.used_sun,
     indexes.evening_index,
     true, // morning_intro_shown = true
-    !!indexes.evening_intro_shown
+    !!indexes.evening_intro_shown,
+    indexes.joy_main_index ?? 0
   );
 
   schedulerLogger.info({ userId }, '📢 Показываем вводное сообщение для утренней лягушки');

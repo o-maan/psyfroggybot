@@ -1434,18 +1434,39 @@ export const getMorningPostMessagesAfterLastFinal = (chatId: number, channelMess
 // Получить индексы утренних сообщений пользователя
 export const getMorningMessageIndexes = (userId: number) => {
   const query = db.query(`
-    SELECT weekday_index, weekend_index, greeting_index, evening_index,
+    SELECT weekday_index, weekend_index, greeting_index, evening_index, joy_main_index,
            used_mon, used_wed, used_thu, used_sun,
            morning_intro_shown, evening_intro_shown, updated_at
     FROM morning_message_indexes
     WHERE user_id = ?
     LIMIT 1
   `);
-  return query.get(userId) as {
+  const result = query.get(userId) as {
     weekday_index: number;
     weekend_index: number;
     greeting_index: number;
     evening_index: number;
+    joy_main_index?: number; // Опционально для совместимости со старыми записями
+    used_mon: number;
+    used_wed: number;
+    used_thu: number;
+    used_sun: number;
+    morning_intro_shown: number;
+    evening_intro_shown: number;
+    updated_at: string;
+  } | undefined;
+
+  // Если записи нет или joy_main_index отсутствует, добавляем дефолт
+  if (result && result.joy_main_index === undefined) {
+    result.joy_main_index = 0;
+  }
+
+  return result as {
+    weekday_index: number;
+    weekend_index: number;
+    greeting_index: number;
+    evening_index: number;
+    joy_main_index: number; // Теперь всегда определён
     used_mon: number;
     used_wed: number;
     used_thu: number;
@@ -1468,20 +1489,22 @@ export const saveMorningMessageIndexes = (
   usedSun: boolean,
   eveningIndex: number = 0,
   morningIntroShown: boolean = false,
-  eveningIntroShown: boolean = false
+  eveningIntroShown: boolean = false,
+  joyMainIndex: number = 0
 ) => {
   try {
     const upsert = db.query(`
       INSERT INTO morning_message_indexes
-        (user_id, weekday_index, weekend_index, greeting_index, evening_index,
+        (user_id, weekday_index, weekend_index, greeting_index, evening_index, joy_main_index,
          used_mon, used_wed, used_thu, used_sun,
          morning_intro_shown, evening_intro_shown, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         weekday_index = excluded.weekday_index,
         weekend_index = excluded.weekend_index,
         greeting_index = excluded.greeting_index,
         evening_index = excluded.evening_index,
+        joy_main_index = excluded.joy_main_index,
         used_mon = excluded.used_mon,
         used_wed = excluded.used_wed,
         used_thu = excluded.used_thu,
@@ -1496,6 +1519,7 @@ export const saveMorningMessageIndexes = (
       weekendIndex,
       greetingIndex,
       eveningIndex,
+      joyMainIndex,
       usedMon ? 1 : 0,
       usedWed ? 1 : 0,
       usedThu ? 1 : 0,
@@ -1503,7 +1527,7 @@ export const saveMorningMessageIndexes = (
       morningIntroShown ? 1 : 0,
       eveningIntroShown ? 1 : 0
     );
-    databaseLogger.debug({ userId, weekdayIndex, weekendIndex, greetingIndex, eveningIndex }, 'Индексы сообщений сохранены');
+    databaseLogger.debug({ userId, weekdayIndex, weekendIndex, greetingIndex, eveningIndex, joyMainIndex }, 'Индексы сообщений сохранены');
   } catch (e) {
     const error = e as Error;
     databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения индексов сообщений');
@@ -1669,5 +1693,55 @@ export const hasEnoughEveningInteractions = (userId: number, minInteractions: nu
       'Ошибка проверки активности пользователя'
     );
     return false; // По умолчанию не показываем Joy в случае ошибки
+  }
+};
+
+/**
+ * Проверить прошло ли достаточно дней с первого вечернего поста для показа Joy
+ * @param userId - ID пользователя
+ * @param minDays - минимальное количество дней (по умолчанию 2)
+ * @returns true если прошло достаточно дней, false если нет (или ошибка - fallback к показу Joy)
+ */
+export const hasPassedDaysSinceFirstEveningPost = (userId: number, minDays: number = 2): boolean => {
+  try {
+    const stmt = db.query(`
+      SELECT first_evening_post_date
+      FROM users
+      WHERE id = ?
+    `);
+
+    const result = stmt.get(userId) as { first_evening_post_date: string | null } | undefined;
+
+    // Если нет записи о первом посте - это первый раз, устанавливаем дату
+    if (!result || !result.first_evening_post_date) {
+      databaseLogger.info({ userId }, 'Первый вечерний пост - устанавливаем дату');
+      const now = new Date().toISOString();
+      const updateStmt = db.query(`
+        UPDATE users
+        SET first_evening_post_date = ?
+        WHERE id = ?
+      `);
+      updateStmt.run(now, userId);
+      return false; // Первый раз - не показываем Joy
+    }
+
+    // Проверяем сколько дней прошло
+    const firstPostDate = new Date(result.first_evening_post_date);
+    const now = new Date();
+    const daysPassed = Math.floor((now.getTime() - firstPostDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    databaseLogger.info(
+      { userId, firstPostDate: result.first_evening_post_date, daysPassed, minDays },
+      'Проверка дней с первого вечернего поста'
+    );
+
+    return daysPassed >= minDays;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, userId },
+      'Ошибка проверки дней с первого поста - FALLBACK: показываем Joy'
+    );
+    return true; // Fallback: при ошибке показываем Joy
   }
 };
