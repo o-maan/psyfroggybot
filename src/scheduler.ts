@@ -4004,7 +4004,8 @@ ${allDayUserMessages}
         this.joyLastButtonMessageId,
         this.joyListMessageId,
         this.joyAddingSessions,
-        this.joyListShown
+        this.joyListShown,
+        joySession.forwardedMessageId // ID треда для отправки БЕЗ reply
       );
 
       // Обрабатываем сообщение пользователя
@@ -6421,10 +6422,11 @@ ${formattedEvents}
       this.joyLastButtonMessageId,
       this.joyListMessageId,
       this.joyAddingSessions,
-      this.joyListShown
+      this.joyListShown,
+      forwardedMessageId // ID треда для отправки БЕЗ reply
     );
 
-    await joyHandler.startInteractiveSession(replyToMessageId);
+    await joyHandler.startInteractiveSession();
 
     schedulerLogger.info({ userId, channelMessageId }, '✅ Основной сценарий отправлен');
   }

@@ -278,13 +278,65 @@ The app is designed for production deployment with:
 Ключевые моменты:
 
 - Всегда используйте `replyToChatId` из контекста сообщения
-- Для текстовых сообщений используйте `reply_parameters`
-- **Для фото используйте `reply_to_message_id` (НЕ reply_parameters!)**
-- **Для видео используйте `reply_to_message_id` (НЕ reply_parameters!)**
-- НЕ используйте `message_thread_id` при ответах (вызовет ошибку)
 - Все обработчики должны создавать классы с `chatId` из контекста
 
+#### Правило 1: Ответ НА сообщение пользователя (С визуальным реплаем)
+
+**Когда использовать:** Когда нужно ответить на конкретное сообщение пользователя, показав визуальную связь.
+
+- **Для текстовых сообщений:** используйте `reply_parameters: { message_id: userMessageId }`
+- **Для фото:** используйте `reply_to_message_id: userMessageId` (НЕ reply_parameters!)
+- **Для видео:** используйте `reply_to_message_id: userMessageId` (НЕ reply_parameters!)
+
 **КРИТИЧЕСКИ ВАЖНО**: sendPhoto, sendVideo и sendMediaGroup с reply_parameters отправят медиа в основную группу, а не в комментарии!
+
+#### Правило 2: Сообщение В КОММЕНТАРИИ, но БЕЗ реплая (системные сообщения)
+
+**Когда использовать:** Когда нужно отправить системное/информационное сообщение в тред комментариев к посту, но НЕ в ответ на конкретное сообщение пользователя (чтобы избежать визуального шума от множества линий ответов).
+
+**Примеры:** "Когда перечислишь все - нажми кнопку ниже", "Что хочешь сделать?", "Список отредактирован ☑️"
+
+**Как реализовать:**
+1. При создании handler-класса передай `forwardedMessageId` (ID первого сообщения в треде комментариев) как параметр `threadId`
+2. В методе отправки используй условие:
+   ```typescript
+   if (replyToMessageId) {
+     // С визуальным реплаем
+     sendOptions.reply_parameters = { message_id: replyToMessageId };
+   } else if (this.threadId) {
+     // БЕЗ реплая, но В КОММЕНТАРИИ к посту
+     sendOptions.reply_to_message_id = this.threadId;
+   }
+   ```
+3. При вызове метода отправки передавай `undefined` вместо `userMessageId` для системных сообщений
+
+**ВАЖНО:**
+- НЕ используй `message_thread_id` - это только для Topics в супергруппах
+- Используй именно `reply_to_message_id` с ID первого сообщения треда (forwardedMessageId)
+- НЕ используй `reply_parameters` - это добавит визуальную линию ответа
+
+**Пример из joy-handler.ts:**
+```typescript
+// Создание handler с threadId
+const handler = new JoyHandler(
+  bot, chatId, userId, channelMessageId,
+  pendingMessages, lastButtonMessageId, listMessageId,
+  addingSessions, listShown,
+  forwardedMessageId // <- threadId для отправки в комментарии без реплая
+);
+
+// Системное сообщение БЕЗ реплая
+await handler.sendMessage(
+  'Когда перечислишь все - нажми кнопку ниже',
+  undefined // <- НЕ передаем replyToMessageId
+);
+
+// Ответ НА сообщение пользователя (С реплаем)
+await handler.sendMessage(
+  'Отлично! Добавил в список',
+  userMessageId // <- передаем ID сообщения пользователя
+);
+```
 
 ## LLM inferring post processing
 

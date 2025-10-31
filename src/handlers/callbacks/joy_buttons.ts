@@ -93,11 +93,12 @@ export async function handleJoyAdd(ctx: BotContext, bot: Telegraf, scheduler: Sc
       scheduler.joyLastButtonMessageId,
       scheduler.joyListMessageId,
       scheduler.joyAddingSessions,
-      scheduler.joyListShown
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
     );
 
     // Сохраняем источники радости
-    await joyHandler.saveJoySources(replyToMessageId);
+    await joyHandler.saveJoySources();
 
     botLogger.info({ userId, channelMessageId }, '✅ Источники радости сохранены');
   } catch (error) {
@@ -181,11 +182,12 @@ export async function handleJoyAddMore(ctx: BotContext, bot: Telegraf, scheduler
       scheduler.joyLastButtonMessageId,
       scheduler.joyListMessageId,
       scheduler.joyAddingSessions,
-      scheduler.joyListShown
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
     );
 
     // Начинаем новую сессию добавления
-    await joyHandler.startAddMoreSession(replyToMessageId);
+    await joyHandler.startAddMoreSession();
 
     botLogger.info({ userId, channelMessageId }, '✅ Начата новая сессия добавления');
   } catch (error) {
@@ -241,11 +243,12 @@ export async function handleJoyView(ctx: BotContext, bot: Telegraf, scheduler: S
       scheduler.joyLastButtonMessageId,
       scheduler.joyListMessageId,
       scheduler.joyAddingSessions,
-      scheduler.joyListShown
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
     );
 
     // Показываем список
-    await joyHandler.showJoyList(replyToMessageId);
+    await joyHandler.showJoyList();
 
     botLogger.info({ userId, channelMessageId }, '✅ Показан список источников радости');
   } catch (error) {
@@ -303,12 +306,30 @@ export async function handleJoySundayHint(ctx: BotContext, bot: Telegraf, schedu
 слегка касаться и перебирать руками или уткнуться головой и гладить кота, ощущая пальцами мягкость шерсти?
 <b>Пиши важные моменты для себя</b></blockquote>`;
 
-    await bot.telegram.sendMessage(chatId, hintText, {
-      reply_parameters: { message_id: replyToMessageId },
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
+
+    // Отправляем подсказку БЕЗ реплая
+    await joyHandler['sendMessage'](hintText, undefined, {
       parse_mode: 'HTML'
     });
 
-    botLogger.info({ userId, channelMessageId }, '✅ Подсказка отправлена, ожидаем сообщения пользователя');
+    // Начинаем интерактивную сессию (отправит приглашение и установит флаг)
+    await joyHandler.startInteractiveSession();
+
+    botLogger.info({ userId, channelMessageId }, '✅ Подсказка отправлена, начата интерактивная сессия');
   } catch (error) {
     botLogger.error(
       { error: (error as Error).message, stack: (error as Error).stack },
@@ -352,13 +373,27 @@ export async function handleJoySundaySkip(ctx: BotContext, bot: Telegraf, schedu
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
+
     // Переход к вечернему посту - выбор сценария
     const transitionText = `Хорошо, можешь вернуться к списку в любое время по команде /joy
 
 <b>По какому сценарию мы сегодня поработаем?</b>`;
 
-    await bot.telegram.sendMessage(chatId, transitionText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](transitionText, undefined, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Глубокая работа 🧠', `scenario_deep_${channelMessageId}`)],
@@ -409,6 +444,21 @@ export async function handleJoyContinue(ctx: BotContext, bot: Telegraf, schedule
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
+
     // Отправляем финальное сообщение перед переходом
     const finalText = `Ты можешь возвращаться к своему списку в любое время по команде /joy и пополнять его
 
@@ -416,8 +466,7 @@ export async function handleJoyContinue(ctx: BotContext, bot: Telegraf, schedule
 
 <b>По какому сценарию мы сегодня поработаем?</b>`;
 
-    await bot.telegram.sendMessage(chatId, finalText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](finalText, undefined, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Глубокая работа 🧠', `scenario_deep_${channelMessageId}`)],
@@ -543,15 +592,32 @@ export async function handleJoyRemoveConfirm(ctx: BotContext, bot: Telegraf, sch
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const replyToMessageId = ctx.callbackQuery.message?.message_id!;
+    const messageThreadId = (ctx.callbackQuery.message as any)?.message_thread_id;
+
+    // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
+    ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
+
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler: JoyHandlerError } = await import('../../joy-handler');
+    const joyHandlerError = new JoyHandlerError(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
 
     // Получаем состояние
     const sessionKey = `${userId}_${channelMessageId}`;
     const session = scheduler.joyRemovalSessions?.get(sessionKey);
 
     if (!session) {
-      await bot.telegram.sendMessage(chatId, 'Не выбраны пункты для удаления', {
-        reply_parameters: { message_id: replyToMessageId }
-      });
+      await joyHandlerError['sendMessage']('Не выбраны пункты для удаления', undefined);
       return;
     }
 
@@ -562,9 +628,7 @@ export async function handleJoyRemoveConfirm(ctx: BotContext, bot: Telegraf, sch
     }
 
     if (allNumbers.size === 0) {
-      await bot.telegram.sendMessage(chatId, 'Не выбраны пункты для удаления', {
-        reply_parameters: { message_id: replyToMessageId }
-      });
+      await joyHandlerError['sendMessage']('Не выбраны пункты для удаления', undefined);
       return;
     }
 
@@ -581,9 +645,7 @@ export async function handleJoyRemoveConfirm(ctx: BotContext, bot: Telegraf, sch
     }
 
     if (idsToDelete.length === 0) {
-      await bot.telegram.sendMessage(chatId, 'Некорректные номера пунктов', {
-        reply_parameters: { message_id: replyToMessageId }
-      });
+      await joyHandlerError['sendMessage']('Некорректные номера пунктов', undefined);
       return;
     }
 
@@ -599,10 +661,25 @@ export async function handleJoyRemoveConfirm(ctx: BotContext, bot: Telegraf, sch
     // Удаляем источники из БД
     deleteJoySourcesByIds(userId, idsToDelete);
 
+    // Создаем экземпляр JoyHandler для правильной отправки в тред
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
+    );
+
     // Показываем сообщение "Список отредактирован"
+    // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
     const confirmText = 'Список отредактирован ☑️';
-    await bot.telegram.sendMessage(chatId, confirmText, {
-      reply_parameters: { message_id: session.instructionMessageId },
+    await joyHandler['sendMessage'](confirmText, undefined, {
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Посмотреть список 📝', `joy_view_${channelMessageId}`)],
         [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${channelMessageId}`)],
@@ -656,10 +733,25 @@ export async function handleJoyClearAll(ctx: BotContext, bot: Telegraf, schedule
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // Создаем JoyHandler для правильной отправки в тред
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
+    );
+
     // Показываем подтверждение
+    // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
     const confirmText = 'Ты точно хочешь удалить ВСЕ из списка? Его нужно будет составить заново';
-    await bot.telegram.sendMessage(chatId, confirmText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](confirmText, undefined, {
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Да, удалить', `joy_clear_confirm_${channelMessageId}`)],
         [Markup.button.callback('Нет, передумал', `joy_clear_cancel_${channelMessageId}`)]
@@ -718,10 +810,25 @@ export async function handleJoyClearConfirm(ctx: BotContext, bot: Telegraf, sche
     scheduler.joyListShown?.delete(sessionKey);
     scheduler.joyListMessageId?.delete(sessionKey);
 
+    // Создаем JoyHandler для правильной отправки в тред
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId // ID треда для отправки БЕЗ reply
+    );
+
     // Показываем предложение создать список заново
+    // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
     const rebuildText = 'Теперь ты можешь создать список заново\n\n<b>Что хочешь добавить?</b>';
-    await bot.telegram.sendMessage(chatId, rebuildText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](rebuildText, undefined, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Дай подсказку', `joy_sunday_hint_${channelMessageId}`)],
@@ -772,10 +879,24 @@ export async function handleJoyClearCancel(ctx: BotContext, bot: Telegraf, sched
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
+
     // Показываем меню
     const menuText = 'Хорошо, тогда что хочешь сделать?';
-    await bot.telegram.sendMessage(chatId, menuText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](menuText, undefined, {
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${channelMessageId}`)],
         [Markup.button.callback('Убрать лишнее 🙅🏻', `joy_remove_${channelMessageId}`)],
@@ -828,13 +949,27 @@ export async function handleJoyLater(ctx: BotContext, bot: Telegraf, scheduler: 
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // Создаем JoyHandler для отправки БЕЗ реплая
+    const { JoyHandler } = await import('../../joy-handler');
+    const joyHandler = new JoyHandler(
+      bot,
+      chatId,
+      userId,
+      channelMessageId,
+      scheduler.joyPendingMessages,
+      scheduler.joyLastButtonMessageId,
+      scheduler.joyListMessageId,
+      scheduler.joyAddingSessions,
+      scheduler.joyListShown,
+      messageThreadId
+    );
+
     // Переход к вечернему посту - выбор сценария
     const transitionText = `Хорошо, можешь вернуться к списку в любое время по команде /joy
 
 <b>По какому сценарию мы сегодня поработаем?</b>`;
 
-    await bot.telegram.sendMessage(chatId, transitionText, {
-      reply_parameters: { message_id: replyToMessageId },
+    await joyHandler['sendMessage'](transitionText, undefined, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Глубокая работа 🧠', `scenario_deep_${channelMessageId}`)],

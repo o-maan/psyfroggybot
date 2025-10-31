@@ -4,7 +4,10 @@ import { databaseLogger } from './logger';
 
 // Определяем путь к базе данных в зависимости от окружения
 const isProduction = process.env.NODE_ENV === 'production';
-const dbPath = isProduction ? '/var/www/databases/psy_froggy_bot/froggy.db' : './froggy.db';
+const isTestBot = process.env.IS_TEST_BOT === 'true';
+const dbPath = isProduction
+  ? '/var/www/databases/psy_froggy_bot/froggy.db'
+  : (isTestBot ? './froggy_test.db' : './froggy.db');
 
 try {
   databaseLogger.info({ dbPath }, '🚀 Инициализация БД');

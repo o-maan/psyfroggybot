@@ -21,6 +21,7 @@ export class JoyHandler {
   private chatId: number; // ID чата для отправки сообщений (комментарии к посту)
   private userId: number; // ID пользователя для БД
   private channelMessageId: number; // ID сообщения в канале (для отслеживания контекста)
+  private threadId?: number; // ID треда комментариев (forwardedMessageId)
 
   // Хранилище для накопленных сообщений пользователя (перед сохранением)
   // ВАЖНО: Теперь передаются из Scheduler, чтобы сохранять между вызовами
@@ -48,12 +49,14 @@ export class JoyHandler {
     lastButtonMessageId: Map<string, number>,
     listMessageId: Map<string, number>,
     addingSessions: Map<string, boolean>,
-    listShown: Map<string, boolean>
+    listShown: Map<string, boolean>,
+    threadId?: number
   ) {
     this.bot = bot;
     this.chatId = chatId;
     this.userId = userId;
     this.channelMessageId = channelMessageId;
+    this.threadId = threadId;
     this.pendingMessages = pendingMessages;
     this.lastButtonMessageId = lastButtonMessageId;
     this.listMessageId = listMessageId;
@@ -63,7 +66,8 @@ export class JoyHandler {
 
   /**
    * Универсальный метод отправки сообщений с retry
-   * Использует reply_parameters для автоматического определения треда
+   * - С replyToMessageId: отправка с reply (показывает линию ответа через reply_parameters)
+   * - Без replyToMessageId: отправка в тред БЕЗ reply (через reply_to_message_id на первое сообщение треда)
    */
   private async sendMessage(
     text: string,
@@ -75,9 +79,14 @@ export class JoyHandler {
         async () => {
           const sendOptions: any = { ...extra };
 
-          // Используем reply_parameters - Telegram сам определит правильный тред
           if (replyToMessageId) {
+            // Отправка С reply (показывает линию ответа)
             sendOptions.reply_parameters = { message_id: replyToMessageId };
+          } else if (this.threadId) {
+            // Отправка БЕЗ reply, но В ТРЕД комментариев
+            // Используем reply_to_message_id (а НЕ message_thread_id!) для комментариев к постам
+            // НО без reply_parameters - это не показывает линию ответа, просто попадает в тред
+            sendOptions.reply_to_message_id = this.threadId;
           }
 
           return await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
@@ -94,7 +103,7 @@ export class JoyHandler {
       );
     } catch (error) {
       botLogger.error(
-        { error, chatId: this.chatId, replyToMessageId },
+        { error, chatId: this.chatId, replyToMessageId, threadId: this.threadId },
         'Ошибка отправки сообщения в JoyHandler'
       );
       throw error;
@@ -104,11 +113,11 @@ export class JoyHandler {
   /**
    * Запуск интерактивной сессии - отправка первого сообщения в комментарии
    */
-  async startInteractiveSession(replyToMessageId: number) {
+  async startInteractiveSession() {
     try {
       const text = 'Теперь подумай и напиши:\n\n<b>Что тебя радует и дает энергию? ❤️‍🔥</b>';
 
-      const result = await this.sendMessage(text, replyToMessageId, {
+      const result = await this.sendMessage(text, undefined, {
         parse_mode: 'HTML'
       });
 
@@ -166,6 +175,21 @@ export class JoyHandler {
 
       if (isAddingSession) {
         // АКТИВНАЯ СЕССИЯ ДОБАВЛЕНИЯ
+
+        // Ставим реакцию 👀 на сообщение пользователя
+        try {
+          await this.bot.telegram.setMessageReaction(
+            this.chatId,
+            userMessageId,
+            [{ type: 'emoji', emoji: '👀' }]
+          );
+        } catch (error) {
+          botLogger.warn(
+            { error, messageId: userMessageId },
+            'Не удалось поставить реакцию на сообщение'
+          );
+        }
+
         // Удаляем предыдущее скользящее сообщение если оно есть
         const lastButtonId = this.lastButtonMessageId.get(sessionKey);
         if (lastButtonId) {
@@ -190,10 +214,11 @@ export class JoyHandler {
         );
 
         // Отправляем новое скользящее сообщение с кнопкой "Добавить 🔥"
+        // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
         const buttonText = 'Когда перечислишь все - нажми кнопку ниже';
         const result = await this.sendMessage(
           buttonText,
-          userMessageId,
+          undefined, // БЕЗ reply - просто продолжение диалога
           Markup.inlineKeyboard([
             [Markup.button.callback('Добавить 🔥', `joy_add_${this.channelMessageId}`)]
           ])
@@ -221,10 +246,11 @@ export class JoyHandler {
         }
 
         // Показываем меню с опциями
+        // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
         const menuText = 'Что хочешь сделать?';
         const result = await this.sendMessage(
           menuText,
-          userMessageId,
+          undefined, // БЕЗ reply - просто продолжение диалога
           Markup.inlineKeyboard([
             [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${this.channelMessageId}`)],
             [Markup.button.callback('Посмотреть список 📝', `joy_view_${this.channelMessageId}`)],
@@ -267,10 +293,11 @@ export class JoyHandler {
         );
 
         // Отправляем новое скользящее сообщение с кнопкой "Добавить 🔥"
+        // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
         const buttonText = 'Когда перечислишь все - нажми кнопку ниже';
         const result = await this.sendMessage(
           buttonText,
-          userMessageId,
+          undefined, // БЕЗ reply - просто продолжение диалога
           Markup.inlineKeyboard([
             [Markup.button.callback('Добавить 🔥', `joy_add_${this.channelMessageId}`)]
           ])
@@ -295,7 +322,7 @@ export class JoyHandler {
   /**
    * Сохранение накопленных источников радости в БД
    */
-  async saveJoySources(replyToMessageId?: number) {
+  async saveJoySources() {
     try {
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
       const messagesMap = this.pendingMessages.get(sessionKey) || new Map<number, string>();
@@ -304,7 +331,7 @@ export class JoyHandler {
       if (messages.length === 0) {
         await this.sendMessage(
           'Ты еще ничего не написал 🤔\nНапиши, что тебя радует!',
-          replyToMessageId
+          undefined
         );
         return;
       }
@@ -312,7 +339,7 @@ export class JoyHandler {
       // Показываем пользователю, что начали обработку
       await this.sendMessage(
         'Froggy собирает твои ответы...',
-        replyToMessageId
+        undefined
       );
 
       // Получаем существующие источники радости
@@ -395,7 +422,7 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
       this.addingSessions.delete(sessionKey);
 
       // Показываем только меню (список показывается по кнопке "Посмотреть")
-      await this.showMenu(replyToMessageId);
+      await this.showMenu();
 
     } catch (error) {
       botLogger.error(
@@ -409,7 +436,7 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
   /**
    * Показа��ь список всех источников радости
    */
-  async showJoyList(replyToMessageId?: number) {
+  async showJoyList() {
     try {
       const sources = getAllJoySources(this.userId);
 
@@ -419,7 +446,7 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
 
 Напиши, что вызывает у тебя приятные эмоции? И что наполняет?`;
 
-        await this.sendMessage(emptyText, replyToMessageId, {
+        await this.sendMessage(emptyText, undefined, {
           ...Markup.inlineKeyboard([
             [Markup.button.callback('Позже 😔', `joy_later_${this.channelMessageId}`)]
           ])
@@ -437,7 +464,7 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
       const result = await this.sendMessage(
         listText,
-        replyToMessageId,
+        undefined,
         {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
@@ -472,13 +499,14 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
   /**
    * Показать меню с кнопками "Добавить еще" и "Посмотреть"
    */
-  async showMenu(replyToMessageId?: number) {
+  async showMenu() {
     try {
+      // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
       const menuText = 'Ты можешь пополнять и просматривать свой список из меню или написав команду /joy';
 
       await this.sendMessage(
         menuText,
-        replyToMessageId,
+        undefined, // БЕЗ reply - просто продолжение диалога
         Markup.inlineKeyboard([
           [Markup.button.callback('Добавить еще ⚡️', `joy_add_more_${this.channelMessageId}`)],
           [Markup.button.callback('Посмотреть список 📝', `joy_view_${this.channelMessageId}`)],
@@ -497,11 +525,12 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
   /**
    * Начать новую сессию добавления (при нажатии "Добавить еще")
    */
-  async startAddMoreSession(replyToMessageId?: number) {
+  async startAddMoreSession() {
     try {
+      // Это системное сообщение - отправляем БЕЗ reply (просто в тред)
       const text = 'Напиши, что еще хочешь добавить';
 
-      await this.sendMessage(text, replyToMessageId);
+      await this.sendMessage(text, undefined); // БЕЗ reply - просто продолжение диалога
 
       // Устанавливаем флаг активной сессии добавления
       const sessionKey = `${this.userId}_${this.channelMessageId}`;
