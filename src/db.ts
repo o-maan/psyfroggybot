@@ -1745,3 +1745,60 @@ export const hasPassedDaysSinceFirstEveningPost = (userId: number, minDays: numb
     return true; // Fallback: при ошибке показываем Joy
   }
 };
+
+/**
+ * Получить всех пользователей, у которых последнее сообщение от пользователя
+ * и после него НЕТ ответа от бота
+ * Возвращает: chat_id, последнее сообщение пользователя, время
+ */
+export const getUsersWithUnansweredMessages = () => {
+  try {
+    const query = db.query(`
+      SELECT
+        u.chat_id,
+        u.username,
+        last_user.message_text as last_message,
+        last_user.sent_time as last_message_time,
+        last_user.telegram_message_id,
+        last_user.chat_id as message_chat_id
+      FROM users u
+      INNER JOIN (
+        -- Получаем последнее сообщение для каждого пользователя (от пользователя или бота)
+        SELECT
+          user_id,
+          message_text,
+          sent_time,
+          author_id,
+          telegram_message_id,
+          chat_id,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY sent_time DESC) as rn
+        FROM messages
+      ) last_user ON u.id = last_user.user_id AND last_user.rn = 1
+      WHERE last_user.author_id = u.id  -- Последнее сообщение от пользователя, не от бота
+      ORDER BY last_user.sent_time DESC
+    `);
+
+    const results = query.all() as Array<{
+      chat_id: number;
+      username: string;
+      last_message: string;
+      last_message_time: string;
+      telegram_message_id: number | null;
+      message_chat_id: number | null;
+    }>;
+
+    databaseLogger.info(
+      { count: results.length },
+      'Найдено пользователей с необработанными сообщениями'
+    );
+
+    return results;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack },
+      'Ошибка поиска пользователей с необработанными сообщениями'
+    );
+    return [];
+  }
+};

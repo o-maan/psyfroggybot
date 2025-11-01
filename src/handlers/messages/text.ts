@@ -61,19 +61,20 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
       return;
     }
 
-    // Проверяем, что сообщение пришло либо из канала, либо из чата
+    // Проверяем, что сообщение пришло либо из канала, либо из чата, либо из личного чата
     const isFromChannel = chatId === CHANNEL_ID;
     const isFromChat = CHAT_ID && chatId === CHAT_ID;
+    const isPrivateChat = ctx.chat.type === 'private';
 
     // ВАЖНО: В Telegram, когда группа привязана к каналу, сообщения из группы
     // могут иметь другой chat_id. Нужно проверить тип чата.
     const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
 
-    if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
-      // Игнорируем сообщения не из канала и не из связанной группы
+    if (!isFromChannel && !isFromChat && !isFromLinkedChat && !isPrivateChat) {
+      // Игнорируем сообщения не из канала, не из связанной группы и не из личного чата
       botLogger.debug(
         { chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type },
-        'Сообщение не из целевого канала/чата, игнорируем'
+        'Сообщение не из целевого канала/чата/личного чата, игнорируем'
       );
       return;
     }
@@ -82,7 +83,7 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
     // Это важно для корректной работы с тестовыми ботами и группами обсуждений
     const replyToChatId = chatId;
 
-    if (!CHAT_ID && !isFromLinkedChat) {
+    if (!CHAT_ID && !isFromLinkedChat && !isPrivateChat) {
       botLogger.warn('⚠️ CHAT_ID не установлен в .env! Бот не сможет отвечать в чат');
       return;
     }
@@ -126,26 +127,22 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
       // Проверяем, есть ли активная интерактивная сессия
       const messageThreadId = (ctx.message as any).message_thread_id;
 
-      // Для интерактивных постов не обрабатываем сообщения из личных чатов
-      if (ctx.chat.type === 'private') {
-        botLogger.debug({ userId, chatType: ctx.chat.type }, 'Игнорируем личное сообщение для интерактивных постов');
-        return; // ВАЖНО: выходим из обработчика для личных сообщений
-      } else {
-        // СНАЧАЛА проверяем Joy-сессии (они имеют приоритет!)
-        const isJoyMessage = await scheduler.handleJoyUserMessage(
-          userId,
-          message,
-          replyToChatId,
-          ctx.message.message_id,
-          messageThreadId
-        );
+      // СНАЧАЛА проверяем SHORT JOY сессии (они работают везде: личка/канал/комментарии!)
+      const isJoyMessage = await scheduler.handleJoyUserMessage(
+        userId,
+        message,
+        replyToChatId,
+        ctx.message.message_id,
+        messageThreadId
+      );
 
-        if (isJoyMessage) {
-          // Сообщение обработано в Joy-режиме
-          return;
-        }
+      if (isJoyMessage) {
+        // Сообщение обработано в Joy-режиме
+        return;
+      }
 
-        // ПОТОМ проверяем интерактивные посты (только если не Joy)
+      // ПОТОМ проверяем интерактивные посты (только НЕ в личных чатах и только если не Joy)
+      if (ctx.chat.type !== 'private') {
         const isInteractive = await scheduler.handleInteractiveUserResponse(
           userId,
           message,
