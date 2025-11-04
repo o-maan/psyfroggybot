@@ -1,0 +1,161 @@
+name: Deploy to Digital Ocean
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.1.38"
+
+      - name: Install dependencies
+        run: bun install
+
+      # Временно отключаем тесты в CI
+      # - name: Run tests (если есть)
+      #   run: bun test
+
+      - name: Notify Telegram - Start
+        run: |
+          bun scripts/notify-telegram.js start
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+      - name: Deploy to Digital Ocean
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: ${{ secrets.DO_PORT }}
+          script: |
+            set -euo pipefail
+            echo "🚀 Starting deployment..."
+
+            # Настройка окружения
+            source /etc/environment || true
+            export PATH=$PATH:/usr/local/bin:/usr/bin:/var/www/.bun/bin
+
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+            # Переход в директорию проекта
+            mkdir -p /var/www/psy_froggy_bot
+            cd /var/www/psy_froggy_bot
+
+            # Проверка PM2
+            which pm2 || echo "❌ PM2 не найден в PATH: $PATH"
+
+            # Проверка и восстановление Git репозитория
+            if [ ! -d ".git" ]; then
+              echo "🔧 Git репозиторий не найден, клонируем заново..."
+              cd /var/www
+              rm -rf psy_froggy_bot
+              git clone https://github.com/o-maan/psy_froggy_bot.git psy_froggy_bot
+              cd psy_froggy_bot
+            else
+              echo "✅ Git репозиторий найден"
+              # Проверка целостности
+              if ! git status > /dev/null 2>&1; then
+                echo "🔧 Git репозиторий поврежден, переклонируем..."
+                cd /var/www
+                rm -rf psy_froggy_bot
+                git clone https://github.com/o-maan/psy_froggy_bot.git psy_froggy_bot
+                cd psy_froggy_bot
+              fi
+            fi
+
+            # Остановка текущего приложения
+            pm2 stop psy_froggy_bot || true
+
+            # Создание директории для БД если не существует
+            mkdir -p /var/www/databases/psy_froggy_bot
+
+            # Проверка и создание файла БД
+            if [ ! -f /var/www/databases/psy_froggy_bot/froggy.db ]; then
+              echo "📦 База данных не найдена, создаем новую..."
+              touch /var/www/databases/psy_froggy_bot/froggy.db
+              echo "✅ Пустой файл БД создан"
+            else
+              echo "✅ База данных существует"
+              # Backup существующей БД
+              cp /var/www/databases/psy_froggy_bot/froggy.db \
+                 /var/www/databases/psy_froggy_bot/froggy.db.backup.$(date +%Y%m%d_%H%M%S)
+              echo "✅ Backup БД создан"
+            fi
+
+            # Обновление кода
+            git fetch origin
+            git reset --hard origin/main
+
+            # Установка зависимостей (без frozen lockfile из-за разных версий Bun)
+            bun install
+
+            # Запуск миграций (теперь файл БД точно существует)
+            echo "🔄 Запуск миграций..."
+            bun run knex migrate:latest --knexfile knexfile.cjs
+
+            # Компиляция TypeScript в JavaScript
+            bun run build
+
+            # Перезапуск приложения через PM2
+            # Проверяем, существует ли процесс (временно отключаем -e для проверки)
+            set +e
+            pm2 describe psy_froggy_bot > /dev/null 2>&1
+            PM2_EXISTS=$?
+            set -e
+
+            if [ $PM2_EXISTS -eq 0 ]; then
+              echo "🔄 Перезапускаем существующий процесс..."
+              pm2 restart psy_froggy_bot
+            else
+              echo "🚀 Запускаем новый процесс..."
+              # pm2 start ecosystem.prod.config.cjs --name psy_froggy_bot
+              pm2 start --interpreter ~/.bun/bin/bun src/bot.ts --name psy_froggy_bot
+            fi
+
+            # Сохранить конфигурацию PM2
+            pm2 save
+
+            # Перезагрузка Caddy (если нужно)
+            systemctl reload caddy || true
+
+            # Проверка статуса
+            echo "📊 Статус PM2:"
+            pm2 status
+            echo "📊 Статус приложения:"
+            pm2 describe psy_froggy_bot || true
+
+            echo "✅ Deployment completed!"
+
+      - name: Trigger post-deploy check
+        if: success()
+        run: |
+          sleep 10  # Ждем 10 секунд пока бот полностью запустится
+          curl -X POST https://invntrm.ru/webhook/deploy \
+            --max-time 30 \
+            || echo "⚠️ Webhook не ответил, но деплой успешен"
+
+      - name: Notify Telegram - Success
+        if: success()
+        run: |
+          bun scripts/notify-telegram.js success
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+      - name: Notify Telegram - Failure
+        if: failure()
+        run: |
+          bun scripts/notify-telegram.js failure
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
