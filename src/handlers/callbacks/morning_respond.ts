@@ -166,7 +166,7 @@ export async function handleMorningRespond(ctx: BotContext) {
       updateMorningPostFinalMessageTime(channelMessageId, finalMessageTimestamp);
       botLogger.info({ userId, timestamp: finalMessageTimestamp }, '⏱️ Обновлен timestamp финального сообщения');
 
-      // Сохраняем позитивное событие если sentiment = positive
+      // Сохраняем позитивное событие если sentiment = positive (с любым количеством эмоций >= 1)
       if (analysisData.sentiment === 'positive' && analysisData.emotions_count >= 1) {
         const { savePositiveEvent } = await import('../../db');
         savePositiveEvent(

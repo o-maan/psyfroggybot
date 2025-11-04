@@ -30,7 +30,7 @@ import {
   switchMorningImageCategory,
   updateMorningPostFinalMessageTime,
 } from './db';
-import { generateFrogImage, generateMessage } from './llm';
+import { generateMessage } from './llm';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
@@ -1697,19 +1697,12 @@ ${weekendPromptContent}`;
         calendarEvents = null;
       }
 
-      // Генерируем промпт и изображение лягушки
+      // Получаем готовое изображение из папки evening
       let imageBuffer: Buffer | null = null;
       try {
-        // Выбираем случайный промпт в зависимости от дня недели
-        const isWeekend = this.isWeekend();
-        const promptVariant = Math.random() < 0.5 ? '1' : '2';
-        const imagePromptFile = isWeekend
-          ? `assets/prompts/frog-image-prompt-weekend-${promptVariant}`
-          : `assets/prompts/frog-image-prompt-weekday-${promptVariant}`;
-        const imagePrompt = readFileSync(imagePromptFile, 'utf-8');
-
-        schedulerLogger.info({ chatId, imagePrompt, isWeekend, promptVariant }, `🎨 Промпт для планируемого изображения (вариант ${promptVariant}): "${imagePrompt}"`);
-        imageBuffer = await generateFrogImage(imagePrompt);
+        const imagePath = this.getNextImage(chatId);
+        imageBuffer = readFileSync(imagePath);
+        schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для планируемого вечернего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
         schedulerLogger.error(
@@ -1718,8 +1711,13 @@ ${weekendPromptContent}`;
             stack: imgErr.stack,
             chatId,
           },
-          'Ошибка генерации изображения для планируемого сообщения'
+          'Ошибка загрузки изображения для планируемого вечернего поста, используем fallback'
         );
+        // Fallback: случайное изображение из вечерних
+        const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
+        const fallbackImagePath = this.imageFiles[randomIndex];
+        imageBuffer = readFileSync(fallbackImagePath);
+        schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для планируемого вечернего поста');
       }
 
       // Логируем длину сообщения для отладки
@@ -1900,19 +1898,12 @@ ${weekendPromptContent}`;
         calendarEvents = null;
       }
 
-      // Генерируем промпт и изображение лягушки
+      // Получаем готовое изображение из папки evening
       let imageBuffer: Buffer | null = null;
       try {
-        // Выбираем случайный промпт в зависимости от дня недели
-        const isWeekend = this.isWeekend();
-        const promptVariant = Math.random() < 0.5 ? '1' : '2';
-        const imagePromptFile = isWeekend
-          ? `assets/prompts/frog-image-prompt-weekend-${promptVariant}`
-          : `assets/prompts/frog-image-prompt-weekday-${promptVariant}`;
-        const imagePrompt = readFileSync(imagePromptFile, 'utf-8');
-
-        schedulerLogger.info({ chatId, imagePrompt, isWeekend, promptVariant }, `🎨 Промпт для интерактивного изображения (вариант ${promptVariant}): "${imagePrompt}"`);
-        imageBuffer = await generateFrogImage(imagePrompt);
+        const imagePath = this.getNextImage(chatId);
+        imageBuffer = readFileSync(imagePath);
+        schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для вечернего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
         schedulerLogger.error(
@@ -1921,8 +1912,13 @@ ${weekendPromptContent}`;
             stack: imgErr.stack,
             chatId,
           },
-          'Ошибка генерации изображения для интерактивного сообщения'
+          'Ошибка загрузки изображения для вечернего поста, используем fallback'
         );
+        // Fallback: случайное изображение из вечерних
+        const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
+        const fallbackImagePath = this.imageFiles[randomIndex];
+        imageBuffer = readFileSync(fallbackImagePath);
+        schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для вечернего поста');
       }
 
       // Добавляем текст "Переходи в комментарии и продолжим 😉" (ТОЛЬКО если НЕ вводное)
@@ -3881,12 +3877,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
       }
 
-      // Генерируем изображение лягушки
+      // Получаем готовое изображение из папки morning
       let imageBuffer: Buffer | null = null;
       try {
-        const imagePrompt = readFileSync('assets/prompts/frog-image-prompt-morning', 'utf-8');
-        schedulerLogger.info({ chatId, imagePrompt }, '🎨 Промпт для утреннего изображения');
-        imageBuffer = await generateFrogImage(imagePrompt);
+        const imagePath = this.getNextMorningImage();
+        imageBuffer = readFileSync(imagePath);
+        schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для утреннего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
         schedulerLogger.error(
@@ -3895,8 +3891,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             stack: imgErr.stack,
             chatId,
           },
-          'Ошибка генерации изображения для утреннего сообщения'
+          'Ошибка загрузки изображения для утреннего поста, используем fallback'
         );
+        // Fallback: случайное изображение из всех утренних категорий
+        const allMorningImages: string[] = [];
+        this.morningImageFiles.forEach((images) => {
+          allMorningImages.push(...images);
+        });
+        const randomIndex = Math.floor(Math.random() * allMorningImages.length);
+        const fallbackImagePath = allMorningImages[randomIndex];
+        imageBuffer = readFileSync(fallbackImagePath);
+        schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для утреннего поста');
       }
 
       // Отправляем основной пост БЕЗ кнопок
