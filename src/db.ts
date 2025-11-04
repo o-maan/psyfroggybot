@@ -955,7 +955,7 @@ export const isAngryPostByThreadId = (threadId: number) => {
 // Получить последние использованные примеры
 export const getLastUsedAngryExamples = (limit: number = 7) => {
   const get = db.query(`
-    SELECT example_index 
+    SELECT example_index
     FROM angry_post_examples_history
     ORDER BY used_at DESC
     LIMIT ?
@@ -972,7 +972,7 @@ export const addUsedAngryExample = (exampleIndex: number) => {
     VALUES (?)
   `);
   insert.run(exampleIndex);
-  
+
   // Затем удаляем старые, оставляя только последние 7
   const deleteOld = db.query(`
     DELETE FROM angry_post_examples_history
@@ -983,8 +983,138 @@ export const addUsedAngryExample = (exampleIndex: number) => {
     )
   `);
   deleteOld.run();
-  
+
   databaseLogger.info({ exampleIndex }, 'Добавлен использованный пример злого поста');
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ КАРТИНОК ЗЛЫХ ПОСТОВ =============
+
+export const getLastUsedAngryImages = (limit: number = 15) => {
+  const get = db.query(`
+    SELECT image_index
+    FROM angry_post_images_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { image_index: number }[];
+  return rows.map(row => row.image_index);
+};
+
+// Добавить использованное изображение злого поста
+export const addUsedAngryImage = (imageIndex: number) => {
+  // Сначала добавляем новый
+  const insert = db.query(`
+    INSERT INTO angry_post_images_history (image_index)
+    VALUES (?)
+  `);
+  insert.run(imageIndex);
+
+  // Затем удаляем старые, оставляя только последние 15
+  const deleteOld = db.query(`
+    DELETE FROM angry_post_images_history
+    WHERE id NOT IN (
+      SELECT id FROM angry_post_images_history
+      ORDER BY used_at DESC
+      LIMIT 15
+    )
+  `);
+  deleteOld.run();
+
+  databaseLogger.info({ imageIndex }, 'Добавлено использованное изображение злого поста');
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С ВЕЧЕРНИМИ ПОСТАМИ =============
+
+export const getLastUsedEveningImages = (limit: number = 15) => {
+  const get = db.query(`
+    SELECT image_index
+    FROM evening_images_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { image_index: number }[];
+  return rows.map(row => row.image_index);
+};
+
+export const addUsedEveningImage = (imageIndex: number) => {
+  const insert = db.query(`
+    INSERT INTO evening_images_history (image_index)
+    VALUES (?)
+  `);
+  insert.run(imageIndex);
+
+  // Удаляем старые, оставляя только последние 15
+  const deleteOld = db.query(`
+    DELETE FROM evening_images_history
+    WHERE id NOT IN (
+      SELECT id FROM evening_images_history
+      ORDER BY used_at DESC
+      LIMIT 15
+    )
+  `);
+  deleteOld.run();
+
+  databaseLogger.info({ imageIndex }, 'Добавлено использованное изображение вечернего поста');
+};
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С УТРЕННИМИ ПОСТАМИ =============
+
+// Получить текущую категорию для утренних постов
+export const getMorningImageCategory = (): number => {
+  const get = db.query(`
+    SELECT current_category FROM morning_image_category LIMIT 1
+  `);
+  const row = get.get() as { current_category: number } | undefined;
+  return row?.current_category || 1;
+};
+
+// Переключить категорию на следующую (1→2→3→1)
+export const switchMorningImageCategory = (): number => {
+  const currentCategory = getMorningImageCategory();
+  const nextCategory = (currentCategory % 3) + 1; // 1→2, 2→3, 3→1
+
+  const update = db.query(`
+    UPDATE morning_image_category
+    SET current_category = ?, updated_at = CURRENT_TIMESTAMP
+  `);
+  update.run(nextCategory);
+
+  databaseLogger.info({ currentCategory, nextCategory }, 'Переключена категория утренних постов');
+  return nextCategory;
+};
+
+// Получить последние использованные картинки утренних постов
+export const getLastUsedMorningImages = (limit: number = 15) => {
+  const get = db.query(`
+    SELECT category, image_index
+    FROM morning_images_history
+    ORDER BY used_at DESC
+    LIMIT ?
+  `);
+  const rows = get.all(limit) as { category: number; image_index: number }[];
+  return rows.map(row => ({ category: row.category, imageIndex: row.image_index }));
+};
+
+// Добавить использованную картинку утреннего поста
+export const addUsedMorningImage = (category: number, imageIndex: number) => {
+  const insert = db.query(`
+    INSERT INTO morning_images_history (category, image_index)
+    VALUES (?, ?)
+  `);
+  insert.run(category, imageIndex);
+
+  // Удаляем старые, оставляя только последние 15
+  const deleteOld = db.query(`
+    DELETE FROM morning_images_history
+    WHERE id NOT IN (
+      SELECT id FROM morning_images_history
+      ORDER BY used_at DESC
+      LIMIT 15
+    )
+  `);
+  deleteOld.run();
+
+  databaseLogger.info({ category, imageIndex }, 'Добавлена использованная картинка утреннего поста');
 };
 
 // ============= ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ ИСПОЛЬЗОВАННЫХ ПРИМЕРОВ ПРОМПТОВ =============

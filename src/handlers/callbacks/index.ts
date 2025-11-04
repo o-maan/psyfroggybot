@@ -43,12 +43,30 @@ import {
   handleJoySundaySkip,
   handleJoyContinue,
   handleJoyRemove,
+  handleJoyRemoveItem,
   handleJoyRemoveConfirm,
+  handleJoyBackToList,
   handleJoyClearAll,
   handleJoyClearConfirm,
   handleJoyClearCancel,
   handleJoyLater
 } from './joy_buttons';
+import {
+  handleShortJoyFinish,
+  handleShortJoyHint,
+  handleShortJoyAdd,
+  handleShortJoyAddMore,
+  handleShortJoyView
+} from './short_joy_buttons';
+
+import {
+  handleShortJoyRemove,
+  handleShortJoyRemoveItem,
+  handleShortJoyRemoveConfirm,
+  handleShortJoyBackToList,
+  handleShortJoyClearAll,
+  handleShortJoyClearConfirm
+} from './short_joy_remove_buttons';
 
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Общий обработчик callback_query
@@ -115,6 +133,20 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
     await handleDayRating(ctx);
   });
 
+  // ВАЖНО: SHORT JOY обработчики ДОЛЖНЫ быть ДО обычных Joy,
+  // чтобы паттерн /joy_add/ не перехватывал short_joy_add!
+  bot.action(/short_joy_finish_(\d+)/, ctx => handleShortJoyFinish(ctx, bot, scheduler));
+  bot.action(/short_joy_hint_(\d+)/, ctx => handleShortJoyHint(ctx, bot, scheduler));
+  bot.action(/short_joy_add_(\d+)/, ctx => handleShortJoyAdd(ctx, bot, scheduler));
+  bot.action(/short_joy_add_more_(\d+)/, ctx => handleShortJoyAddMore(ctx, bot, scheduler));
+  bot.action(/short_joy_view_(\d+)/, ctx => handleShortJoyView(ctx, bot, scheduler));
+  bot.action(/short_joy_remove_(\d+)/, ctx => handleShortJoyRemove(ctx, bot, scheduler));
+  bot.action(/short_joy_remove_item_(\d+)/, ctx => handleShortJoyRemoveItem(ctx, bot, scheduler));
+  bot.action(/short_joy_remove_confirm_(\d+)/, ctx => handleShortJoyRemoveConfirm(ctx, bot, scheduler));
+  bot.action(/short_joy_back_to_list_(\d+)/, ctx => handleShortJoyBackToList(ctx, bot, scheduler));
+  bot.action(/short_joy_clear_all_(\d+)/, ctx => handleShortJoyClearAll(ctx, bot, scheduler));
+  bot.action(/short_joy_clear_confirm_(\d+)/, ctx => handleShortJoyClearConfirm(ctx, bot, scheduler));
+
   // Обработчики кнопок списка радости
   bot.action(/joy_add_(\d+)/, ctx => handleJoyAdd(ctx, bot, scheduler));
   bot.action(/joy_add_more_(\d+)/, ctx => handleJoyAddMore(ctx, bot, scheduler));
@@ -127,7 +159,9 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
 
   // Обработчики удаления источников радости
   bot.action(/joy_remove_(\d+)/, ctx => handleJoyRemove(ctx, bot, scheduler));
+  bot.action(/joy_remove_item_(\d+)/, ctx => handleJoyRemoveItem(ctx, bot, scheduler));
   bot.action(/joy_remove_confirm_(\d+)/, ctx => handleJoyRemoveConfirm(ctx, bot, scheduler));
+  bot.action(/joy_back_to_list_(\d+)/, ctx => handleJoyBackToList(ctx, bot, scheduler));
   bot.action(/joy_clear_all_(\d+)/, ctx => handleJoyClearAll(ctx, bot, scheduler));
   bot.action(/joy_clear_confirm_(\d+)/, ctx => handleJoyClearConfirm(ctx, bot, scheduler));
   bot.action(/joy_clear_cancel_(\d+)/, ctx => handleJoyClearCancel(ctx, bot, scheduler));

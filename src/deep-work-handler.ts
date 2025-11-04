@@ -961,15 +961,15 @@ export class DeepWorkHandler {
   }
 
   // Обработка дополненного ответа про эмоции в схеме
-  async handleSchemaEmotionsClarificationResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number) {
+  async handleSchemaEmotionsClarificationResponse(channelMessageId: number, userText: string, userId: number, userMessageId: number, replyToMessageId?: number) {
     try {
-      // Сохраняем ответ пользователя в БД
+      // Сохраняем ответ пользователя в БД с messageId для поддержки редактирования
       const { saveMessage, getUserByChatId } = await import('./db');
       const user = getUserByChatId(userId);
       if (user) {
-        saveMessage(userId, userText, new Date().toISOString(), user.id);
+        saveMessage(userId, userText, new Date().toISOString(), user.id, userMessageId, userId);
       }
-      
+
       // Если пользователь дополнил ответ про эмоции, отправляем специальные слова поддержки
       const supportTextAlternatives = [
         '<i>Я горжусь тобой! Ты делаешь важные шаги 🤗</i>',
@@ -982,10 +982,10 @@ export class DeepWorkHandler {
         '<i>Помни, твои чувства важны - будь к себе бережнее ❤️‍🩹</i>'
       ];
       const supportText = supportTextAlternatives[Math.floor(Math.random() * supportTextAlternatives.length)];
-      
+
       const buttonText = this.getSchemaExampleButtonText(channelMessageId);
       const messageOptions: any = {};
-      
+
       if (buttonText) {
         messageOptions.reply_markup = {
           inline_keyboard: [[
@@ -993,10 +993,10 @@ export class DeepWorkHandler {
           ]]
         };
       }
-      
+
       const message = await this.sendMessage(
         supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
-        replyToMessageId,
+        replyToMessageId, // ID сообщения пользователя для визуального реплая
         messageOptions
       );
 

@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bun run:*)"
+      "Bash(bun run:*)",
+      "Bash(timeout 10 bun:*)",
+      "Bash(bun:*)",
+      "Bash(sqlite3:*)",
+      "Bash(ssh root@94.228.118.202 \"sqlite3 /var/www/databases/psy_froggy_bot/froggy.db ''SELECT chat_id, username FROM users''\")"
     ],
     "deny": [],
     "ask": []

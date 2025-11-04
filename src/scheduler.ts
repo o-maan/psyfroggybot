@@ -5,14 +5,21 @@ import { Telegraf, Markup } from 'telegraf';
 import { CalendarService, formatCalendarEvents, getUserTodayEvents } from './calendar';
 import {
   addUsedAngryExample,
+  addUsedAngryImage,
+  addUsedEveningImage,
+  addUsedMorningImage,
   addUsedPromptExample,
   addUser,
   clearUserTokens,
   getAllUsers,
   getLastBotMessage,
   getLastUsedAngryExamples,
+  getLastUsedAngryImages,
+  getLastUsedEveningImages,
+  getLastUsedMorningImages,
   getLastUsedPromptExamples,
   getLastUserMessage,
+  getMorningImageCategory,
   getUserByChatId,
   getUserImageIndex,
   getUserMessagesSinceLastPost,
@@ -20,6 +27,7 @@ import {
   incrementAngryPostUserResponse,
   saveMessage,
   saveUserImageIndex,
+  switchMorningImageCategory,
   updateMorningPostFinalMessageTime,
 } from './db';
 import { generateFrogImage, generateMessage } from './llm';
@@ -41,7 +49,9 @@ export class Scheduler {
   private bot: Telegraf;
   private reminderTimeouts: Map<number, NodeJS.Timeout> = new Map();
   private users: Set<number> = new Set();
-  private imageFiles: string[] = [];
+  private imageFiles: string[] = []; // Вечерние посты + Joy
+  private angryImageFiles: string[] = []; // Злые посты
+  private morningImageFiles: Map<number, string[]> = new Map(); // Утренние посты: категория -> массив путей
   public readonly CHANNEL_ID = this.getChannelId();
   // Путь к видео с дыхательной практикой
   private readonly PRACTICE_VIDEO_PATH = 'assets/videos/breathing-practice-optimized.mp4';
@@ -111,6 +121,22 @@ export class Scheduler {
     chatId: number;
   }> = new Map(); // userId -> session data
 
+  // Для хранения активных SHORT JOY сессий (команда /joy)
+  private shortJoySessions: Map<number, {
+    shortJoyId: number; // Уникальный ID сессии (timestamp)
+    userId: number;
+    chatId: number; // ID чата где вызвана команда
+    messageThreadId?: number; // ID треда если вызвано в комментариях
+    isIntro?: boolean; // Флаг вводной логики
+  }> = new Map(); // userId -> session data
+
+  // ПУБЛИЧНЫЕ Maps для SHORT JOY (используются в ShortJoyHandler через callback handlers)
+  public shortJoyPendingMessages: Map<string, Map<number, string>> = new Map(); // sessionKey -> Map<messageId, text>
+  public shortJoyLastButtonMessageId: Map<string, number> = new Map(); // sessionKey -> messageId
+  public shortJoyListMessageId: Map<string, number> = new Map(); // sessionKey -> listMessageId
+  public shortJoyAddingSessions: Map<string, boolean> = new Map(); // sessionKey -> isAdding
+  public shortJoyListShown: Map<string, boolean> = new Map(); // sessionKey -> wasListShown
+
   // Для хранения накопленных сообщений пользователя (перед сохранением в БД)
   // ПУБЛИЧНОЕ - используется в JoyHandler через callback handlers
   // Формат: Map<sessionKey, Map<messageId, text>> для поддержки редактирования
@@ -141,10 +167,21 @@ export class Scheduler {
     state: 'waiting_numbers' | 'confirming';
   }> = new Map(); // sessionKey -> removal session
 
+  // Для режима удаления источников радости в SHORT JOY
+  // ПУБЛИЧНОЕ - используется в short_joy_remove_buttons handlers
+  public shortJoyRemovalSessions: Map<string, {
+    instructionMessageId: number;
+    numbersToDelete: Map<number, number[]>; // Map<messageId, numbers[]> для поддержки редактирования
+    confirmButtonMessageId?: number; // ID скользящего сообщения "Готово?"
+    state: 'waiting_numbers' | 'confirming';
+  }> = new Map(); // sessionKey -> removal session
+
   constructor(bot: Telegraf, calendarService: CalendarService) {
     this.bot = bot;
     this.calendarService = calendarService;
-    this.loadImages();
+    this.loadImages(); // Вечерние + Joy
+    this.loadAngryImages(); // Злые посты
+    this.loadMorningImages(); // Утренние посты
     this.loadUsers();
 
     // Инициализируем расписание для всех ботов
@@ -484,20 +521,81 @@ export class Scheduler {
     return this.getMainUserId();
   }
 
-  // Загрузить список картинок при старте
+  // Загрузить список картинок для вечерних постов (основные + Joy посты)
   private loadImages() {
-    const imagesDir = path.join(process.cwd(), 'images');
-    const files = fs.readdirSync(imagesDir);
-    this.imageFiles = files
-      .filter(
-        file =>
-          file.toLowerCase().endsWith('.jpg') ||
-          file.toLowerCase().endsWith('.jpeg') ||
-          file.toLowerCase().endsWith('.png')
-      )
-      .map(file => path.join(imagesDir, file));
+    const imagesDir = path.join(process.cwd(), 'images', 'evening');
+    try {
+      const files = fs.readdirSync(imagesDir);
+      this.imageFiles = files
+        .filter(
+          file =>
+            file.toLowerCase().endsWith('.jpg') ||
+            file.toLowerCase().endsWith('.jpeg') ||
+            file.toLowerCase().endsWith('.png')
+        )
+        .map(file => path.join(imagesDir, file));
 
-    logger.info({ imageCount: this.imageFiles.length }, `🖼️ Загружено ${this.imageFiles.length} картинок`);
+      logger.info({ imageCount: this.imageFiles.length }, `🌙 Загружено ${this.imageFiles.length} картинок для вечерних постов`);
+    } catch (error) {
+      logger.error({ error }, '❌ Ошибка загрузки картинок для вечерних постов');
+      this.imageFiles = [];
+    }
+  }
+
+  // Загрузить картинки для злых постов
+  private loadAngryImages() {
+    const angryImagesDir = path.join(process.cwd(), 'images', 'angry');
+    try {
+      const files = fs.readdirSync(angryImagesDir);
+      this.angryImageFiles = files
+        .filter(
+          file =>
+            file.toLowerCase().endsWith('.jpg') ||
+            file.toLowerCase().endsWith('.jpeg') ||
+            file.toLowerCase().endsWith('.png')
+        )
+        .map(file => path.join(angryImagesDir, file));
+
+      logger.info({ imageCount: this.angryImageFiles.length }, `😠 Загружено ${this.angryImageFiles.length} картинок для злых постов`);
+    } catch (error) {
+      logger.error({ error }, '❌ Ошибка загрузки картинок для злых постов');
+      this.angryImageFiles = [];
+    }
+  }
+
+  // Загрузить картинки для утренних постов (3 категории)
+  private loadMorningImages() {
+    const morningBaseDir = path.join(process.cwd(), 'images', 'morning');
+    const categories = [1, 2, 3];
+    let totalCount = 0;
+
+    try {
+      for (const category of categories) {
+        const categoryDir = path.join(morningBaseDir, category.toString());
+        try {
+          const files = fs.readdirSync(categoryDir);
+          const imagePaths = files
+            .filter(
+              file =>
+                file.toLowerCase().endsWith('.jpg') ||
+                file.toLowerCase().endsWith('.jpeg') ||
+                file.toLowerCase().endsWith('.png')
+            )
+            .map(file => path.join(categoryDir, file));
+
+          this.morningImageFiles.set(category, imagePaths);
+          totalCount += imagePaths.length;
+          logger.info({ category, imageCount: imagePaths.length }, `☀️ Загружено ${imagePaths.length} картинок для утренних постов (категория ${category})`);
+        } catch (error) {
+          logger.error({ error, category }, `❌ Ошибка загрузки картинок для утренних постов (категория ${category})`);
+          this.morningImageFiles.set(category, []);
+        }
+      }
+
+      logger.info({ totalCount }, `☀️ Всего загружено ${totalCount} картинок для утренних постов`);
+    } catch (error) {
+      logger.error({ error }, '❌ Ошибка загрузки утренних картинок');
+    }
   }
 
   // Загрузить пользователей из базы данных
@@ -515,15 +613,136 @@ export class Scheduler {
     }
   }
 
-  // Получить следующую картинку по кругу
+  // Получить случайную картинку для вечерних постов + Joy, исключая последние 15 использованных
   public getNextImage(chatId: number): string {
-    const userImage = getUserImageIndex(chatId);
-    let currentImageIndex = userImage ? userImage.image_index : 0;
-    const image = this.imageFiles[currentImageIndex];
-    // Убираем детальные логи картинок
-    currentImageIndex = (currentImageIndex + 1) % this.imageFiles.length;
-    saveUserImageIndex(chatId, currentImageIndex);
-    return image;
+    if (this.imageFiles.length === 0) {
+      throw new Error('Нет доступных картинок для вечерних постов');
+    }
+
+    // Если картинок меньше или равно 15, просто берем случайную
+    if (this.imageFiles.length <= 15) {
+      const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
+      addUsedEveningImage(randomIndex);
+      return this.imageFiles[randomIndex];
+    }
+
+    // Получаем последние 15 использованных индексов
+    const usedIndices = getLastUsedEveningImages(15);
+
+    // Создаем список доступных индексов (исключая использованные)
+    const availableIndices: number[] = [];
+    for (let i = 0; i < this.imageFiles.length; i++) {
+      if (!usedIndices.includes(i)) {
+        availableIndices.push(i);
+      }
+    }
+
+    // Если все индексы использованы (не должно произойти при > 15 картинок), берем любой
+    if (availableIndices.length === 0) {
+      const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
+      addUsedEveningImage(randomIndex);
+      return this.imageFiles[randomIndex];
+    }
+
+    // Выбираем случайный из доступных
+    const randomAvailableIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+
+    // Сохраняем использованный индекс
+    addUsedEveningImage(randomAvailableIndex);
+
+    return this.imageFiles[randomAvailableIndex];
+  }
+
+  // Получить случайную картинку для злого поста, исключая последние 15 использованных
+  private getRandomAngryImage(): string {
+    if (this.angryImageFiles.length === 0) {
+      throw new Error('Нет доступных картинок для злых постов');
+    }
+
+    // Если картинок меньше или равно 15, просто берем случайную
+    if (this.angryImageFiles.length <= 15) {
+      const randomIndex = Math.floor(Math.random() * this.angryImageFiles.length);
+      return this.angryImageFiles[randomIndex];
+    }
+
+    // Получаем последние 15 использованных индексов
+    const usedIndices = getLastUsedAngryImages(15);
+
+    // Создаем список доступных индексов (исключая использованные)
+    const availableIndices: number[] = [];
+    for (let i = 0; i < this.angryImageFiles.length; i++) {
+      if (!usedIndices.includes(i)) {
+        availableIndices.push(i);
+      }
+    }
+
+    // Если все индексы использованы (не должно произойти при > 15 картинок), берем любой
+    if (availableIndices.length === 0) {
+      const randomIndex = Math.floor(Math.random() * this.angryImageFiles.length);
+      addUsedAngryImage(randomIndex);
+      return this.angryImageFiles[randomIndex];
+    }
+
+    // Выбираем случайный из доступных
+    const randomAvailableIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+
+    // Сохраняем использованный индекс
+    addUsedAngryImage(randomAvailableIndex);
+
+    return this.angryImageFiles[randomAvailableIndex];
+  }
+
+  // Получить картинку для утреннего поста с циклом категорий и исключением последних 15
+  private getNextMorningImage(): string {
+    // Получаем текущую категорию и переключаем на следующую
+    const category = getMorningImageCategory();
+    switchMorningImageCategory();
+
+    const categoryImages = this.morningImageFiles.get(category);
+    if (!categoryImages || categoryImages.length === 0) {
+      throw new Error(`Нет доступных картинок для категории ${category} утренних постов`);
+    }
+
+    // Получаем последние 15 использованных картинок
+    const usedImages = getLastUsedMorningImages(15);
+
+    // Создаем Set для быстрого поиска использованных картинок в текущей категории
+    const usedIndicesInCategory = new Set(
+      usedImages
+        .filter(img => img.category === category)
+        .map(img => img.imageIndex)
+    );
+
+    // Если картинок меньше или равно 15, просто берем случайную
+    if (categoryImages.length <= 15) {
+      const randomIndex = Math.floor(Math.random() * categoryImages.length);
+      addUsedMorningImage(category, randomIndex);
+      return categoryImages[randomIndex];
+    }
+
+    // Создаем список доступных индексов (исключая использованные)
+    const availableIndices: number[] = [];
+    for (let i = 0; i < categoryImages.length; i++) {
+      if (!usedIndicesInCategory.has(i)) {
+        availableIndices.push(i);
+      }
+    }
+
+    // Если все использованы (не должно произойти при > 15 картинок), берем любую
+    if (availableIndices.length === 0) {
+      const randomIndex = Math.floor(Math.random() * categoryImages.length);
+      addUsedMorningImage(category, randomIndex);
+      return categoryImages[randomIndex];
+    }
+
+    // Выбираем случайную из доступных
+    const randomAvailableIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+
+    // Сохраняем использованную картинку
+    addUsedMorningImage(category, randomAvailableIndex);
+
+    schedulerLogger.info({ category, imageIndex: randomAvailableIndex }, `☀️ Выбрана картинка для утреннего поста`);
+    return categoryImages[randomAvailableIndex];
   }
 
   // Добавить пользователя в список рассылки
@@ -1537,8 +1756,16 @@ ${weekendPromptContent}`;
           'Сообщение с сгенерированным изображением отправлено'
         );
       } else {
-        // Fallback: используем старую систему ротации
-        const imagePath = this.getNextImage(chatId);
+        // Fallback: используем картинки для вечерних постов
+        let imagePath: string;
+        try {
+          imagePath = this.getNextImage(chatId);
+        } catch (imageError) {
+          // Fallback при ошибке: случайная картинка из вечерних
+          schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора вечерней картинки, используем fallback');
+          imagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
+        }
+
         await this.bot.telegram.sendPhoto(
           this.CHANNEL_ID,
           { source: imagePath },
@@ -1768,8 +1995,16 @@ ${weekendPromptContent}`;
             }
           );
         } else {
-          // Fallback: используем старую систему ротации
-          const imagePath = this.getNextImage(chatId);
+          // Fallback: используем картинки для вечерних постов
+          let imagePath: string;
+          try {
+            imagePath = this.getNextImage(chatId);
+          } catch (imageError) {
+            // Fallback при ошибке: случайная картинка из вечерних
+            schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора вечерней картинки, используем fallback');
+            imagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
+          }
+
           const imageFile = readFileSync(imagePath);
           return await this.bot.telegram.sendPhoto(
             this.CHANNEL_ID,
@@ -2699,8 +2934,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // Утренняя проверка в 8:00 - отправка злого поста если пользователь не ответил
     this.startMorningCheckCronJob();
     // Утреннее сообщение в 9:00 - приветствие и приглашение делиться переживаниями
-    // ВРЕМЕННО ОТКЛЮЧЕНО - в разработке
-    // this.startMorningMessageCronJob();
+    this.startMorningMessageCronJob();
   }
 
   // Запуск cron job для ежедневной отправки в 22:00
@@ -3539,41 +3773,28 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Ограничиваем длину текста
       finalText = finalText.length > 500 ? finalText.slice(0, 497) + '...' : finalText;
 
-      // Генерируем злое изображение лягушки
-      const angryImagePrompt = readFileSync('assets/prompts/frog-image-promt-angry', 'utf-8');
-      let imageBuffer: Buffer | null = null;
-
+      // Получаем случайную картинку для злого поста
+      let imagePath: string;
       try {
-        imageBuffer = await generateFrogImage(angryImagePrompt);
-        schedulerLogger.info({ userId }, '🎨 Злое изображение лягушки сгенерировано');
+        imagePath = this.getRandomAngryImage();
+        schedulerLogger.info({ userId, imagePath }, '😠 Выбрана картинка для злого поста');
       } catch (imageError) {
-        schedulerLogger.error({ error: imageError, userId }, 'Ошибка генерации злого изображения');
+        // Fallback: случайная картинка из злых постов
+        schedulerLogger.error({ error: imageError, userId }, 'Ошибка выбора картинки для злого поста, используем fallback');
+        imagePath = this.angryImageFiles[Math.floor(Math.random() * this.angryImageFiles.length)];
       }
 
       // Отправляем в канал с повторными попытками
       const sentMessage = await this.sendWithRetry(
         async () => {
-          if (imageBuffer) {
-            return await this.bot.telegram.sendPhoto(
-              this.CHANNEL_ID,
-              { source: imageBuffer },
-              {
-                caption: finalText,
-                parse_mode: 'HTML',
-              }
-            );
-          } else {
-            // Fallback: используем обычное изображение из ротации
-            const imagePath = this.getNextImage(userId);
-            return await this.bot.telegram.sendPhoto(
-              this.CHANNEL_ID,
-              { source: imagePath },
-              {
-                caption: finalText,
-                parse_mode: 'HTML',
-              }
-            );
-          }
+          return await this.bot.telegram.sendPhoto(
+            this.CHANNEL_ID,
+            { source: imagePath },
+            {
+              caption: finalText,
+              parse_mode: 'HTML',
+            }
+          );
         },
         {
           chatId: userId,
@@ -3698,8 +3919,33 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           'Утреннее сообщение с сгенерированным изображением отправлено'
         );
       } else {
-        // Fallback: используем старую систему ротации
-        const imagePath = this.getNextImage(chatId);
+        // Fallback: используем картинки для утренних постов
+        let imagePath: string;
+        try {
+          imagePath = this.getNextMorningImage();
+          schedulerLogger.info({ imagePath }, '☀️ Используем картинку для утреннего поста');
+        } catch (imageError) {
+          // Fallback при ошибке: случайная категория + случайная картинка из утренних
+          schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора утренней картинки, используем fallback');
+          const randomCategory = Math.floor(Math.random() * 3) + 1;
+          const categoryImages = this.morningImageFiles.get(randomCategory);
+          if (categoryImages && categoryImages.length > 0) {
+            imagePath = categoryImages[Math.floor(Math.random() * categoryImages.length)];
+          } else {
+            // Перебираем все категории
+            let allMorningImages: string[] = [];
+            for (let cat = 1; cat <= 3; cat++) {
+              const images = this.morningImageFiles.get(cat) || [];
+              allMorningImages = allMorningImages.concat(images);
+            }
+            if (allMorningImages.length > 0) {
+              imagePath = allMorningImages[Math.floor(Math.random() * allMorningImages.length)];
+            } else {
+              throw new Error('Нет доступных утренних картинок для fallback');
+            }
+          }
+        }
+
         sentMessage = await this.bot.telegram.sendPhoto(
           this.CHANNEL_ID,
           { source: imagePath },
@@ -3714,7 +3960,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             messageLength: captionWithComment.length,
             imagePath,
           },
-          'Утреннее сообщение с изображением из ротации отправлено (fallback)'
+          'Утреннее сообщение с изображением отправлено (fallback)'
         );
       }
 
@@ -4226,7 +4472,117 @@ ${allDayUserMessages}
     messageId: number,
     messageThreadId?: number
   ): Promise<boolean> {
-    // Проверяем, не является ли это сообщением в joy-сессии
+    // СНАЧАЛА проверяем SHORT JOY сессии (они имеют приоритет)
+    const shortJoySession = this.shortJoySessions.get(userId);
+    if (shortJoySession) {
+      // sessionKey аналогичен JoyHandler: userId_channelMessageId
+      const sessionKey = `${userId}_${shortJoySession.shortJoyId}`;
+
+      // Проверяем, не находимся ли мы в режиме удаления
+      const removalSession = this.shortJoyRemovalSessions?.get(sessionKey);
+
+      if (removalSession && removalSession.state === 'waiting_numbers') {
+        // Парсим номера из сообщения
+        const numbers = messageText
+          .split(/[,\s]+/)
+          .map(s => parseInt(s.trim()))
+          .filter(n => !isNaN(n) && n > 0);
+
+        if (numbers.length === 0) {
+          // Отправляем сообщение об ошибке БЕЗ reply
+          const errorOptions: any = {};
+          if (shortJoySession.messageThreadId) {
+            errorOptions.reply_to_message_id = shortJoySession.messageThreadId;
+          }
+
+          await this.bot.telegram.sendMessage(
+            shortJoySession.chatId,
+            'Пожалуйста, укажи номера через запятую или пробел, например: 1, 3, 5',
+            errorOptions
+          );
+          return true;
+        }
+
+        // Сохраняем/обновляем номера для этого messageId (поддержка редактирования)
+        removalSession.numbersToDelete.set(messageId, numbers);
+
+        // Собираем все уникальные номера из всех сообщений
+        const allNumbers = new Set<number>();
+        for (const nums of removalSession.numbersToDelete.values()) {
+          nums.forEach((n: number) => allNumbers.add(n));
+        }
+        const sortedNumbers = Array.from(allNumbers).sort((a, b) => a - b);
+
+        // Удаляем предыдущее скользящее сообщение "Готово?", если есть
+        if (removalSession.confirmButtonMessageId) {
+          try {
+            await this.bot.telegram.deleteMessage(shortJoySession.chatId, removalSession.confirmButtonMessageId);
+          } catch (error) {
+            schedulerLogger.debug('Не удалось удалить предыдущее скользящее сообщение');
+          }
+        }
+
+        // Показываем скользящую кнопку "Готово"
+        const confirmText = 'Готово? Или еще что-то убрать?';
+
+        const sendOptions: any = {
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Готово', `short_joy_remove_confirm_${shortJoySession.shortJoyId}`)]
+          ])
+        };
+
+        if (shortJoySession.messageThreadId) {
+          sendOptions.reply_to_message_id = shortJoySession.messageThreadId;
+        }
+
+        const confirmMessage = await this.bot.telegram.sendMessage(
+          shortJoySession.chatId,
+          confirmText,
+          sendOptions
+        );
+
+        // Сохраняем ID скользящего сообщения
+        removalSession.confirmButtonMessageId = confirmMessage.message_id;
+
+        schedulerLogger.info(
+          { userId, numbersCount: sortedNumbers.length },
+          '✅ Обработаны номера для удаления в SHORT JOY'
+        );
+        return true;
+      }
+
+      const isAddingActive = this.shortJoyAddingSessions.get(sessionKey);
+
+      if (isAddingActive) {
+        // Пользователь в режиме добавления в SHORT JOY - используем ShortJoyHandler
+        schedulerLogger.info({ userId, messageText, sessionKey }, '📝 Сообщение в SHORT JOY сессии, вызов ShortJoyHandler');
+
+        // Импортируем ShortJoyHandler
+        const { ShortJoyHandler } = await import('./short-joy-handler');
+
+        // Создаем экземпляр ShortJoyHandler
+        const handler = new ShortJoyHandler(
+          this.bot,
+          shortJoySession.chatId,
+          userId,
+          shortJoySession.shortJoyId, // channelMessageId
+          this.shortJoyPendingMessages,
+          this.shortJoyLastButtonMessageId,
+          this.shortJoyListMessageId,
+          this.shortJoyAddingSessions,
+          this.shortJoyListShown,
+          shortJoySession.messageThreadId
+        );
+
+        // Обрабатываем сообщение пользователя через handler
+        await handler.handleUserMessage(messageText, messageId);
+
+        schedulerLogger.info({ userId, source: messageText }, '✅ Сообщение обработано через ShortJoyHandler');
+        return true;
+      }
+    }
+
+    // Проверяем, не является ли это сообщением в обычной joy-сессии
     const joySession = this.joySessions.get(userId);
 
     // ДЕБАГ: Логируем проверку
@@ -4326,7 +4682,7 @@ ${allDayUserMessages}
         // Собираем все уникальные номера из всех сообщений
         const allNumbers = new Set<number>();
         for (const nums of removalSession.numbersToDelete.values()) {
-          nums.forEach(n => allNumbers.add(n));
+          nums.forEach((n: number) => allNumbers.add(n));
         }
         const sortedNumbers = Array.from(allNumbers).sort((a, b) => a - b);
 
@@ -5091,7 +5447,7 @@ ${allDayUserMessages}
         const { getUserByChatId } = await import('./db');
         const user = getUserByChatId(userId);
         if (user) {
-          saveMessage(userId, messageText, new Date().toISOString(), user.id);
+          saveMessage(userId, messageText, new Date().toISOString(), user.id, messageId, replyToChatId);
         }
 
         // Отмечаем второе задание как выполненное
@@ -5251,7 +5607,7 @@ ${allDayUserMessages}
       if (session.currentStep === 'schema_waiting_emotions_clarification') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
         const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
-        await deepHandler.handleSchemaEmotionsClarificationResponse(channelMessageId, messageText, userId, messageId);
+        await deepHandler.handleSchemaEmotionsClarificationResponse(channelMessageId, messageText, userId, messageId, messageId);
         return;
       }
 
@@ -5586,7 +5942,7 @@ ${allDayUserMessages}
         const { getUserByChatId } = await import('./db');
         const user = getUserByChatId(userId);
         if (user) {
-          saveMessage(userId, messageText, new Date().toISOString(), user.id);
+          saveMessage(userId, messageText, new Date().toISOString(), user.id, messageId, replyToChatId);
         }
 
         // Получаем текущий шаг из БД
@@ -5744,7 +6100,7 @@ ${allDayUserMessages}
         const { getUserByChatId } = await import('./db');
         const user = getUserByChatId(userId);
         if (user) {
-          saveMessage(userId, messageText, new Date().toISOString(), user.id);
+          saveMessage(userId, messageText, new Date().toISOString(), user.id, messageId, replyToChatId);
         }
 
         const { updateInteractivePostState } = await import('./db');
@@ -6211,7 +6567,7 @@ ${allDayUserMessages}
         const { getUserByChatId } = await import('./db');
         const user = getUserByChatId(userId);
         if (user) {
-          saveMessage(userId, messageText, new Date().toISOString(), user.id);
+          saveMessage(userId, messageText, new Date().toISOString(), user.id, messageId, replyToChatId);
         }
 
         // Отмечаем второе задание как выполненное
@@ -6703,7 +7059,14 @@ ${allDayUserMessages}
       // Он просто предложит добавить что-то в список
 
       // 4. Отправляем пост в канал
-      const fallbackImagePath = this.getNextImage(userId);
+      let fallbackImagePath: string;
+      try {
+        fallbackImagePath = this.getNextImage(userId);
+      } catch (imageError) {
+        // Fallback при ошибке: случайная картинка из вечерних
+        schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора картинки для Joy, используем fallback');
+        fallbackImagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
+      }
 
       // Текст зависит от сценария (вводный или основной)
       let postText: string;
@@ -6790,7 +7153,7 @@ ${allDayUserMessages}
 
     const introKeyboard = {
       inline_keyboard: [
-        [{ text: 'Дай подсказку 🙌🏻', callback_data: `joy_sunday_hint_${channelMessageId}` }],
+        [{ text: 'Дай подсказку', callback_data: `joy_sunday_hint_${channelMessageId}` }],
         [{ text: 'В другой раз', callback_data: `joy_sunday_skip_${channelMessageId}` }]
       ]
     };
@@ -6846,6 +7209,7 @@ ${formattedEvents}`;
       const promptKeyboard = {
         inline_keyboard: [
           [{ text: 'Показать список 📝', callback_data: `joy_view_${channelMessageId}` }],
+          [{ text: 'Дай подсказку', callback_data: `joy_sunday_hint_${channelMessageId}` }],
           [{ text: 'В другой раз 🥲', callback_data: `joy_sunday_skip_${channelMessageId}` }]
         ]
       };
@@ -6862,11 +7226,12 @@ ${formattedEvents}`;
 
     } else {
       // НЕТ СОБЫТИЙ - только предложение добавить + кнопки
-      const promptText = `Что хочешь еще добавить в свой список? Напиши ❤️‍🔥`;
+      const promptText = `<b>Напиши, что хочешь добавить в свой список? ❤️‍🔥</b>`;
 
       const promptKeyboard = {
         inline_keyboard: [
           [{ text: 'Показать список 📝', callback_data: `joy_view_${channelMessageId}` }],
+          [{ text: 'Дай подсказку', callback_data: `joy_sunday_hint_${channelMessageId}` }],
           [{ text: 'В другой раз 🥲', callback_data: `joy_sunday_skip_${channelMessageId}` }]
         ]
       };
@@ -6968,7 +7333,14 @@ ${eventsText}${filterInstruction}
       schedulerLogger.info({ userId, isFirstTime }, isFirstTime ? '📝 Первый раз - вводный сценарий' : '🔄 Повторный - основной сценарий');
 
       // Получаем случайную картинку из fallback массива
-      const fallbackImagePath = this.getNextImage(userId);
+      let fallbackImagePath: string;
+      try {
+        fallbackImagePath = this.getNextImage(userId);
+      } catch (imageError) {
+        // Fallback при ошибке: случайная картинка из вечерних
+        schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора картинки для Joy, используем fallback');
+        fallbackImagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
+      }
 
       // Текст зависит от сценария (вводный или основной)
       let postText: string;
@@ -7053,6 +7425,209 @@ ${eventsText}${filterInstruction}
         );
       }
 
+      throw error;
+    }
+  }
+
+  /**
+   * SHORT JOY - пользовательская команда /joy
+   * Показывается ТАМ ГДЕ ВЫЗВАНА (личка/канал/комментарии)
+   * БЕЗ проверок на 2 дня, в любое время
+   * @param userId - ID пользователя
+   * @param chatId - ID чата где вызвана команда
+   * @param messageThreadId - ID треда комментариев (если вызвано в комментариях)
+   */
+  async sendShortJoy(userId: number, chatId: number, messageThreadId?: number) {
+    try {
+      schedulerLogger.info(
+        { userId, chatId, messageThreadId },
+        '🤩 Начало SHORT JOY логики'
+      );
+
+      // Проверяем пустой ли список радости
+      const { isJoyListEmpty, getAllJoySources } = await import('./db');
+      const isEmpty = isJoyListEmpty(userId);
+
+      if (isEmpty) {
+        // ВВОДНАЯ SHORT JOY логика
+        schedulerLogger.info({ userId }, '📝 Список пуст - вводная SHORT JOY логика');
+        await this.sendShortJoyIntro(userId, chatId, messageThreadId);
+      } else {
+        // ОСНОВНАЯ SHORT JOY логика - показываем список
+        schedulerLogger.info({ userId }, '📋 Список не пуст - показываем список с кнопками');
+        await this.sendShortJoyList(userId, chatId, messageThreadId);
+      }
+
+      schedulerLogger.info({ userId, chatId }, '✅ SHORT JOY логика завершена');
+    } catch (error) {
+      const err = error as Error;
+      schedulerLogger.error(
+        { error: err.message, stack: err.stack, userId, chatId },
+        '❌ Ошибка SHORT JOY логики'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * SHORT JOY ОСНОВНАЯ - показать список радости с кнопками (БЕЗ постов и картинок)
+   * Кнопки: Добавить еще ⚡️ | Убрать лишнее 🙅🏻 | Завершить
+   */
+  private async sendShortJoyList(userId: number, chatId: number, messageThreadId?: number) {
+    try {
+      const { getAllJoySources } = await import('./db');
+      const sources = getAllJoySources(userId);
+
+      // Формируем список с нумерацией
+      let listText = '<b>Мои источники радости и энергии 🤩</b>\n\n';
+      sources.forEach((source, index) => {
+        listText += `${index + 1} ⚡️ ${source.text}\n`;
+      });
+
+      // Генерируем уникальный ID для кнопок (используем timestamp)
+      const shortJoyId = Date.now();
+
+      // Подготавливаем опции отправки
+      const sendOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Добавить еще ⚡️', callback_data: `short_joy_add_more_${shortJoyId}` }],
+            [{ text: 'Убрать лишнее 🙅🏻', callback_data: `short_joy_remove_${shortJoyId}` }],
+            [{ text: 'Завершить', callback_data: `short_joy_finish_${shortJoyId}` }]
+          ]
+        }
+      };
+
+      // Если вызвано в комментариях - отправляем с reply_to_message_id
+      if (messageThreadId) {
+        sendOptions.reply_to_message_id = messageThreadId;
+      }
+
+      // Отправляем список (БЕЗ картинки и текста поста - сразу список)
+      await this.bot.telegram.sendMessage(chatId, listText, sendOptions);
+
+      // Сохраняем SHORT JOY сессию
+      this.shortJoySessions.set(userId, {
+        shortJoyId,
+        userId,
+        chatId,
+        messageThreadId,
+        isIntro: false // Это основная логика, не вводная
+      });
+
+      schedulerLogger.info(
+        { userId, chatId, sourcesCount: sources.length, shortJoyId },
+        '📋 SHORT JOY ОСНОВНАЯ: список отправлен с кнопками (БЕЗ поста)'
+      );
+    } catch (error) {
+      schedulerLogger.error({ error, userId, chatId }, '❌ Ошибка отправки списка SHORT JOY');
+      throw error;
+    }
+  }
+
+  /**
+   * SHORT JOY - вводная логика для пустого списка
+   * Использует механизм накопления сообщений из ShortJoyHandler
+   * Кнопки: Дай подсказку | Завершить
+   */
+  private async sendShortJoyIntro(userId: number, chatId: number, messageThreadId?: number) {
+    try {
+      // Генерируем уникальный channelMessageId для этой сессии (используем timestamp)
+      const channelMessageId = Date.now();
+
+      // В ЛИЧКЕ И В КОММЕНТАРИЯХ - отправляем картинку + текст поста
+      const isPrivateChat = !messageThreadId && chatId > 0;
+
+      if (isPrivateChat || messageThreadId) {
+        // ЛИЧКА или КОММЕНТАРИИ: отправляем картинку + текст поста
+        const postText = `Давай соберем <b>твой личный список того, что приносит тебе радость и заряжает энергией</b> 🔥
+
+Что он тебе дает:
+⚡️не нужно ломать голову – у тебя есть четкое понимание, что именно тебе помогает
+⚡️возможность быстрее выйти из стресса
+⚡️легализация радости – так, ты осознаешь, что это не просто развлечения, дурачество или трата времени, а важный вклад в себя, который дает тебе силы
+
+<i>P.S. а когда это встроено в твою жизнь – это профилактика выгорания и помощь в сохранении баланса 🌙</i>`;
+
+        let fallbackImagePath: string;
+        try {
+          fallbackImagePath = this.getNextImage(userId);
+        } catch (imageError) {
+          // Fallback при ошибке: случайная картинка из вечерних
+          schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора картинки для SHORT Joy, используем fallback');
+          fallbackImagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
+        }
+
+        const imageBuffer = fs.readFileSync(fallbackImagePath);
+
+        const photoOptions: any = {
+          caption: postText,
+          parse_mode: 'HTML'
+        };
+
+        // Если в комментариях - отправляем с reply_to_message_id
+        if (messageThreadId) {
+          photoOptions.reply_to_message_id = messageThreadId;
+        }
+
+        await this.bot.telegram.sendPhoto(
+          chatId,
+          { source: imageBuffer },
+          photoOptions
+        );
+
+        schedulerLogger.info({ userId, chatId, messageThreadId }, '📸 Картинка с постом отправлена (SHORT JOY)');
+      }
+
+      // Текст вводного сообщения (такой же как в обычной Joy)
+      const introText = `<b>Радость</b> – все то, что вызывает <b>положительные эмоции</b>: удовольствие, интерес, вдохновение, трепет и т.д. Необязательно яркие, тебе может быть просто хорошо и спокойно 😊
+<b>Энергия</b> – то, после чего ты чувствуешь <b>заряд, восстановление, ясность, легкость</b> или <b>прилив сил</b> 🔥 – даже если это «ничего не делать».
+
+<b>Что это для тебя?</b>
+
+💡 Одно и то же может давать и радость, и энергию 🤩`;
+
+      // Подготавливаем опции отправки
+      const sendOptions: any = {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Дай подсказку', callback_data: `short_joy_hint_${channelMessageId}` }],
+            [{ text: 'Завершить', callback_data: `short_joy_finish_${channelMessageId}` }]
+          ]
+        }
+      };
+
+      // Если вызвано в комментариях - отправляем с reply_to_message_id
+      if (messageThreadId) {
+        sendOptions.reply_to_message_id = messageThreadId;
+      }
+
+      // Отправляем вводное сообщение
+      await this.bot.telegram.sendMessage(chatId, introText, sendOptions);
+
+      // Устанавливаем флаг активной сессии добавления - пользователь может сразу писать
+      // sessionKey аналогичен JoyHandler: userId_channelMessageId
+      const sessionKey = `${userId}_${channelMessageId}`;
+      this.shortJoyAddingSessions.set(sessionKey, true);
+
+      // Сохраняем channelMessageId для callback обработчиков (например, для кнопки "Завершить")
+      // Используем простую структуру: userId -> channelMessageId
+      this.shortJoySessions.set(userId, {
+        shortJoyId: channelMessageId, // используем channelMessageId как shortJoyId для совместимости
+        userId,
+        chatId,
+        messageThreadId,
+        isIntro: true
+      });
+
+      schedulerLogger.info(
+        { userId, chatId, channelMessageId, sessionKey },
+        '📝 Вводная SHORT JOY логика отправлена, флаг добавления установлен'
+      );
+    } catch (error) {
+      schedulerLogger.error({ error, userId, chatId }, '❌ Ошибка отправки вводной SHORT JOY');
       throw error;
     }
   }
@@ -7172,6 +7747,62 @@ ${eventsText}${filterInstruction}
   removeJoySession(userId: number) {
     this.joySessions.delete(userId);
     schedulerLogger.info({ userId }, 'Joy-сессия удалена');
+  }
+
+  // ============================================
+  // Вспомогательные методы для SHORT JOY
+  // ============================================
+
+  /**
+   * Получить SHORT JOY сессию пользователя
+   */
+  public getShortJoySession(userId: number) {
+    return this.shortJoySessions.get(userId);
+  }
+
+  /**
+   * Очистить SHORT JOY сессию пользователя
+   */
+  public clearShortJoySession(userId: number) {
+    const session = this.shortJoySessions.get(userId);
+    if (session) {
+      const sessionKey = `short_joy_${userId}_${session.shortJoyId}`;
+      this.shortJoyAddingSessions.delete(sessionKey);
+      this.shortJoySessions.delete(userId);
+      schedulerLogger.info({ userId, shortJoyId: session.shortJoyId }, '🧹 SHORT JOY сессия очищена');
+    }
+  }
+
+  /**
+   * Установить флаг активной сессии добавления в SHORT JOY
+   */
+  public setShortJoyAddingSession(sessionKey: string, active: boolean) {
+    if (active) {
+      this.shortJoyAddingSessions.set(sessionKey, true);
+    } else {
+      this.shortJoyAddingSessions.delete(sessionKey);
+    }
+  }
+
+  /**
+   * Проверить активна ли сессия добавления в SHORT JOY
+   */
+  public isShortJoyAddingSessionActive(sessionKey: string): boolean {
+    return this.shortJoyAddingSessions.get(sessionKey) === true;
+  }
+
+  /**
+   * Обновить список в SHORT JOY (показать заново с основными кнопками)
+   */
+  public async sendShortJoyListUpdate(userId: number, chatId: number, messageThreadId?: number) {
+    const session = this.shortJoySessions.get(userId);
+    if (!session) {
+      schedulerLogger.warn({ userId }, 'SHORT JOY сессия не найдена для обновления списка');
+      return;
+    }
+
+    // Вызываем метод показа списка
+    await this.sendShortJoyList(userId, chatId, messageThreadId);
   }
 
   // Очистка всех таймеров при завершении работы

@@ -49,23 +49,22 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
     const CHAT_ID = scheduler.getChatId();
     const CHANNEL_ID = scheduler.CHANNEL_ID;
 
-    // Проверяем, что сообщение из релевантного чата
-    const isFromChannel = chatId === CHANNEL_ID;
-    const isFromChat = CHAT_ID && chatId === CHAT_ID;
-    const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
+    // Для личных чатов ВСЕГДА обрабатываем (SHORT JOY работает в личке!)
+    const isPrivateChat = ctx.chat.type === 'private';
 
-    if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
-      botLogger.debug(
-        { chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type },
-        'Редактированное сообщение не из целевого канала/чата, игнорируем'
-      );
-      return;
-    }
+    if (!isPrivateChat) {
+      // Для НЕ-личных чатов проверяем, что сообщение из релевантного чата
+      const isFromChannel = chatId === CHANNEL_ID;
+      const isFromChat = CHAT_ID && chatId === CHAT_ID;
+      const isFromLinkedChat = ctx.chat.type === 'supergroup' && !isFromChannel && !isFromChat;
 
-    // Для личных чатов не обрабатываем
-    if (ctx.chat.type === 'private') {
-      botLogger.debug({ userId, chatType: ctx.chat.type }, 'Игнорируем личное редактированное сообщение');
-      return;
+      if (!isFromChannel && !isFromChat && !isFromLinkedChat) {
+        botLogger.debug(
+          { chatId, CHAT_ID, CHANNEL_ID, chatType: ctx.chat.type },
+          'Редактированное сообщение не из целевого канала/чата, игнорируем'
+        );
+        return;
+      }
     }
 
     // Константа для целевого пользователя
