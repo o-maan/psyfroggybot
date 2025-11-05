@@ -62,7 +62,6 @@ export class Scheduler {
   private dailyCronJob: cron.ScheduledTask | null = null;
   private morningCheckCronJob: cron.ScheduledTask | null = null;
   private morningMessageCronJob: cron.ScheduledTask | null = null;
-  private testModeCheckTimeout: NodeJS.Timeout | null = null;
   // Для хранения состояния интерактивных сессий
   private interactiveSessions: Map<
     number,
@@ -1789,23 +1788,8 @@ ${weekendPromptContent}`;
         });
       }
 
-      // Запускаем проверку ответов через заданное время (по умолчанию 2 минуты)
-      const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600); // 10 часов по умолчанию
-
-      // Отменяем предыдущий таймаут если есть
-      if (this.testModeCheckTimeout) {
-        clearTimeout(this.testModeCheckTimeout);
-      }
-
-      schedulerLogger.info(`⏰ Проверка ответов будет через ${checkDelayMinutes} минут(ы)`);
-
-      // Не сохраняем время для тестовых отправок через /fro
-
-      // Запускаем проверку через заданное время
-      this.testModeCheckTimeout = setTimeout(async () => {
-        schedulerLogger.info('🔍 Запуск проверки ответов пользователя');
-        await this.checkUsersResponses();
-      }, checkDelayMinutes * 60 * 1000);
+      // Проверка ответов выполняется через cron job в 8:00 утра (см. initializeMorningCheck)
+      schedulerLogger.info('ℹ️ Проверка ответов будет выполнена через cron job в 8:00 утра');
 
       // Включаем напоминание через 1.5 часа (для тестового бота тоже)
       const sentTime = new Date().toISOString();
@@ -2125,23 +2109,9 @@ ${weekendPromptContent}`;
       this.setReminder(chatId, sentTime);
       schedulerLogger.info({ chatId, sentTime }, '⏰ Напоминание через 1.5 часа установлено');
 
-      // Запускаем проверку ответов через заданное время (по умолчанию 10 часов)
-      const checkDelayMinutes = Number(process.env.ANGRY_POST_DELAY_MINUTES || 600);
-
-      // Отменяем предыдущий таймаут если есть
-      if (this.testModeCheckTimeout) {
-        clearTimeout(this.testModeCheckTimeout);
-      }
-
-      // Запускаем проверку только для основного бота ИЛИ если это ручная команда для тестового
+      // Проверка ответов выполняется через cron job в 8:00 утра (см. initializeMorningCheck)
       if (!this.isTestBot() || isManualCommand) {
-        schedulerLogger.info(`⏰ Проверка ответов будет через ${checkDelayMinutes} минут(ы)`);
-
-        // Запускаем проверку через заданное время
-        this.testModeCheckTimeout = setTimeout(async () => {
-          schedulerLogger.info('🔍 Запуск проверки ответов пользователя');
-          await this.checkUsersResponses();
-        }, checkDelayMinutes * 60 * 1000);
+        schedulerLogger.info('ℹ️ Проверка ответов будет выполнена через cron job в 8:00 утра');
       } else {
         schedulerLogger.info('🤖 Тестовый бот - автоматическая проверка ответов отключена');
       }
@@ -2694,21 +2664,10 @@ ${weekendPromptContent}`;
         schedulerLogger.warn({ userId: TARGET_USER_ID }, 'Целевой пользователь не найден в списке пользователей');
       }
 
-      // Запускаем проверку ответов через заданное время
-      // Отменяем предыдущий таймаут если есть
-      if (this.testModeCheckTimeout) {
-        clearTimeout(this.testModeCheckTimeout);
-      }
-
+      // Проверка ответов выполняется через cron job в 8:00 утра (см. initializeMorningCheck)
       schedulerLogger.info(
-        `⏰ Проверка ответов пользователя ${TARGET_USER_ID} будет через ${checkDelayMinutes} минут(ы)`
+        `ℹ️ Проверка ответов пользователя ${TARGET_USER_ID} будет выполнена через cron job в 8:00 утра`
       );
-
-      // Запускаем проверку через заданное время
-      this.testModeCheckTimeout = setTimeout(async () => {
-        schedulerLogger.info('🔍 Запуск проверки ответов после ежедневной рассылки');
-        await this.checkUsersResponses();
-      }, checkDelayMinutes * 60 * 1000);
     } catch (error) {
       errorCount = 1;
       const errorMsg = `Ошибка отправки поста: ${error}`;

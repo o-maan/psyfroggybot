@@ -479,9 +479,17 @@ describe('Scheduler', () => {
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
-      
-      // Мокаем extractPromptSection для возврата валидного промпта
-      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
+
+      // Мокаем extractPromptSection для возврата валидного промпта с примерами
+      const validPrompt = `## ПРОМТ №1 - злюсь
+Ты - лягушка-психолог.
+
+### Примеры хороших ответов
+
+- Пример 1: Что за безобразие! 😠
+- Пример 2: Ты где пропадаешь? 🐸
+- Пример 3: Давай исправим это! 💪`;
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue(validPrompt);
       
       // Мокаем генерацию текста
       mockGenerateMessage.mockResolvedValue('Кто-то не сделал задание! Нехорошо!');
@@ -516,9 +524,17 @@ describe('Scheduler', () => {
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
-      
-      // Мокаем extractPromptSection для возврата валидного промпта
-      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
+
+      // Мокаем extractPromptSection для возврата валидного промпта с примерами
+      const validPrompt = `## ПРОМТ №1 - злюсь
+Ты - лягушка-психолог.
+
+### Примеры хороших ответов
+
+- Пример 1: Что за безобразие! 😠
+- Пример 2: Ты где пропадаешь? 🐸
+- Пример 3: Давай исправим это! 💪`;
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue(validPrompt);
       
       // Мокаем ошибку генерации изображения
       spyOn(llm, 'generateFrogImage').mockRejectedValue(new Error('API error'));
@@ -548,9 +564,17 @@ describe('Scheduler', () => {
       
       // Мокаем isTestBot чтобы вернул false
       spyOn(scheduler, 'isTestBot').mockReturnValue(false);
-      
-      // Мокаем extractPromptSection для возврата валидного промпта
-      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue('Промпт для генерации');
+
+      // Мокаем extractPromptSection для возврата валидного промпта с примерами
+      const validPrompt = `## ПРОМТ №1 - злюсь
+Ты - лягушка-психолог.
+
+### Примеры хороших ответов
+
+- Пример 1: Что за безобразие! 😠
+- Пример 2: Ты где пропадаешь? 🐸
+- Пример 3: Давай исправим это! 💪`;
+      spyOn(scheduler as any, 'extractPromptSection').mockReturnValue(validPrompt);
       
       // Генерируем очень длинный текст
       const longText = 'А'.repeat(600);
