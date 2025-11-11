@@ -1839,6 +1839,14 @@ ${weekendPromptContent}`;
         'Начало отправки интерактивного сообщения'
       );
 
+      // Проверка на воскресенье - показываем список радости вместо обычного поста
+      const dayOfWeek = new Date().getDay();
+      if (dayOfWeek === 0) { // Воскресенье
+        schedulerLogger.info({ chatId }, '📅 Воскресенье - показываем список радости');
+        await this.sendJoyPostWithWeeklySummary(chatId);
+        return;
+      }
+
       // Показываем, что бот "пишет" (реакция)
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
 
