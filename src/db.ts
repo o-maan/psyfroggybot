@@ -1877,6 +1877,69 @@ export const hasPassedDaysSinceFirstEveningPost = (userId: number, minDays: numb
 };
 
 /**
+ * Получить количество отправленных вечерних постов для пользователя
+ * @param chatId - Chat ID пользователя (не внутренний id!)
+ * @returns Количество отправленных вечерних постов
+ */
+export const getEveningPostsCount = (chatId: number): number => {
+  try {
+    const stmt = db.query(`
+      SELECT evening_posts_count
+      FROM users
+      WHERE chat_id = ?
+    `);
+    const result = stmt.get(chatId) as { evening_posts_count: number | null } | undefined;
+    return result?.evening_posts_count ?? 0;
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, chatId },
+      'Ошибка получения счетчика вечерних постов'
+    );
+    return 0;
+  }
+};
+
+/**
+ * Увеличить счетчик отправленных вечерних постов для пользователя
+ * @param chatId - Chat ID пользователя (не внутренний id!)
+ */
+export const incrementEveningPostsCount = (chatId: number): void => {
+  try {
+    const stmt = db.query(`
+      UPDATE users
+      SET evening_posts_count = evening_posts_count + 1
+      WHERE chat_id = ?
+    `);
+    stmt.run(chatId);
+
+    const newCount = getEveningPostsCount(chatId);
+    databaseLogger.info({ chatId, newCount }, '✅ Увеличен счетчик вечерних постов');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, chatId },
+      '❌ Ошибка увеличения счетчика вечерних постов'
+    );
+  }
+};
+
+/**
+ * Проверить, достаточно ли вечерних постов для показа Joy поста
+ * @param chatId - Chat ID пользователя (не внутренний id!)
+ * @param minPosts - Минимальное количество постов (по умолчанию 3)
+ * @returns true если постов >= minPosts
+ */
+export const hasEnoughEveningPosts = (chatId: number, minPosts: number = 3): boolean => {
+  const count = getEveningPostsCount(chatId);
+  databaseLogger.info(
+    { chatId, count, minPosts, hasEnough: count >= minPosts },
+    'Проверка количества вечерних постов для Joy'
+  );
+  return count >= minPosts;
+};
+
+/**
  * Получить всех пользователей, у которых последнее сообщение от пользователя
  * и после него НЕТ ответа от бота
  * Возвращает: chat_id, последнее сообщение пользователя, время

@@ -1672,10 +1672,10 @@ ${weekendPromptContent}`;
     try {
       schedulerLogger.debug({ chatId }, 'Начало отправки сообщения');
 
-      // ВРЕМЕННО: Проверка на ВТОРНИК для тестирования (обычно воскресенье dayOfWeek === 0)
+      // ВРЕМЕННО: Проверка на СРЕДУ для тестирования (обычно воскресенье dayOfWeek === 0)
       const dayOfWeek = new Date().getDay();
-      if (dayOfWeek === 2) { // ВРЕМЕННО: Вторник для теста (обычно 0 - Воскресенье)
-        schedulerLogger.info({ chatId }, '📅 ТЕСТ: Вторник - показываем список радости (вместо воскресенья)');
+      if (dayOfWeek === 3) { // ВРЕМЕННО: Среда для теста (обычно 0 - Воскресенье)
+        schedulerLogger.info({ chatId }, '📅 ТЕСТ: Среда - показываем список радости (вместо воскресенья)');
         await this.sendJoyPostWithWeeklySummary(chatId);
         return;
       }
@@ -1820,7 +1820,7 @@ ${weekendPromptContent}`;
   }
 
   // Новый метод для интерактивной отправки сообщений
-  async sendInteractiveDailyMessage(chatId: number, isManualCommand: boolean = false) {
+  async sendInteractiveDailyMessage(chatId: number, isManualCommand: boolean = false, skipDayCheck: boolean = false) {
     // ВРЕМЕННО: разрешаем автоматическую отправку для тестового бота
     // if (this.isTestBot() && !isManualCommand) {
     //   schedulerLogger.warn('⚠️ Автоматическая интерактивная рассылка отключена для тестового бота');
@@ -1835,16 +1835,21 @@ ${weekendPromptContent}`;
           channelId: this.CHANNEL_ID,
           chatGroupId: this.getChatId(),
           isManualCommand,
+          skipDayCheck,
         },
         'Начало отправки интерактивного сообщения'
       );
 
-      // ВРЕМЕННО: Проверка на ВТОРНИК для тестирования (обычно воскресенье dayOfWeek === 0)
-      const dayOfWeek = new Date().getDay();
-      if (dayOfWeek === 2) { // ВРЕМЕННО: Вторник для теста (обычно 0 - Воскресенье)
-        schedulerLogger.info({ chatId }, '📅 ТЕСТ: Вторник - показываем список радости (вместо воскресенья)');
-        await this.sendJoyPostWithWeeklySummary(chatId);
-        return;
+      // ВРЕМЕННО: Проверка на СРЕДУ для тестирования (обычно воскресенье dayOfWeek === 0)
+      if (!skipDayCheck) {
+        const dayOfWeek = new Date().getDay();
+        if (dayOfWeek === 3) { // ВРЕМЕННО: Среда для теста (обычно 0 - Воскресенье)
+          schedulerLogger.info({ chatId }, '📅 ТЕСТ: Среда - показываем список радости (вместо воскресенья)');
+          await this.sendJoyPostWithWeeklySummary(chatId);
+          return;
+        }
+      } else {
+        schedulerLogger.info({ chatId }, '⏭️ Пропускаем проверку дня недели (skipDayCheck=true)');
       }
 
       // Показываем, что бот "пишет" (реакция)
@@ -1968,6 +1973,7 @@ ${weekendPromptContent}`;
         postUserId,
         relaxationType,
         generatedImageBuffer: imageBuffer,
+        isIntroPost, // Добавляем флаг вводного поста
       };
 
       // Функция отправки для использования в sendWithRetry
@@ -2065,6 +2071,30 @@ ${weekendPromptContent}`;
         const { saveMessage } = await import('./db');
         const startTime = new Date().toISOString();
         saveMessage(chatId, captionWithComment, startTime);
+
+        // Если это вводный пост - устанавливаем first_evening_post_date
+        if (retryData.isIntroPost) {
+          try {
+            const db = await import('./db');
+            const updateDateStmt = db.db.query(`
+              UPDATE users
+              SET first_evening_post_date = ?
+              WHERE id = ?
+            `);
+            updateDateStmt.run(startTime, chatId);
+            schedulerLogger.info({ chatId, startTime }, '📅 Установлена дата первого вечернего поста');
+          } catch (dateError) {
+            schedulerLogger.error({ error: dateError, chatId }, '❌ Ошибка установки first_evening_post_date');
+          }
+        }
+
+        // Увеличиваем счетчик вечерних постов (для определения когда показывать Joy)
+        try {
+          const { incrementEveningPostsCount } = await import('./db');
+          incrementEveningPostsCount(chatId);
+        } catch (countError) {
+          schedulerLogger.error({ error: countError, chatId }, '❌ Ошибка увеличения счетчика вечерних постов');
+        }
       };
 
       // Отправляем с повторными попытками
@@ -6995,15 +7025,15 @@ ${allDayUserMessages}
     try {
       schedulerLogger.info({ userId, skipInteractionCheck }, '🌟 Начало воскресной логики со списком радости');
 
-      // 1. Проверяем прошло ли 2 дня с первого вечернего поста
+      // 1. Проверяем достаточно ли вечерних постов для показа Joy (минимум 3)
       if (!skipInteractionCheck) {
-        const { hasPassedDaysSinceFirstEveningPost } = await import('./db');
-        const hasPassedDays = hasPassedDaysSinceFirstEveningPost(userId, 2);
+        const { hasEnoughEveningPosts } = await import('./db');
+        const hasEnough = hasEnoughEveningPosts(userId, 3);
 
-        if (!hasPassedDays) {
-          schedulerLogger.info({ userId }, '⏭️ Не прошло 2 дней с первого вечернего поста, пропускаем /joy');
-          // TODO: Вызвать обычную логику вечернего поста (БЕЗ проверки на воскресенье)
-          schedulerLogger.warn({ userId }, '⚠️ PLACEHOLDER: Здесь должен быть обычный вечерний пост');
+        if (!hasEnough) {
+          schedulerLogger.info({ userId }, '⏭️ Недостаточно вечерних постов (нужно >= 3), отправляем обычный вечерний пост');
+          // Отправляем обычный вечерний пост вместо Joy (пропускаем проверку дня недели!)
+          await this.sendInteractiveDailyMessage(userId, false, true);
           return;
         }
       } else {
