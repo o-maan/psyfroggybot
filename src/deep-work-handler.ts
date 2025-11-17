@@ -138,7 +138,24 @@ export class DeepWorkHandler {
   // Анализ ответа пользователя и выбор техники
   async analyzeUserResponse(channelMessageId: number, userText: string, userId: number, replyToMessageId?: number): Promise<void> {
     let waitingMessage: any;
-    
+
+    // АСИНХРОННО сохраняем негативное событие (не блокируем отправку следующих сообщений)
+    (async () => {
+      try {
+        const { saveNegativeEvent } = await import('./db');
+        saveNegativeEvent(
+          userId,
+          userText,
+          '', // Эмоции уже в тексте события
+          'evening',
+          channelMessageId.toString()
+        );
+        botLogger.info({ userId, channelMessageId, textLength: userText.length }, '💔 Негативное событие сохранено асинхронно (вечер, глубокий)');
+      } catch (error) {
+        botLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события (глубокий сценарий)');
+      }
+    })();
+
     try {
       botLogger.info({
         channelMessageId,

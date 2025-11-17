@@ -445,9 +445,9 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
     }
 
     // Если дошли сюда - одно сообщение или не нужно уточнение
-    // Отправляем "Плюшки для лягушки"
+    // Отправляем "Плюшки для лягушки" с сохранением негативных событий
     if (chatId && userId) {
-      await sendPlushkiMessage(bot, chatId, userId, channelMessageId, replyToMessageId);
+      await sendPlushkiMessage(bot, chatId, userId, channelMessageId, replyToMessageId, userMessages);
     }
   } catch (error) {
     botLogger.error(
@@ -468,7 +468,8 @@ async function sendPlushkiMessage(
   chatId: number,
   userId: number,
   channelMessageId: number,
-  replyToMessageId: number
+  replyToMessageId: number,
+  userMessages?: any[]
 ) {
   const { updateInteractivePostState } = await import('../../db');
 
@@ -477,6 +478,32 @@ async function sendPlushkiMessage(
   const plushkiKeyboard = {
     inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
   };
+
+  // АСИНХРОННО сохраняем негативные события (не блокируем отправку плюшек)
+  if (userMessages && userMessages.length > 0) {
+    // Запускаем асинхронно
+    (async () => {
+      try {
+        const { saveNegativeEvent } = await import('../../db');
+
+        // Собираем все тексты в одну строку
+        const allText = userMessages.map(m => m.message_preview || '').filter(Boolean).join('\n');
+
+        if (allText) {
+          saveNegativeEvent(
+            userId,
+            allText,
+            '', // Эмоции уже в тексте события
+            'evening',
+            channelMessageId.toString()
+          );
+          botLogger.info({ userId, channelMessageId, messagesCount: userMessages.length }, '💔 Негативное событие сохранено асинхронно (вечер, упрощенный)');
+        }
+      } catch (error) {
+        botLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события');
+      }
+    })();
+  }
 
   try {
     const plushkiMessage = await scenarioSendWithRetry(
