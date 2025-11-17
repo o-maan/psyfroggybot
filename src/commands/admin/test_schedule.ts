@@ -34,7 +34,7 @@ export function registerTestScheduleCommand(bot: Telegraf, scheduler: Scheduler)
       async () => {
         try {
           logger.info('Запуск тестового cron job');
-          await scheduler.sendDailyMessage(chatId);
+          await scheduler.sendInteractiveDailyMessage(chatId, true, true);
           await ctx.reply('✅ 🧪 Тестовое сообщение отправлено успешно!');
           testJob.stop();
           testJob.destroy();

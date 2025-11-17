@@ -398,7 +398,7 @@ export async function handleJoySundaySkip(ctx: BotContext, bot: Telegraf, schedu
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Глубокая работа 🧠', `scenario_deep_${channelMessageId}`)],
-        [Markup.button.callback('Упрощенный вариант 💫', `scenario_simplified_${channelMessageId}`)]
+        [Markup.button.callback('Упрощенный сценарий 💫', `scenario_simplified_${channelMessageId}`)]
       ])
     });
 
@@ -1047,7 +1047,7 @@ export async function handleJoyLater(ctx: BotContext, bot: Telegraf, scheduler: 
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('Глубокая работа 🧠', `scenario_deep_${channelMessageId}`)],
-        [Markup.button.callback('Упрощенный вариант 💫', `scenario_simplified_${channelMessageId}`)]
+        [Markup.button.callback('Упрощенный сценарий 💫', `scenario_simplified_${channelMessageId}`)]
       ])
     });
 

@@ -8,7 +8,12 @@
       "Bash(ssh root@94.228.118.202 \"sqlite3 /var/www/databases/psy_froggy_bot/froggy.db ''SELECT chat_id, username FROM users''\")",
       "Bash(gtimeout:*)",
       "Bash(mv:*)",
-      "Bash(ssh root@94.228.118.202:*)"
+      "Bash(ssh root@94.228.118.202:*)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@94.228.118.202 \"pm2 logs psyfroggybot --lines 200 --nostream\")",
+      "Bash(ssh:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
     ],
     "deny": [],
     "ask": []

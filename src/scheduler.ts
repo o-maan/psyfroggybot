@@ -4474,6 +4474,47 @@ ${allDayUserMessages}
     messageId: number,
     messageThreadId?: number
   ): Promise<boolean> {
+    // ВАЖНО: Если сообщение пришло В ТРЕД с активным вечерним сценарием - НЕ обрабатываем как Joy
+    // Проверяем только если есть messageThreadId (сообщение в треде комментариев)
+    if (messageThreadId) {
+      const { getUserIncompletePosts, getChannelMessageIdByThreadId } = await import('./db');
+
+      // Находим channelMessageId по threadId
+      let channelMessageId = await getChannelMessageIdByThreadId(messageThreadId);
+
+      // Если не нашли в БД, проверяем в памяти
+      if (!channelMessageId) {
+        for (const [channelId, forwardedId] of this.forwardedMessages.entries()) {
+          if (forwardedId === messageThreadId) {
+            channelMessageId = channelId;
+            break;
+          }
+        }
+      }
+
+      // Если нашли channelMessageId, проверяем его статус
+      if (channelMessageId) {
+        const incompletePosts = getUserIncompletePosts(userId);
+        const activePost = incompletePosts.find(p => p.channel_message_id === channelMessageId);
+
+        if (activePost) {
+          // Проверяем, начался ли уже вечерний сценарий в ЭТОМ посте
+          const isEveningScenarioActive =
+            activePost.current_state?.startsWith('waiting_') ||
+            activePost.current_state?.startsWith('deep_waiting_') ||
+            activePost.current_state?.startsWith('schema_waiting_');
+
+          if (isEveningScenarioActive) {
+            schedulerLogger.debug(
+              { userId, currentState: activePost.current_state, messageThreadId, channelMessageId },
+              '⏭️ Пропускаем Joy - в ЭТОМ треде активен вечерний сценарий'
+            );
+            return false;
+          }
+        }
+      }
+    }
+
     // СНАЧАЛА проверяем SHORT JOY сессии (они имеют приоритет)
     const shortJoySession = this.shortJoySessions.get(userId);
     if (shortJoySession) {
@@ -4767,16 +4808,17 @@ ${allDayUserMessages}
     messageId: number,
     messageThreadId?: number
   ) {
+    schedulerLogger.info(
+      { userId, messageText: messageText.substring(0, 30), replyToChatId, messageThreadId },
+      '🔵 handleInteractiveUserResponse ВЫЗВАН'
+    );
+
     // Интерактивные ответы ВКЛЮЧЕНЫ - это нужно для работы логики заданий
     const INTERACTIVE_RESPONSES_ENABLED = true; // Это НУЖНО для работы заданий!
 
-    // ВАЖНО: Проверяем, не является ли это Joy-сессией
-    // Если это Joy - сразу возвращаем false, это НЕ интерактивный пост!
-    const joySession = this.joySessions.get(userId);
-    if (joySession && messageThreadId && messageThreadId === joySession.forwardedMessageId) {
-      // Это Joy-сессия, не наше дело!
-      return false;
-    }
+    // Примечание: Проверка на Joy-сессию перенесена в handleJoyUserMessage()
+    // Там проверяется наличие активного вечернего сценария, и если он есть - Joy не обрабатывает
+    // Поэтому здесь эта проверка НЕ нужна - если мы дошли сюда, значит это вечерняя логика
 
     // Сначала проверяем, не является ли это комментарием к злому посту
     if (messageThreadId) {
