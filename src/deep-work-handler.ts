@@ -147,7 +147,6 @@ export class DeepWorkHandler {
           userId,
           userText,
           '', // Эмоции уже в тексте события
-          'evening',
           channelMessageId.toString()
         );
         botLogger.info({ userId, channelMessageId, textLength: userText.length }, '💔 Негативное событие сохранено асинхронно (вечер, глубокий)');

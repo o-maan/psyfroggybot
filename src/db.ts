@@ -1673,24 +1673,22 @@ export const saveMorningMessageIndexes = (
  * @param userId - ID пользователя
  * @param eventText - Текст события
  * @param emotionsText - Текст эмоций (может быть пустым)
- * @param postType - Тип поста ('morning' или 'evening')
  * @param cycleIdentifier - ID цикла (channel_message_id)
  */
 export const savePositiveEvent = (
   userId: number,
   eventText: string,
   emotionsText: string,
-  postType: 'morning' | 'evening',
   cycleIdentifier?: string
 ) => {
   try {
     const stmt = db.query(`
-      INSERT INTO positive_events (user_id, event_text, emotions_text, created_at, post_type, cycle_identifier)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO positive_events (user_id, event_text, emotions_text, created_at, cycle_identifier)
+      VALUES (?, ?, ?, ?, ?)
     `);
 
-    stmt.run(userId, eventText, emotionsText || '', new Date().toISOString(), postType, cycleIdentifier || null);
-    databaseLogger.info({ userId, postType, cycleIdentifier }, 'Позитивное событие сохранено');
+    stmt.run(userId, eventText, emotionsText || '', new Date().toISOString(), cycleIdentifier || null);
+    databaseLogger.info({ userId, cycleIdentifier }, 'Позитивное событие сохранено');
   } catch (e) {
     const error = e as Error;
     databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения позитивного события');
@@ -1702,24 +1700,22 @@ export const savePositiveEvent = (
  * @param userId - ID пользователя
  * @param eventText - Текст события
  * @param emotionsText - Текст эмоций (может быть пустым)
- * @param postType - Тип поста ('morning' или 'evening')
  * @param cycleIdentifier - ID цикла (channel_message_id)
  */
 export const saveNegativeEvent = (
   userId: number,
   eventText: string,
   emotionsText: string,
-  postType: 'morning' | 'evening',
   cycleIdentifier?: string
 ) => {
   try {
     const stmt = db.query(`
-      INSERT INTO negative_events (user_id, event_text, emotions_text, created_at, post_type, cycle_identifier)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO negative_events (user_id, event_text, emotions_text, created_at, cycle_identifier)
+      VALUES (?, ?, ?, ?, ?)
     `);
 
-    stmt.run(userId, eventText, emotionsText || '', new Date().toISOString(), postType, cycleIdentifier || null);
-    databaseLogger.info({ userId, postType, cycleIdentifier }, 'Негативное событие сохранено');
+    stmt.run(userId, eventText, emotionsText || '', new Date().toISOString(), cycleIdentifier || null);
+    databaseLogger.info({ userId, cycleIdentifier }, 'Негативное событие сохранено');
   } catch (e) {
     const error = e as Error;
     databaseLogger.error({ error: error.message, stack: error.stack, userId }, 'Ошибка сохранения негативного события');

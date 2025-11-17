@@ -494,7 +494,6 @@ async function sendPlushkiMessage(
             userId,
             allText,
             '', // Эмоции уже в тексте события
-            'evening',
             channelMessageId.toString()
           );
           botLogger.info({ userId, channelMessageId, messagesCount: userMessages.length }, '💔 Негативное событие сохранено асинхронно (вечер, упрощенный)');

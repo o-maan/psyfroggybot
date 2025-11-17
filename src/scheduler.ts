@@ -5382,16 +5382,21 @@ ${allDayUserMessages}
         const { updateTaskStatus } = await import('./db');
         updateTaskStatus(channelMessageId, 2, true);
 
-        // Сохраняем позитивное событие (плюшки всегда позитивные)
-        const { savePositiveEvent } = await import('./db');
-        savePositiveEvent(
-          userId,
-          messageText,
-          '',
-          'evening',
-          channelMessageId.toString()
-        );
-        schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено (вечер, глубокий)');
+        // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
+        (async () => {
+          try {
+            const { savePositiveEvent } = await import('./db');
+            savePositiveEvent(
+              userId,
+              messageText,
+              '',
+              channelMessageId.toString()
+            );
+            schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)');
+          } catch (error) {
+            schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, глубокий)');
+          }
+        })();
 
         let finalMessage = '<i>Вау! 🤩 Ты справился! Это было потрясающе!</i>\n\n';
         finalMessage += 'Последний шаг - время замедлиться и побыть в покое 🤍\n';
@@ -6393,16 +6398,21 @@ ${allDayUserMessages}
         // Отмечаем второе задание как выполненное
         updateTaskStatus(channelMessageId, 2, true);
 
-        // Сохраняем позитивное событие (плюшки всегда позитивные)
-        const { savePositiveEvent: savePositiveEventSimplified } = await import('./db');
-        savePositiveEventSimplified(
-          userId,
-          messageText,
-          '',
-          'evening',
-          channelMessageId.toString()
-        );
-        schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено (вечер, упрощенный)');
+        // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
+        (async () => {
+          try {
+            const { savePositiveEvent } = await import('./db');
+            savePositiveEvent(
+              userId,
+              messageText,
+              '',
+              channelMessageId.toString()
+            );
+            schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)');
+          } catch (error) {
+            schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, упрощенный)');
+          }
+        })();
 
         schedulerLogger.debug(
           {

@@ -166,28 +166,38 @@ export async function handleMorningRespond(ctx: BotContext) {
       updateMorningPostFinalMessageTime(channelMessageId, finalMessageTimestamp);
       botLogger.info({ userId, timestamp: finalMessageTimestamp }, '⏱️ Обновлен timestamp финального сообщения');
 
-      // Сохраняем событие в зависимости от sentiment (с любым количеством эмоций >= 1)
+      // АСИНХРОННО сохраняем событие в зависимости от sentiment (с любым количеством эмоций >= 1)
       if (analysisData.emotions_count >= 1) {
         if (analysisData.sentiment === 'positive') {
-          const { savePositiveEvent } = await import('../../db');
-          savePositiveEvent(
-            userId,
-            newCycleUserMessages,
-            '',
-            'morning',
-            channelMessageId.toString()
-          );
-          botLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено (утро)');
+          (async () => {
+            try {
+              const { savePositiveEvent } = await import('../../db');
+              savePositiveEvent(
+                userId,
+                newCycleUserMessages,
+                '',
+                channelMessageId.toString()
+              );
+              botLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (утро)');
+            } catch (error) {
+              botLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (утро)');
+            }
+          })();
         } else if (analysisData.sentiment === 'negative') {
-          const { saveNegativeEvent } = await import('../../db');
-          saveNegativeEvent(
-            userId,
-            newCycleUserMessages,
-            '',
-            'morning',
-            channelMessageId.toString()
-          );
-          botLogger.info({ userId, channelMessageId }, '💔 Негативное событие сохранено (утро)');
+          (async () => {
+            try {
+              const { saveNegativeEvent } = await import('../../db');
+              saveNegativeEvent(
+                userId,
+                newCycleUserMessages,
+                '',
+                channelMessageId.toString()
+              );
+              botLogger.info({ userId, channelMessageId }, '💔 Негативное событие сохранено асинхронно (утро)');
+            } catch (error) {
+              botLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события (утро)');
+            }
+          })();
         }
       }
 
