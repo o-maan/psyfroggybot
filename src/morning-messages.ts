@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { schedulerLogger } from './logger';
 import { getMorningMessageIndexes, saveMorningMessageIndexes } from './db';
 
@@ -55,9 +55,9 @@ interface ParsedMessages {
 }
 
 // Парсинг файла с сообщениями
-export function parseMorningMessages(): ParsedMessages {
+export async function parseMorningMessages(): Promise<ParsedMessages> {
   try {
-    const content = readFileSync(WEEKDAY_MESSAGES_FILE, 'utf-8');
+    const content = await readFile(WEEKDAY_MESSAGES_FILE, 'utf-8');
     const lines = content.split('\n');
 
     const result: ParsedMessages = {
@@ -231,8 +231,8 @@ export function getRandomEmojis(): { positive: string; negative: string } {
 }
 
 // Получить текст утреннего сообщения
-export function getMorningMessageText(userId: number, dayOfWeek: number): string {
-  const messages = parseMorningMessages();
+export async function getMorningMessageText(userId: number, dayOfWeek: number): Promise<string> {
+  const messages = await parseMorningMessages();
   const indexes = getMorningMessageIndexes(userId) ?? {
     weekday_index: 0,
     weekend_index: 0,

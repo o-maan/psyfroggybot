@@ -143,7 +143,7 @@ export class JoyHandler {
     try {
       // СНАЧАЛА проверяем на спам/грубость
       const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
-      const rudeCheck = checkRudeMessage(userMessage, this.userId);
+      const rudeCheck = await checkRudeMessage(userMessage, this.userId);
 
       if (rudeCheck.isRude && rudeCheck.response) {
         // Отправляем предупреждение о спаме

@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import { generateMessage } from '../llm';
 import { botLogger } from '../logger';
 import { db } from '../db';
@@ -19,7 +20,7 @@ export async function generateDayRatingSupportWords(): Promise<DayRatingSupportW
   try {
     // Загружаем промпт из файла
     const { readFileSync } = await import('fs');
-    const prompt = readFileSync('assets/prompts/day-rating-support-words.md', 'utf-8');
+    const prompt = await readFile('assets/prompts/day-rating-support-words.md', 'utf-8');
 
     // Делаем ОДИН запрос к LLM для генерации всех 5 вариантов
     const response = await generateMessage(prompt);

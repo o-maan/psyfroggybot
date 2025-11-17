@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import { Telegraf } from 'telegraf';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -203,7 +204,7 @@ export class DeepWorkHandler {
       );
       
       // Загружаем промпт для анализа
-      const analyzePrompt = readFileSync('assets/prompts/analyze_situations.md', 'utf-8');
+      const analyzePrompt = await readFile('assets/prompts/analyze_situations.md', 'utf-8');
       const fullPrompt = analyzePrompt + '\n' + userText;
 
       // Запрашиваем анализ у LLM с низкой температурой (0.3) для точности
@@ -342,7 +343,7 @@ export class DeepWorkHandler {
       
       // Загружаем картинку
       const imagePath = path.join(process.cwd(), 'assets', 'images', 'percept-filters-info.png');
-      const imageBuffer = readFileSync(imagePath);
+      const imageBuffer = await readFile(imagePath);
       
       // Отправляем картинку с текстом
       const sendOptions: any = {
@@ -1230,24 +1231,24 @@ export class DeepWorkHandler {
       ];
 
       // Подготавливаем первую группу из 6 картинок
-      const firstGroup = FILTERS_FILES.slice(0, 6).map(filename => {
+      const firstGroup = await Promise.all(FILTERS_FILES.slice(0, 6).map(async filename => {
         const imagePath = path.join('assets', 'images', filename);
-        const imageBuffer = readFileSync(imagePath);
+        const imageBuffer = await readFile(imagePath);
         return {
           type: 'photo' as const,
           media: { source: imageBuffer }
         };
-      });
+      }));
 
       // Подготавливаем вторую группу из 6 картинок
-      const secondGroup = FILTERS_FILES.slice(6, 12).map(filename => {
+      const secondGroup = await Promise.all(FILTERS_FILES.slice(6, 12).map(async filename => {
         const imagePath = path.join('assets', 'images', filename);
-        const imageBuffer = readFileSync(imagePath);
+        const imageBuffer = await readFile(imagePath);
         return {
           type: 'photo' as const,
           media: { source: imageBuffer }
         };
-      });
+      }));
 
       // Подготавливаем sendOptions для первой группы
       const sendOptions1: any = {};

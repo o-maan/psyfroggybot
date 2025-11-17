@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
 import { readFileSync } from 'fs';
@@ -22,7 +23,7 @@ export async function handleHelpEmotions(ctx: BotContext) {
 
     // Отправляем изображение с таблицей эмоций
     const emotionsTablePath = 'assets/images/ТАБЛИЦА ЭМОЦИЙ.png';
-    const emotionsTableImage = readFileSync(emotionsTablePath);
+    const emotionsTableImage = await readFile(emotionsTablePath);
     
     // Формируем текст для картинки
     const captionText = '💡 <b>Если пока сложно - начнем с 10 эмоций:</b> ' +

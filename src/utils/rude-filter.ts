@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import { botLogger } from '../logger';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -10,8 +11,8 @@ async function loadRussianDictionary() {
   try {
     // Сначала пробуем загрузить локальный словарь
     const localDictPath = path.join(process.cwd(), 'assets', 'dictionaries', 'russian-words.txt');
-    if (readFileSync(localDictPath)) {
-      const content = readFileSync(localDictPath, 'utf-8');
+    if (await readFile(localDictPath)) {
+      const content = await readFile(localDictPath, 'utf-8');
       const lines = content.split('\n');
       
       for (const line of lines) {
@@ -666,12 +667,12 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 // Загружаем и парсим промпт при старте
-const rudePhrasesData = loadRudePhrases();
+let rudePhrasesData: Map<string, { phrases: Set<string>, response: string }> | null = null;
 
-function loadRudePhrases(): Map<string, { phrases: Set<string>, response: string }> {
+async function loadRudePhrases(): Promise<Map<string, { phrases: Set<string>, response: string }>> {
   try {
     const promptPath = path.join(process.cwd(), 'assets', 'prompts', 'wtf');
-    const content = readFileSync(promptPath, 'utf-8');
+    const content = await readFile(promptPath, 'utf-8');
     const lines = content.split('\n');
     
     const categories = new Map<string, { phrases: Set<string>, response: string }>();
@@ -1140,12 +1141,17 @@ function getKeyboardSpamResponse(userId?: number): string {
 }
 
 // Основная функция проверки
-export function checkRudeMessage(text: string, userId?: number): RudeResponse {
+export async function checkRudeMessage(text: string, userId?: number): Promise<RudeResponse> {
   try {
+    // Инициализируем данные при первом использовании
+    if (!rudePhrasesData) {
+      rudePhrasesData = await loadRudePhrases();
+    }
+
     const normalized = text.trim().toLowerCase();
-    
+
     // ГЛАВНОЕ ПРАВИЛО: проверяем только если это ЕДИНСТВЕННЫЙ текст в сообщении
-    
+
     // 1. Сначала проверяем точные совпадения с фразами из списков
     for (const [category, data] of rudePhrasesData.entries()) {
       if (data.phrases.has(normalized)) {

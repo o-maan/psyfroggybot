@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
@@ -45,8 +46,8 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
       // Читаем видео файл
       const PRACTICE_VIDEO_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-optimized.mp4');
       const PRACTICE_VIDEO_THUMBNAIL_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-thumbnail.jpg');
-      const practiceVideo = readFileSync(PRACTICE_VIDEO_PATH);
-      const thumbnailBuffer = readFileSync(PRACTICE_VIDEO_THUMBNAIL_PATH);
+      const practiceVideo = await readFile(PRACTICE_VIDEO_PATH);
+      const thumbnailBuffer = await readFile(PRACTICE_VIDEO_THUMBNAIL_PATH);
       
       // Отправляем видео с практикой
       const videoOptions: any = {

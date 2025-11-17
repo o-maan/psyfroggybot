@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
 import { getMorningPost, updateMorningPostStep, getMorningPostUserMessages, getMorningPostMessagesAfterLastFinal, updateMorningPostFinalMessageTime } from '../../db';
@@ -102,7 +103,7 @@ export async function handleMorningRespond(ctx: BotContext) {
     }, 'Анализируем сообщения пользователя');
 
     // Анализируем эмоции НОВОГО цикла с помощью LLM (с низкой температурой для точности)
-    const analyzePromptTemplate = readFileSync('assets/prompts/morning-analyze-emotions.md', 'utf-8');
+    const analyzePromptTemplate = await readFile('assets/prompts/morning-analyze-emotions.md', 'utf-8');
     const analyzePrompt = analyzePromptTemplate.replace('{{USER_MESSAGES}}', newCycleUserMessages);
 
     const analyzeResult = await analyzeWithLowTemp(analyzePrompt);
@@ -136,7 +137,7 @@ export async function handleMorningRespond(ctx: BotContext) {
       botLogger.info({ userId }, 'Названо 3+ эмоций, переходим к финальному ответу');
 
       // Используем специальный промпт для первого финального ответа (без предыдущих ответов бота)
-      const finalPromptTemplate = readFileSync('assets/prompts/morning-first-final-response.md', 'utf-8');
+      const finalPromptTemplate = await readFile('assets/prompts/morning-first-final-response.md', 'utf-8');
       const finalPrompt = finalPromptTemplate
         .replace('{{USER_MESSAGES}}', allDayUserMessages)
         .replace('{{SENTIMENT_TYPE}}', analysisData.sentiment)

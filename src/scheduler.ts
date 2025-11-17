@@ -1,4 +1,5 @@
-import fs, { readFileSync } from 'fs';
+import fs from 'fs';
+import { readFile } from 'fs/promises';
 import * as cron from 'node-cron';
 import path from 'path';
 import { Telegraf, Markup } from 'telegraf';
@@ -381,7 +382,7 @@ export class Scheduler {
   public async generateSimpleMessage(promptName: string, context: any): Promise<string> {
     try {
       const promptPath = path.join(__dirname, '..', 'assets', 'prompts', `${promptName}.md`);
-      let prompt = readFileSync(promptPath, 'utf-8');
+      let prompt = await readFile(promptPath, 'utf-8');
 
       // Заменяем плейсхолдеры в промпте
       if (context.userName) {
@@ -761,7 +762,7 @@ export class Scheduler {
   // Определяем занятость пользователя через LLM анализ календаря
   private async detectUserBusy(events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
     try {
-      const detectPrompt = readFileSync('assets/prompts/detect-busy.md', 'utf-8');
+      const detectPrompt = await readFile('assets/prompts/detect-busy.md', 'utf-8');
 
       // Формируем подробное описание событий
       let eventsDescription = '';
@@ -943,7 +944,7 @@ export class Scheduler {
     if (useTextList) {
       // Используем текст из списка для всех дней кроме ЧТ и СБ
       schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка (не ЧТ/СБ)');
-      const messageText = getEveningMessageText(chatId);
+      const messageText = await getEveningMessageText(chatId);
       return messageText;
     }
 
@@ -1039,7 +1040,7 @@ export class Scheduler {
       `🔍 Выбор промпта: ${busyStatus.probably_busy ? 'BUSY' : 'NORMAL'}`
     );
 
-    let promptBase = readFileSync(promptPath, 'utf-8');
+    let promptBase = await readFile(promptPath, 'utf-8');
 
     // Добавляем имя пользователя в промпт
     // Если имя не установлено, используем дефолтное значение
@@ -1063,7 +1064,7 @@ export class Scheduler {
       // Проверяем на ошибку до очистки
       if (rawText === 'HF_JSON_ERROR') {
         schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (flight), используем текст из списка');
-        const fallbackText = getEveningMessageText(chatId);
+        const fallbackText = await getEveningMessageText(chatId);
         saveMessage(chatId, fallbackText, new Date().toISOString());
         return fallbackText;
       }
@@ -1078,7 +1079,7 @@ export class Scheduler {
           { chatId, extractedLength: jsonText?.length || 0 },
           '❌ После извлечения JSON пустой (flight), используем текст из списка'
         );
-        const fallbackText = getEveningMessageText(chatId);
+        const fallbackText = await getEveningMessageText(chatId);
         saveMessage(chatId, fallbackText, new Date().toISOString());
         return fallbackText;
       }
@@ -1135,7 +1136,7 @@ export class Scheduler {
       } catch {}
       // Fallback для занятого пользователя - используем текст из списка
       schedulerLogger.warn({ chatId }, '❌ Ошибка парсинга JSON (flight), используем текст из списка');
-      const fallbackText = getEveningMessageText(chatId);
+      const fallbackText = await getEveningMessageText(chatId);
       saveMessage(chatId, fallbackText, new Date().toISOString());
       return fallbackText;
     } else {
@@ -1155,7 +1156,7 @@ export class Scheduler {
       // Сначала проверяем на исходную ошибку
       if (rawJsonText === 'HF_JSON_ERROR') {
         schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR (до очистки)');
-        const fallback = readFileSync('assets/fallback_text', 'utf-8');
+        const fallback = await readFile('assets/fallback_text', 'utf-8');
         return fallback;
       }
 
@@ -1169,7 +1170,7 @@ export class Scheduler {
           { chatId, extractedLength: jsonText?.length || 0 },
           '❌ После извлечения JSON пустой или ошибка'
         );
-        const fallback = readFileSync('assets/fallback_text', 'utf-8');
+        const fallback = await readFile('assets/fallback_text', 'utf-8');
         return fallback;
       }
 
@@ -1259,7 +1260,7 @@ export class Scheduler {
           },
           '❌ JSON парсинг не удался, используем fallback'
         );
-        const fallback = readFileSync('assets/fallback_text', 'utf-8');
+        const fallback = await readFile('assets/fallback_text', 'utf-8');
         return fallback;
       }
       let message = this.buildScheduledMessageFromHF(json);
@@ -1294,7 +1295,7 @@ export class Scheduler {
     if (useTextList) {
       // Используем текст из списка для всех дней кроме ЧТ и СБ
       schedulerLogger.info({ chatId, dayOfWeek }, '📋 Интерактивный режим: используем текст из списка (не ЧТ/СБ)');
-      const messageText = getEveningMessageText(chatId);
+      const messageText = await getEveningMessageText(chatId);
 
       // Возвращаем простую структуру с текстом из списка
       return {
@@ -1402,7 +1403,7 @@ export class Scheduler {
       `🔍 Интерактивный режим: используем обычный промпт`
     );
 
-    let promptBase = readFileSync(promptPath, 'utf-8');
+    let promptBase = await readFile(promptPath, 'utf-8');
 
     // Добавляем имя пользователя в промпт
     const userNameToUse = userName || 'друг';
@@ -1416,7 +1417,7 @@ export class Scheduler {
     const isWeekend = this.isWeekend();
     let weekendInstructions = '';
     if (isWeekend) {
-      const weekendPromptContent = readFileSync('assets/prompts/weekend-encouragement.md', 'utf-8');
+      const weekendPromptContent = await readFile('assets/prompts/weekend-encouragement.md', 'utf-8');
       weekendInstructions = `\n\n**ВАЖНО: Сегодня выходной день!**
 Для encouragement.text используй стиль выходного дня из следующих рекомендаций:
 
@@ -1451,7 +1452,7 @@ ${weekendPromptContent}`;
     // Проверяем на ошибку до очистки
     if (rawJsonText === 'HF_JSON_ERROR') {
       schedulerLogger.warn({ chatId }, '❌ LLM вернул HF_JSON_ERROR в интерактивном режиме (до очистки), используем текст из списка');
-      const fallback = getEveningMessageText(chatId);
+      const fallback = await getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1494,7 +1495,7 @@ ${weekendPromptContent}`;
         { chatId, extractedLength: jsonText?.length || 0 },
         '❌ После извлечения JSON пустой или ошибка в интерактивном режиме, используем текст из списка'
       );
-      const fallback = getEveningMessageText(chatId);
+      const fallback = await getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1629,7 +1630,7 @@ ${weekendPromptContent}`;
         },
         '❌ JSON парсинг не удался в интерактивном режиме, используем текст из списка'
       );
-      const fallback = getEveningMessageText(chatId);
+      const fallback = await getEveningMessageText(chatId);
 
       schedulerLogger.info(
         {
@@ -1700,7 +1701,7 @@ ${weekendPromptContent}`;
       let imageBuffer: Buffer | null = null;
       try {
         const imagePath = this.getNextImage(chatId);
-        imageBuffer = readFileSync(imagePath);
+        imageBuffer = await readFile(imagePath);
         schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для планируемого вечернего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
@@ -1715,7 +1716,7 @@ ${weekendPromptContent}`;
         // Fallback: случайное изображение из вечерних
         const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
         const fallbackImagePath = this.imageFiles[randomIndex];
-        imageBuffer = readFileSync(fallbackImagePath);
+        imageBuffer = await readFile(fallbackImagePath);
         schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для планируемого вечернего поста');
       }
 
@@ -1899,7 +1900,7 @@ ${weekendPromptContent}`;
       let imageBuffer: Buffer | null = null;
       try {
         const imagePath = this.getNextImage(chatId);
-        imageBuffer = readFileSync(imagePath);
+        imageBuffer = await readFile(imagePath);
         schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для вечернего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
@@ -1914,7 +1915,7 @@ ${weekendPromptContent}`;
         // Fallback: случайное изображение из вечерних
         const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
         const fallbackImagePath = this.imageFiles[randomIndex];
-        imageBuffer = readFileSync(fallbackImagePath);
+        imageBuffer = await readFile(fallbackImagePath);
         schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для вечернего поста');
       }
 
@@ -1999,7 +2000,7 @@ ${weekendPromptContent}`;
             imagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
           }
 
-          const imageFile = readFileSync(imagePath);
+          const imageFile = await readFile(imagePath);
           return await this.bot.telegram.sendPhoto(
             this.CHANNEL_ID,
             { source: imageFile },
@@ -3511,7 +3512,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     try {
       // Читаем файл с промптами
-      const angryPromptsFile = readFileSync('assets/prompts/no-answer', 'utf-8');
+      const angryPromptsFile = await readFile('assets/prompts/no-answer', 'utf-8');
 
       // Выбираем рандомно один из 4 вариантов
       const promptNumber = Math.floor(Math.random() * 4) + 1; // 1, 2, 3 или 4
@@ -3857,7 +3858,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           schedulerLogger.info({ chatId, dayOfWeek }, '📅 Пятница - генерируем текст через LLM');
 
           try {
-            const morningPrompt = readFileSync('assets/prompts/morning-message.md', 'utf-8');
+            const morningPrompt = await readFile('assets/prompts/morning-message.md', 'utf-8');
             const morningText = await generateMessage(morningPrompt);
             const cleanedText = cleanLLMText(morningText);
             captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
@@ -3878,7 +3879,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       let imageBuffer: Buffer | null = null;
       try {
         const imagePath = this.getNextMorningImage();
-        imageBuffer = readFileSync(imagePath);
+        imageBuffer = await readFile(imagePath);
         schedulerLogger.info({ chatId, imagePath }, '🖼️ Выбрано изображение для утреннего поста');
       } catch (imageError) {
         const imgErr = imageError as Error;
@@ -3897,7 +3898,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         });
         const randomIndex = Math.floor(Math.random() * allMorningImages.length);
         const fallbackImagePath = allMorningImages[randomIndex];
-        imageBuffer = readFileSync(fallbackImagePath);
+        imageBuffer = await readFile(fallbackImagePath);
         schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для утреннего поста');
       }
 
@@ -4024,7 +4025,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     schedulerLogger.debug({ userId, messageText: messageText.substring(0, 50) }, '💾 Сообщение пользователя сохранено в БД');
 
     // Проверка на грубость/фигню БЕЗ LLM
-    const rudeCheck = checkRudeMessage(messageText, userId);
+    const rudeCheck = await checkRudeMessage(messageText, userId);
     if (rudeCheck.isRude && rudeCheck.response) {
       await this.sendWithRetry(
         () =>
@@ -5094,7 +5095,7 @@ ${allDayUserMessages}
     // Проверяем на грубый/бессмысленный ответ
     try {
       const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
-      const rudeCheck = checkRudeMessage(messageText, userId);
+      const rudeCheck = await checkRudeMessage(messageText, userId);
 
       if (rudeCheck.isRude) {
         schedulerLogger.info(
@@ -5428,8 +5429,8 @@ ${allDayUserMessages}
 
         // Отправляем видео с дыхательной практикой
         // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-        const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
-        const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+        const practiceVideo = await readFile(this.PRACTICE_VIDEO_PATH);
+        const thumbnailBuffer = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
         const deepVideoOptions: any = {
           caption: finalMessage,
@@ -5525,8 +5526,8 @@ ${allDayUserMessages}
 
         try {
           // Отправляем видео с дыхательной практикой
-          const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
-          const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+          const practiceVideo = await readFile(this.PRACTICE_VIDEO_PATH);
+          const thumbnailBuffer = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
           const deepVideoOptions2: any = {
             caption: finalMessage,
@@ -6488,8 +6489,8 @@ ${allDayUserMessages}
 
         try {
           // Отправляем видео с дыхательной практикой с повторными попытками
-          const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
-          const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+          const practiceVideo = await readFile(this.PRACTICE_VIDEO_PATH);
+          const thumbnailBuffer = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
           // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
           const videoOptions: any = {
@@ -6571,8 +6572,8 @@ ${allDayUserMessages}
               'У нас остался последний шаг\n\n3. <b>Дыхательная практика</b>\n\n<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>\n\nОтметьте выполнение ответом в этой ветке.';
 
             // В fallback тоже отправляем видео с повторными попытками
-            const fallbackVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
-            const fallbackThumbnail = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+            const fallbackVideo = await readFile(this.PRACTICE_VIDEO_PATH);
+            const fallbackThumbnail = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
             const fallbackVideoOptions: any = {
               caption: fallbackFinalText,
@@ -6648,8 +6649,8 @@ ${allDayUserMessages}
 
         try {
           // Отправляем видео с дыхательной практикой
-          const practiceVideo = readFileSync(this.PRACTICE_VIDEO_PATH);
-          const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+          const practiceVideo = await readFile(this.PRACTICE_VIDEO_PATH);
+          const thumbnailBuffer = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
           const practiceVideoOptions: any = {
             caption: finalMessage,
@@ -7028,8 +7029,8 @@ ${allDayUserMessages}
         // Сообщение будет отправлено как обычное сообщение в группу
 
         // Отправляем видео с дыхательной практикой
-        const practiceVideoBuffer = readFileSync(this.PRACTICE_VIDEO_PATH);
-        const thumbnailBuffer = readFileSync(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
+        const practiceVideoBuffer = await readFile(this.PRACTICE_VIDEO_PATH);
+        const thumbnailBuffer = await readFile(this.PRACTICE_VIDEO_THUMBNAIL_PATH);
 
         // Для видео используем reply_to_message_id вместо reply_parameters
         const videoOptions: any = {
@@ -7138,11 +7139,11 @@ ${allDayUserMessages}
       } else {
         // Для основного сценария берем текст из списка постов
         const { getJoyMainMessageText } = await import('./joy-main-messages');
-        const mainPostText = getJoyMainMessageText(userId);
+        const mainPostText = await getJoyMainMessageText(userId);
         postText = `${mainPostText}\n\nПереходи в комментарии и продолжим 😉`;
       }
 
-      const imageBuffer = fs.readFileSync(fallbackImagePath);
+      const imageBuffer = await readFile(fallbackImagePath);
       const channelMessage = await this.bot.telegram.sendPhoto(
         this.CHANNEL_ID,
         { source: imageBuffer },
@@ -7416,7 +7417,7 @@ ${eventsText}${filterInstruction}
       // Отправляем пост в канал с картинкой
       let channelMessage;
       try {
-        const imageBuffer = fs.readFileSync(fallbackImagePath);
+        const imageBuffer = await readFile(fallbackImagePath);
         channelMessage = await this.bot.telegram.sendPhoto(
           this.CHANNEL_ID,
           { source: imageBuffer },
@@ -7613,7 +7614,7 @@ ${eventsText}${filterInstruction}
           fallbackImagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
         }
 
-        const imageBuffer = fs.readFileSync(fallbackImagePath);
+        const imageBuffer = await readFile(fallbackImagePath);
 
         const photoOptions: any = {
           caption: postText,

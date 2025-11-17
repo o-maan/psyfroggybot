@@ -1,5 +1,6 @@
 import { InferenceClient } from '@huggingface/inference';
 import fs from 'fs';
+import { readFile } from 'fs/promises';
 import { llmLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
@@ -231,7 +232,7 @@ export async function generateUserResponse(
   try {
     // Загружаем промпт для анализа ответов пользователя
     const promptPath = './assets/prompts/user-response.md';
-    const userResponsePrompt = fs.readFileSync(promptPath, 'utf-8');
+    const userResponsePrompt = await readFile(promptPath, 'utf-8');
 
     const model = 'deepseek-ai/DeepSeek-R1-0528';
     llmLogger.info(
@@ -394,7 +395,7 @@ export async function generateFrogPrompt(
   try {
     // Загружаем промпт для генерации описания лягушки
     const promptPath = './assets/prompts/frog-image-prompt.md';
-    const frogPromptTemplate = fs.readFileSync(promptPath, 'utf-8');
+    const frogPromptTemplate = await readFile(promptPath, 'utf-8');
 
     const model = 'deepseek-ai/DeepSeek-R1-0528';
     llmLogger.info(

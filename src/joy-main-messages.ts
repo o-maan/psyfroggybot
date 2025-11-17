@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { schedulerLogger } from './logger';
 import { getMorningMessageIndexes, saveMorningMessageIndexes } from './db';
 
@@ -9,9 +9,9 @@ const JOY_MAIN_MESSAGES_FILE = 'assets/joy-main-posts.md';
  * Парсинг файла с основными постами Joy
  * Формат файла: каждый пост начинается с "## Пост N"
  */
-export function parseJoyMainMessages(): string[] {
+export async function parseJoyMainMessages(): Promise<string[]> {
   try {
-    const content = readFileSync(JOY_MAIN_MESSAGES_FILE, 'utf-8');
+    const content = await readFile(JOY_MAIN_MESSAGES_FILE, 'utf-8');
     const lines = content.split('\n');
 
     const messages: string[] = [];
@@ -75,8 +75,8 @@ export function parseJoyMainMessages(): string[] {
  * @param userId - ID пользователя
  * @returns Текст поста (БЕЗ фразы про комментарии - она добавится отдельно)
  */
-export function getJoyMainMessageText(userId: number): string {
-  const messages = parseJoyMainMessages();
+export async function getJoyMainMessageText(userId: number): Promise<string> {
+  const messages = await parseJoyMainMessages();
   const indexes = getMorningMessageIndexes(userId) ?? {
     weekday_index: 0,
     weekend_index: 0,

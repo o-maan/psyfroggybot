@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
 import { getMorningPost, updateMorningPostStep, getLastNMessages } from '../../db';
@@ -73,7 +74,7 @@ export async function handleMorningCantRemember(ctx: BotContext) {
     const sentiment = morningPost.current_step.includes('negative') ? 'negative' : 'positive';
 
     // Генерируем финальный ответ (переходим к STEP 3)
-    const finalPromptTemplate = readFileSync('assets/prompts/morning-final-response.md', 'utf-8');
+    const finalPromptTemplate = await readFile('assets/prompts/morning-final-response.md', 'utf-8');
     const finalPrompt = finalPromptTemplate
       .replace('{{USER_MESSAGES}}', userMessages)
       .replace('{{SENTIMENT_TYPE}}', sentiment)

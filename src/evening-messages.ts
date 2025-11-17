@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { schedulerLogger } from './logger';
 import { getMorningMessageIndexes, saveMorningMessageIndexes } from './db';
 
@@ -22,9 +22,9 @@ const EVENING_INTRO_TEXT = `ВЕЧЕРНЯЯ ЛЯГУХА 🐸
 Можем начинать)`;
 
 // Парсинг файла с вечерними сообщениями
-export function parseEveningMessages(): string[] {
+export async function parseEveningMessages(): Promise<string[]> {
   try {
-    const content = readFileSync(EVENING_MESSAGES_FILE, 'utf-8');
+    const content = await readFile(EVENING_MESSAGES_FILE, 'utf-8');
     const lines = content.split('\n');
 
     const messages: string[] = [];
@@ -73,8 +73,8 @@ export function parseEveningMessages(): string[] {
 }
 
 // Получить текст вечернего сообщения с циклической ротацией
-export function getEveningMessageText(userId: number): string {
-  const messages = parseEveningMessages();
+export async function getEveningMessageText(userId: number): Promise<string> {
+  const messages = await parseEveningMessages();
   const indexes = getMorningMessageIndexes(userId) ?? {
     weekday_index: 0,
     weekend_index: 0,
