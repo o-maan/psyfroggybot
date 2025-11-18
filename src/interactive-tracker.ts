@@ -162,11 +162,12 @@ async function saveUserMessageLink(
           user_id,
           reply_to_message_id,
           message_preview,
+          state_at_time,
           created_at
-        ) VALUES (?, ?, 'user', ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, 'user', ?, ?, ?, ?, datetime('now'))
       `);
 
-      save.run(0, userMessageId, finalUserId, replyToBotMessageId || null, messagePreview);
+      save.run(0, userMessageId, finalUserId, replyToBotMessageId || null, messagePreview, null);
       return;
     }
     
@@ -187,6 +188,7 @@ async function saveUserMessageLink(
     
     // Также сохраняем в отдельную таблицу для полной истории
     const messagePreview = messageText ? messageText.substring(0, 500) : null;
+    const currentState = post.current_state || null;
     const save = db.query(`
       INSERT INTO message_links (
         channel_message_id,
@@ -195,11 +197,12 @@ async function saveUserMessageLink(
         user_id,
         reply_to_message_id,
         message_preview,
+        state_at_time,
         created_at
-      ) VALUES (?, ?, 'user', ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, 'user', ?, ?, ?, ?, datetime('now'))
     `);
 
-    save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId, messagePreview);
+    save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId, messagePreview, currentState);
     
     // Обновляем основную таблицу если есть что обновлять
     if (Object.keys(updateData).length > 0) {
@@ -219,6 +222,10 @@ async function saveBotMessageLink(
   messageType: string
 ) {
   try {
+    // Получаем текущее состояние поста для бота
+    const post = await getPostById(channelMessageId);
+    const currentState = post?.current_state || null;
+
     // Сохраняем в таблицу связей
     const save = db.query(`
       INSERT INTO message_links (
@@ -226,11 +233,12 @@ async function saveBotMessageLink(
         message_id,
         message_type,
         user_id,
+        state_at_time,
         created_at
-      ) VALUES (?, ?, ?, 0, datetime('now'))
+      ) VALUES (?, ?, ?, 0, ?, datetime('now'))
     `);
-    
-    save.run(channelMessageId, botMessageId, `bot_${messageType}`);
+
+    save.run(channelMessageId, botMessageId, `bot_${messageType}`, currentState);
     
     // Обновляем основную таблицу в зависимости от типа
     const updateData: any = {};
@@ -386,4 +394,39 @@ function determineNextAction(post: any, history: any[]) {
   }
   
   return null;
+}
+
+// Обновить отредактированное сообщение пользователя
+export async function updateEditedUserMessage(
+  messageId: number,
+  newText: string
+): Promise<void> {
+  try {
+    const messagePreview = newText.substring(0, 500);
+
+    const update = db.query(`
+      UPDATE message_links
+      SET message_preview = ?
+      WHERE message_id = ? AND message_type = 'user'
+    `);
+
+    const result = update.run(messagePreview, messageId);
+
+    if (result.changes > 0) {
+      schedulerLogger.info(
+        { messageId, textLength: newText.length },
+        '✏️ Обновлено отредактированное сообщение в message_links'
+      );
+    } else {
+      schedulerLogger.debug(
+        { messageId },
+        'Сообщение не найдено в message_links для обновления'
+      );
+    }
+  } catch (error) {
+    schedulerLogger.error(
+      { error, messageId },
+      'Ошибка обновления отредактированного сообщения в message_links'
+    );
+  }
 }

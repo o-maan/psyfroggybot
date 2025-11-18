@@ -63,6 +63,8 @@ export class Scheduler {
   private dailyCronJob: cron.ScheduledTask | null = null;
   private morningCheckCronJob: cron.ScheduledTask | null = null;
   private morningMessageCronJob: cron.ScheduledTask | null = null;
+  private morningBatchProcessingCronJob: cron.ScheduledTask | null = null;
+  private eveningBatchProcessingCronJob: cron.ScheduledTask | null = null;
   // Для хранения состояния интерактивных сессий
   private interactiveSessions: Map<
     number,
@@ -2929,6 +2931,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     this.startMorningCheckCronJob();
     // Утреннее сообщение в 9:00 - приветствие и приглашение делиться переживаниями
     this.startMorningMessageCronJob();
+    // Утренняя batch обработка в 7:30 - за 30 мин до утреннего поста
+    this.startMorningBatchProcessingCronJob();
+    // Вечерняя batch обработка в 21:30 - за 30 мин до вечернего поста
+    this.startEveningBatchProcessingCronJob();
   }
 
   // Запуск cron job для ежедневной отправки в 22:00
@@ -3141,6 +3147,120 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       schedulerLogger.info('Morning message cron job успешно создан');
     } else {
       logger.error('Morning message планировщик', new Error('Morning message cron job не был создан'));
+    }
+  }
+
+  // Запуск cron job для утренней batch обработки в 7:30 (за 30 мин до утреннего поста)
+  private startMorningBatchProcessingCronJob() {
+    // Останавливаем предыдущий job, если он есть
+    if (this.morningBatchProcessingCronJob) {
+      schedulerLogger.info('Перезапуск morning batch processing cron job');
+      this.morningBatchProcessingCronJob.stop();
+      this.morningBatchProcessingCronJob.destroy();
+      this.morningBatchProcessingCronJob = null;
+    }
+
+    schedulerLogger.info('Создание morning batch processing cron job (7:30 МСК)');
+
+    // Создаем новый cron job: каждый день в 7:30
+    this.morningBatchProcessingCronJob = cron.schedule(
+      '30 7 * * *',
+      async () => {
+        schedulerLogger.info('🌄 Запуск утренней batch обработки сообщений');
+        try {
+          const { processBatchMessages } = await import('./batch-processor');
+          await processBatchMessages();
+        } catch (error) {
+          schedulerLogger.error(error as Error, 'Ошибка утренней batch обработки');
+          // Уведомляем админа об ошибке
+          try {
+            const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+            if (adminChatId) {
+              await this.sendWithRetry(
+                () =>
+                  this.bot.telegram.sendMessage(
+                    adminChatId,
+                    `🚨 ОШИБКА в утренней batch обработке!\n\n❌ Ошибка: ${error}`
+                  ),
+                {
+                  chatId: adminChatId,
+                  messageType: 'admin_morning_batch_error',
+                  maxAttempts: 5,
+                  intervalMs: 3000,
+                }
+              );
+            }
+          } catch (notifyError) {
+            logger.error('Уведомление админа об ошибке morning batch', notifyError as Error);
+          }
+        }
+      },
+      {
+        timezone: 'Europe/Moscow',
+      }
+    );
+
+    if (this.morningBatchProcessingCronJob) {
+      schedulerLogger.info('Morning batch processing cron job успешно создан');
+    } else {
+      logger.error('Morning batch processing планировщик', new Error('Morning batch processing cron job не был создан'));
+    }
+  }
+
+  // Запуск cron job для вечерней batch обработки в 21:30 (за 30 мин до вечернего поста)
+  private startEveningBatchProcessingCronJob() {
+    // Останавливаем предыдущий job, если он есть
+    if (this.eveningBatchProcessingCronJob) {
+      schedulerLogger.info('Перезапуск evening batch processing cron job');
+      this.eveningBatchProcessingCronJob.stop();
+      this.eveningBatchProcessingCronJob.destroy();
+      this.eveningBatchProcessingCronJob = null;
+    }
+
+    schedulerLogger.info('Создание evening batch processing cron job (21:30 МСК)');
+
+    // Создаем новый cron job: каждый день в 21:30
+    this.eveningBatchProcessingCronJob = cron.schedule(
+      '30 21 * * *',
+      async () => {
+        schedulerLogger.info('🌆 Запуск вечерней batch обработки сообщений');
+        try {
+          const { processBatchMessages } = await import('./batch-processor');
+          await processBatchMessages();
+        } catch (error) {
+          schedulerLogger.error(error as Error, 'Ошибка вечерней batch обработки');
+          // Уведомляем админа об ошибке
+          try {
+            const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+            if (adminChatId) {
+              await this.sendWithRetry(
+                () =>
+                  this.bot.telegram.sendMessage(
+                    adminChatId,
+                    `🚨 ОШИБКА в вечерней batch обработке!\n\n❌ Ошибка: ${error}`
+                  ),
+                {
+                  chatId: adminChatId,
+                  messageType: 'admin_evening_batch_error',
+                  maxAttempts: 5,
+                  intervalMs: 3000,
+                }
+              );
+            }
+          } catch (notifyError) {
+            logger.error('Уведомление админа об ошибке evening batch', notifyError as Error);
+          }
+        }
+      },
+      {
+        timezone: 'Europe/Moscow',
+      }
+    );
+
+    if (this.eveningBatchProcessingCronJob) {
+      schedulerLogger.info('Evening batch processing cron job успешно создан');
+    } else {
+      logger.error('Evening batch processing планировщик', new Error('Evening batch processing cron job не был создан'));
     }
   }
 
@@ -5166,6 +5286,22 @@ ${allDayUserMessages}
           'Получен список ситуаций в глубоком сценарии'
         );
 
+        // АСИНХРОННО сохраняем список ситуаций как негативное событие
+        (async () => {
+          try {
+            const { saveNegativeEvent } = await import('./db');
+            saveNegativeEvent(
+              userId,
+              messageText,
+              '',
+              channelMessageId!.toString()
+            );
+            schedulerLogger.info({ userId, channelMessageId, textLength: messageText.length }, '💔 Негативное событие (список ситуаций) сохранено асинхронно (вечер, глубокий)');
+          } catch (error) {
+            schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события (список ситуаций, глубокий)');
+          }
+        })();
+
         // Используем слова поддержки из messageData
         let supportText = session.messageData?.deep_support?.text;
 
@@ -5503,6 +5639,42 @@ ${allDayUserMessages}
         // Отмечаем второе задание как выполненное
         const { updateTaskStatus } = await import('./db');
         updateTaskStatus(channelMessageId, 2, true);
+
+        // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
+        (async () => {
+          try {
+            // Получаем все сообщения пользователя для задания 2 (плюшки)
+            const { db } = await import('./db');
+            const userMessagesQuery = db.query(`
+              SELECT message_preview FROM message_links
+              WHERE channel_message_id = ? AND message_type = 'user'
+              ORDER BY created_at ASC
+            `);
+            const allUserMessages = userMessagesQuery.all(channelMessageId) as any[];
+
+            // Отфильтруем сообщения для плюшек (второе задание)
+            // Берем все сообщения после негативных (грубо: вторая половина)
+            const halfIndex = Math.ceil(allUserMessages.length / 2);
+            const positiveMessages = allUserMessages.slice(halfIndex);
+
+            if (positiveMessages && positiveMessages.length > 0) {
+              const { savePositiveEvent } = await import('./db');
+              const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
+
+              if (allText) {
+                savePositiveEvent(
+                  userId,
+                  allText,
+                  '',
+                  channelMessageId.toString()
+                );
+                schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий сценарий после уточнения позитивных эмоций)');
+              }
+            }
+          } catch (error) {
+            schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (глубокий сценарий после уточнения позитивных эмоций)');
+          }
+        })();
 
         // Сохраняем ID ответа пользователя
         const { updateInteractivePostState } = await import('./db');
@@ -6627,6 +6799,42 @@ ${allDayUserMessages}
 
         // Отмечаем второе задание как выполненное
         updateTaskStatus(channelMessageId, 2, true);
+
+        // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
+        (async () => {
+          try {
+            // Получаем все сообщения пользователя для задания 2 (плюшки)
+            const { db } = await import('./db');
+            const userMessagesQuery = db.query(`
+              SELECT message_preview FROM message_links
+              WHERE channel_message_id = ? AND message_type = 'user'
+              ORDER BY created_at ASC
+            `);
+            const allUserMessages = userMessagesQuery.all(channelMessageId) as any[];
+
+            // Отфильтруем сообщения для плюшек (второе задание)
+            // Берем все сообщения после негативных (грубо: вторая половина)
+            const halfIndex = Math.ceil(allUserMessages.length / 2);
+            const positiveMessages = allUserMessages.slice(halfIndex);
+
+            if (positiveMessages && positiveMessages.length > 0) {
+              const { savePositiveEvent } = await import('./db');
+              const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
+
+              if (allText) {
+                savePositiveEvent(
+                  userId,
+                  allText,
+                  '',
+                  channelMessageId.toString()
+                );
+                schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, после уточнения позитивных эмоций)');
+              }
+            }
+          } catch (error) {
+            schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (после уточнения позитивных эмоций)');
+          }
+        })();
 
         // Сохраняем ID ответа пользователя
         const { updateInteractivePostState } = await import('./db');

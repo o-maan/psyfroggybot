@@ -565,3 +565,44 @@ export async function analyzeWithLowTemp(prompt: string): Promise<string> {
     throw error;
   }
 }
+
+/**
+ * Анализирует тональность текста (позитивная/негативная/нейтральная)
+ * Возвращает JSON с полем sentiment: 'positive' | 'negative' | 'neutral' | 'mixed'
+ */
+export async function analyzeSentiment(text: string): Promise<{ sentiment: string } | null> {
+  try {
+    const prompt = `Проанализируй тональность следующего текста и определи является ли он:
+- positive: если описываются приятные события, достижения, радость, благодарность
+- negative: если описываются проблемы, переживания, трудности, негативные эмоции
+- neutral: если текст нейтрален
+- mixed: если есть и позитив и негатив
+
+Текст:
+${text}
+
+Верни ТОЛЬКО валидный JSON в формате: {"sentiment": "positive" | "negative" | "neutral" | "mixed"}`;
+
+    const response = await analyzeWithLowTemp(prompt);
+
+    // Парсим JSON ответ
+    const parsed = JSON.parse(response);
+
+    if (parsed.sentiment && ['positive', 'negative', 'neutral', 'mixed'].includes(parsed.sentiment)) {
+      llmLogger.info(
+        { sentiment: parsed.sentiment, textLength: text.length },
+        '🎭 Тональность определена'
+      );
+      return parsed;
+    }
+
+    llmLogger.warn({ response }, 'Неожиданный формат ответа от LLM при анализе тональности');
+    return null;
+  } catch (error) {
+    llmLogger.error(
+      { error: (error as Error).message, textLength: text.length },
+      'Ошибка анализа тональности'
+    );
+    return null;
+  }
+}

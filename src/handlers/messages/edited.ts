@@ -88,6 +88,10 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
       const editTime = new Date().toISOString();
       updateMessage(userId, messageId, chatId, message, editTime);
 
+      // Обновляем также в message_links (для новой системы)
+      const { updateEditedUserMessage } = await import('../../interactive-tracker');
+      await updateEditedUserMessage(messageId, message);
+
       // СНАЧАЛА проверяем Joy-сессии (они имеют приоритет!)
       const isJoyMessage = await scheduler.handleJoyUserMessage(
         userId,
