@@ -1,7 +1,6 @@
 import { readFile } from 'fs/promises';
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
-import { readFileSync } from 'fs';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопки "Помоги с эмоциями"

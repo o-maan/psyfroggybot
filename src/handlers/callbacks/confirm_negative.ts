@@ -256,7 +256,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
       botLogger.info({ channelMessageId }, '✅ Одно сообщение с ≥3 эмоций - отправляем Плюшки');
 
       replyToMessageId = userMessages[0].message_id;
-      await sendPlushkiMessage(bot, chatId, userId, channelMessageId, replyToMessageId);
+      await sendPlushkiMessage(bot, chatId, userId, channelMessageId, replyToMessageId, userMessages);
       return;
     }
 

@@ -5,7 +5,6 @@ import { getMorningPost, updateMorningPostStep, getMorningPostUserMessages, getM
 import { generateMessage, analyzeWithLowTemp } from '../../llm';
 import { cleanLLMText } from '../../utils/clean-llm-text';
 import { extractJsonFromLLM } from '../../utils/extract-json-from-llm';
-import { readFileSync } from 'fs';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Варианты сообщений загрузки для разнообразия

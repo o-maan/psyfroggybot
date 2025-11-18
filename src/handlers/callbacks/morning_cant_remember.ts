@@ -4,7 +4,6 @@ import { botLogger } from '../../logger';
 import { getMorningPost, updateMorningPostStep, getLastNMessages } from '../../db';
 import { generateMessage } from '../../llm';
 import { cleanLLMText } from '../../utils/clean-llm-text';
-import { readFileSync } from 'fs';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
 
 // Обработчик кнопки "Не помню других эмоций" для утренних постов

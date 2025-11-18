@@ -1,6 +1,5 @@
 import { readFile } from 'fs/promises';
 import { Telegraf } from 'telegraf';
-import { readFileSync } from 'fs';
 import path from 'path';
 import { generateMessage, analyzeWithLowTemp } from './llm';
 import { botLogger } from './logger';

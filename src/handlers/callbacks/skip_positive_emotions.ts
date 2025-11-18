@@ -2,7 +2,6 @@ import { readFile } from 'fs/promises';
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
-import { readFileSync } from 'fs';
 import path from 'path';
 
 // Обработчик для кнопки пропуска позитивных эмоций
@@ -64,10 +63,45 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
       const result = await bot.telegram.sendVideo(chatId!, { source: practiceVideo }, videoOptions as any);
 
       // Обновляем состояние в БД
-      const { updateInteractivePostState, updateTaskStatus, saveMessage } = await import('../../db');
-      
+      const { updateInteractivePostState, updateTaskStatus, saveMessage, db } = await import('../../db');
+
       // Отмечаем второе задание как выполненное
       updateTaskStatus(channelMessageId, 2, true);
+
+      // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
+      (async () => {
+        try {
+          // Получаем все сообщения пользователя для задания 2 (плюшки)
+          const userMessagesQuery = db.query(`
+            SELECT message_preview FROM message_links
+            WHERE channel_message_id = ? AND message_type = 'user'
+            ORDER BY created_at ASC
+          `);
+          const allUserMessages = userMessagesQuery.all(channelMessageId) as any[];
+
+          // Отфильтруем сообщения для плюшек (второе задание)
+          // Берем все сообщения после негативных (грубо: вторая половина)
+          const halfIndex = Math.ceil(allUserMessages.length / 2);
+          const positiveMessages = allUserMessages.slice(halfIndex);
+
+          if (positiveMessages && positiveMessages.length > 0 && userId) {
+            const { savePositiveEvent } = await import('../../db');
+            const allText = positiveMessages.map(m => m.message_preview || '').filter(Boolean).join('\n');
+
+            if (allText) {
+              savePositiveEvent(
+                userId,
+                allText,
+                '',
+                channelMessageId.toString()
+              );
+              botLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, после пропуска позитивных эмоций)');
+            }
+          }
+        } catch (error) {
+          botLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (после пропуска позитивных эмоций)');
+        }
+      })();
       
       // Обновляем состояние
       updateInteractivePostState(channelMessageId, 'waiting_practice', {

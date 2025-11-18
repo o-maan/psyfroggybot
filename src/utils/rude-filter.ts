@@ -1,6 +1,5 @@
 import { readFile } from 'fs/promises';
 import { botLogger } from '../logger';
-import { readFileSync } from 'fs';
 import path from 'path';
 
 // Загружаем словарь русских слов при старте
