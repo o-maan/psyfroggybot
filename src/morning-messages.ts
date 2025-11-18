@@ -400,14 +400,14 @@ export function getMorningIntro(userId: number): string {
 }
 
 // Собрать полный текст поста
-export function buildMorningPost(userId: number, dayOfWeek: number, isFriday: boolean): string {
+export async function buildMorningPost(userId: number, dayOfWeek: number, isFriday: boolean): Promise<string> {
   // Пятница - отдельная логика (пока возвращаем null, будет использоваться LLM)
   if (isFriday) {
     return '';
   }
 
   const greeting = getNextGreeting(userId);
-  const messageText = getMorningMessageText(userId, dayOfWeek);
+  const messageText = await getMorningMessageText(userId, dayOfWeek);
   const emojis = getRandomEmojis();
 
   const post = `${greeting}

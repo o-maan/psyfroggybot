@@ -3986,12 +3986,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           } catch (llmError) {
             schedulerLogger.error({ error: llmError, chatId }, 'Ошибка генерации через LLM, используем fallback из списка');
             // Fallback: используем обычный текст из списка
-            captionWithComment = buildMorningPost(userId, dayOfWeek, false);
+            captionWithComment = await buildMorningPost(userId, dayOfWeek, false);
           }
         } else {
           // Остальные дни: используем тексты из списка
           schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка');
-          captionWithComment = buildMorningPost(userId, dayOfWeek, false);
+          captionWithComment = await buildMorningPost(userId, dayOfWeek, false);
         }
       }
 
