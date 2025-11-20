@@ -3052,6 +3052,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
     schedulerLogger.info('Создание morning check cron job (8:00 МСК)');
 
+    // ВАЖНО: Для тестового бота НЕ создаем автоматический cron job
+    if (this.isTestBot()) {
+      schedulerLogger.info('⏭️ Тестовый бот: пропускаем создание morning check cron job');
+      return;
+    }
+
     // Создаем новый cron job: каждый день в 8:00
     this.morningCheckCronJob = cron.schedule(
       '0 8 * * *',
@@ -3168,6 +3174,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
 
     schedulerLogger.info('Создание morning batch processing cron job (7:30 МСК)');
+
+    // ВАЖНО: Для тестового бота НЕ создаем автоматический cron job
+    if (this.isTestBot()) {
+      schedulerLogger.info('⏭️ Тестовый бот: пропускаем создание morning batch processing cron job');
+      return;
+    }
 
     // Создаем новый cron job: каждый день в 7:30
     this.morningBatchProcessingCronJob = cron.schedule(
