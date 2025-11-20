@@ -91,8 +91,14 @@ export async function trackUserMessage(
       method: replyToMessageId ? 'reply' : messageThreadId ? 'thread' : 'active_post'
     }, '✅ Найден контекст диалога');
   } else {
-    schedulerLogger.debug({ userId }, '❌ Контекст диалога не найден');
-    
+    schedulerLogger.warn({
+      userId,
+      messageId,
+      replyToMessageId,
+      messageThreadId,
+      messagePreview: messageText.substring(0, 50)
+    }, '❌ ПРОБЛЕМА: Контекст диалога не найден! Сохраняем с channel_message_id=0');
+
     // Даже если контекст не найден, сохраняем сообщение для истории
     // Используем 0 как псевдо channelMessageId для общих сообщений
     await saveUserMessageLink(0, messageId, undefined, userId, messageText);
@@ -173,7 +179,36 @@ async function saveUserMessageLink(
     
     // Определяем какое поле обновлять на основе текущего состояния
     const post = await getPostById(channelMessageId);
-    if (!post) return;
+    if (!post) {
+      schedulerLogger.error(
+        { channelMessageId, userMessageId, userId },
+        '❌ КРИТИЧЕСКАЯ ОШИБКА: Пост не найден в БД!'
+      );
+
+      // FALLBACK: Сохраняем сообщение с channel_message_id=0 чтобы не потерять данные
+      const messagePreview = messageText ? messageText.substring(0, 500) : null;
+      const saveFallback = db.query(`
+        INSERT INTO message_links (
+          channel_message_id,
+          message_id,
+          message_type,
+          user_id,
+          reply_to_message_id,
+          message_preview,
+          state_at_time,
+          created_at
+        ) VALUES (?, ?, 'user', ?, ?, ?, ?, datetime('now'))
+      `);
+
+      saveFallback.run(0, userMessageId, userId || 0, replyToBotMessageId || null, messagePreview, null);
+
+      schedulerLogger.warn(
+        { channelMessageId, userMessageId, userId },
+        '⚠️ FALLBACK: Сообщение сохранено с channel_message_id=0 для истории'
+      );
+
+      return;
+    }
 
     const updateData: any = {};
     
@@ -203,6 +238,11 @@ async function saveUserMessageLink(
     `);
 
     save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId, messagePreview, currentState);
+
+    schedulerLogger.debug(
+      { channelMessageId, userMessageId, userId: post.user_id, currentState },
+      '✅ Сообщение пользователя сохранено в message_links'
+    );
     
     // Обновляем основную таблицу если есть что обновлять
     if (Object.keys(updateData).length > 0) {
@@ -281,27 +321,35 @@ async function getPostById(channelMessageId: number) {
 }
 
 async function findPostByThreadId(threadId: number) {
+  schedulerLogger.debug({ threadId }, '🔍 Ищем пост по threadId');
+
   // Проверяем и по thread_mappings и по прямому поиску
   const { getChannelMessageIdByThreadId } = await import('./db');
   const channelMessageId = getChannelMessageIdByThreadId(threadId);
-  
+
   if (channelMessageId) {
+    schedulerLogger.debug({ threadId, channelMessageId }, '✅ Пост найден через thread_mappings');
     return getPostById(channelMessageId);
+  } else {
+    schedulerLogger.warn({ threadId }, '⚠️ Маппинг не найден в thread_mappings');
   }
-  
+
   // Также пробуем найти по ID пересланного сообщения
   const get = db.query(`
-    SELECT * FROM interactive_posts 
-    WHERE bot_task1_message_id = ? 
+    SELECT * FROM interactive_posts
+    WHERE bot_task1_message_id = ?
        OR bot_schema_message_id = ?
        OR bot_task2_message_id = ?
        OR bot_task3_message_id = ?
     LIMIT 1
   `);
-  
+
   const row = get.get(threadId, threadId, threadId, threadId) as any;
   if (row && row.message_data) {
     row.message_data = JSON.parse(row.message_data);
+    schedulerLogger.debug({ threadId, channelMessageId: row.channel_message_id }, '✅ Пост найден по bot_message_id');
+  } else {
+    schedulerLogger.warn({ threadId }, '❌ Пост НЕ найден ни одним способом');
   }
   return row;
 }
