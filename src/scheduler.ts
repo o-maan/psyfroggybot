@@ -5249,6 +5249,44 @@ ${allDayUserMessages}
       return false;
     }
 
+    // ⚠️ УНИВЕРСАЛЬНАЯ ПРОВЕРКА НА РЕДАКТИРОВАНИЕ через message_links
+    // Если messageId есть в message_links для этого поста - это редактирование
+    // Откатываем состояние на state_at_time и обрабатываем сообщение заново
+    const { db } = await import('./db');
+    const messageLinkQuery = db.query(`
+      SELECT state_at_time FROM message_links
+      WHERE telegram_message_id = ? AND channel_message_id = ? AND message_type = 'user'
+      LIMIT 1
+    `);
+    const messageLink = messageLinkQuery.get(messageId, channelMessageId) as any;
+
+    if (messageLink && messageLink.state_at_time) {
+      schedulerLogger.info(
+        {
+          userId,
+          messageId,
+          channelMessageId,
+          currentState: activePost.current_state,
+          originalState: messageLink.state_at_time,
+        },
+        '✏️ Обнаружено редактирование - откатываем состояние и обрабатываем заново'
+      );
+
+      // Временно откатываем current_state на тот шаг, где было отправлено сообщение
+      const { updateInteractivePostState } = await import('./db');
+      updateInteractivePostState(channelMessageId, messageLink.state_at_time);
+
+      // Обновляем activePost чтобы дальнейшая обработка видела правильное состояние
+      activePost.current_state = messageLink.state_at_time;
+
+      schedulerLogger.debug(
+        { userId, messageId, newState: messageLink.state_at_time },
+        '🔄 Состояние откачено для повторной обработки редактированного сообщения'
+      );
+
+      // Продолжаем обработку дальше (НЕ return true!)
+    }
+
     // Создаем объект session из данных БД для обратной совместимости
     // Получаем или создаем сессию из Map
     let session = this.interactiveSessions.get(userId);
@@ -5365,16 +5403,33 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем список ситуаций как негативное событие
         (async () => {
           try {
-            const { saveNegativeEvent, markMessagesAsProcessedByChannel } = await import('./db');
-            saveNegativeEvent(
-              userId,
-              messageText,
-              '',
-              channelMessageId!.toString()
-            );
-            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-            markMessagesAsProcessedByChannel(channelMessageId!, userId);
-            schedulerLogger.info({ userId, channelMessageId, textLength: messageText.length }, '💔 Негативное событие (список ситуаций) сохранено асинхронно (вечер, глубокий)');
+            // Получаем ВСЕ сообщения пользователя для списка ситуаций (состояние deep_waiting_situations_list)
+            const { db } = await import('./db');
+            const userMessagesQuery = db.query(`
+              SELECT message_preview FROM message_links
+              WHERE channel_message_id = ?
+                AND message_type = 'user'
+                AND state_at_time = 'deep_waiting_situations_list'
+              ORDER BY created_at ASC
+            `);
+            const situationsMessages = userMessagesQuery.all(channelMessageId!) as any[];
+
+            if (situationsMessages && situationsMessages.length > 0) {
+              const { saveNegativeEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const allText = situationsMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
+
+              if (allText) {
+                saveNegativeEvent(
+                  userId,
+                  allText,
+                  '',
+                  channelMessageId!.toString()
+                );
+                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                markMessagesAsProcessedByChannel(channelMessageId!, userId);
+                schedulerLogger.info({ userId, channelMessageId, messagesCount: situationsMessages.length, textLength: allText.length }, '💔 Негативное событие (список ситуаций) сохранено асинхронно (вечер, глубокий)');
+              }
+            }
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события (список ситуаций, глубокий)');
           }
@@ -5600,16 +5655,33 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
-            savePositiveEvent(
-              userId,
-              messageText,
-              '',
-              channelMessageId.toString()
-            );
-            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-            markMessagesAsProcessedByChannel(channelMessageId, userId);
-            schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)');
+            // Получаем ВСЕ сообщения пользователя для плюшек (состояние deep_waiting_positive)
+            const { db } = await import('./db');
+            const userMessagesQuery = db.query(`
+              SELECT message_preview FROM message_links
+              WHERE channel_message_id = ?
+                AND message_type = 'user'
+                AND state_at_time = 'deep_waiting_positive'
+              ORDER BY created_at ASC
+            `);
+            const positiveMessages = userMessagesQuery.all(channelMessageId) as any[];
+
+            if (positiveMessages && positiveMessages.length > 0) {
+              const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
+
+              if (allText) {
+                savePositiveEvent(
+                  userId,
+                  allText,
+                  '',
+                  channelMessageId.toString()
+                );
+                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                markMessagesAsProcessedByChannel(channelMessageId, userId);
+                schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)');
+              }
+            }
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, глубокий)');
           }
@@ -5723,22 +5795,19 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            // Получаем все сообщения пользователя для задания 2 (плюшки)
+            // Получаем сообщения пользователя для плюшек - только с состояниями deep_waiting_positive и deep_waiting_positive_emotions_clarification
             const { db } = await import('./db');
             const userMessagesQuery = db.query(`
               SELECT message_preview FROM message_links
-              WHERE channel_message_id = ? AND message_type = 'user'
+              WHERE channel_message_id = ?
+                AND message_type = 'user'
+                AND (state_at_time = 'deep_waiting_positive' OR state_at_time = 'deep_waiting_positive_emotions_clarification')
               ORDER BY created_at ASC
             `);
-            const allUserMessages = userMessagesQuery.all(channelMessageId) as any[];
-
-            // Отфильтруем сообщения для плюшек (второе задание)
-            // Берем все сообщения после негативных (грубо: вторая половина)
-            const halfIndex = Math.ceil(allUserMessages.length / 2);
-            const positiveMessages = allUserMessages.slice(halfIndex);
+            const positiveMessages = userMessagesQuery.all(channelMessageId) as any[];
 
             if (positiveMessages && positiveMessages.length > 0) {
-              const { savePositiveEvent } = await import('./db');
+              const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
               const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
 
               if (allText) {
@@ -5748,6 +5817,8 @@ ${allDayUserMessages}
                   '',
                   channelMessageId.toString()
                 );
+                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                markMessagesAsProcessedByChannel(channelMessageId, userId);
                 schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий сценарий после уточнения позитивных эмоций)');
               }
             }
@@ -6654,16 +6725,33 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
-            savePositiveEvent(
-              userId,
-              messageText,
-              '',
-              channelMessageId.toString()
-            );
-            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-            markMessagesAsProcessedByChannel(channelMessageId, userId);
-            schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)');
+            // Получаем ВСЕ сообщения пользователя для плюшек (состояние waiting_positive)
+            const { db } = await import('./db');
+            const userMessagesQuery = db.query(`
+              SELECT message_preview FROM message_links
+              WHERE channel_message_id = ?
+                AND message_type = 'user'
+                AND state_at_time = 'waiting_positive'
+              ORDER BY created_at ASC
+            `);
+            const positiveMessages = userMessagesQuery.all(channelMessageId) as any[];
+
+            if (positiveMessages && positiveMessages.length > 0) {
+              const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
+
+              if (allText) {
+                savePositiveEvent(
+                  userId,
+                  allText,
+                  '',
+                  channelMessageId.toString()
+                );
+                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                markMessagesAsProcessedByChannel(channelMessageId, userId);
+                schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)');
+              }
+            }
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, упрощенный)');
           }
@@ -6885,19 +6973,16 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            // Получаем все сообщения пользователя для задания 2 (плюшки)
+            // Получаем сообщения пользователя для плюшек - только с состояниями waiting_positive и waiting_positive_emotions_clarification
             const { db } = await import('./db');
             const userMessagesQuery = db.query(`
               SELECT message_preview FROM message_links
-              WHERE channel_message_id = ? AND message_type = 'user'
+              WHERE channel_message_id = ?
+                AND message_type = 'user'
+                AND (state_at_time = 'waiting_positive' OR state_at_time = 'waiting_positive_emotions_clarification')
               ORDER BY created_at ASC
             `);
-            const allUserMessages = userMessagesQuery.all(channelMessageId) as any[];
-
-            // Отфильтруем сообщения для плюшек (второе задание)
-            // Берем все сообщения после негативных (грубо: вторая половина)
-            const halfIndex = Math.ceil(allUserMessages.length / 2);
-            const positiveMessages = allUserMessages.slice(halfIndex);
+            const positiveMessages = userMessagesQuery.all(channelMessageId) as any[];
 
             if (positiveMessages && positiveMessages.length > 0) {
               const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');

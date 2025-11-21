@@ -50,32 +50,42 @@ export async function trackUserMessage(
         userId,
         lastBotMessage: { id: replyToMessageId }
       };
-      
+
       // Сохраняем связь с сообщением пользователя
       await saveUserMessageLink(post.channel_message_id, messageId, replyToMessageId, userId, messageText);
     }
   }
 
-  // 2. Если нет реплая - ищем по последнему активному посту
-  if (!context) {
-    const { getUserIncompletePosts } = await import('./db');
-    const incompletePosts = getUserIncompletePosts(userId);
-    
-    if (incompletePosts.length > 0) {
-      const lastPost = incompletePosts[0];
-      context = {
-        post: lastPost,
-        currentState: lastPost.current_state || determineStateFromPost(lastPost),
+  // 2. Если нет реплая, но есть messageThreadId - проверяем по треду (ПРИОРИТЕТ!)
+  // Это более точный способ чем "последний незавершенный пост"
+  if (!context && messageThreadId) {
+    // Сначала проверяем утренние посты
+    const { getMorningPostByThreadId } = await import('./db');
+    const morningPost = await getMorningPostByThreadId(messageThreadId);
+
+    if (morningPost && morningPost.user_id === userId) {
+      // Сохраняем сообщение в message_links с state_at_time = null для batch processing
+      await saveUserMessageLink(morningPost.channel_message_id, messageId, undefined, userId, messageText);
+
+      schedulerLogger.info({
+        channelMessageId: morningPost.channel_message_id,
+        userId,
+        messageId,
+        messageThreadId
+      }, '✅ Сохранено утреннее сообщение в message_links (по messageThreadId)');
+
+      // АСИНХРОННО запускаем обработку через LLM (не блокирует бота!)
+      const { processMessageAsync } = await import('./batch-processor');
+      processMessageAsync(morningPost.channel_message_id, userId);
+
+      return {
+        post: morningPost,
+        currentState: 'morning_waiting',
         userId
       };
-      
-      // Сохраняем связь без конкретного бот-сообщения
-      await saveUserMessageLink(lastPost.channel_message_id, messageId, undefined, userId, messageText);
     }
-  }
 
-  // 3. Проверяем по messageThreadId если есть
-  if (!context && messageThreadId) {
+    // Если не нашли утренний - проверяем вечерний пост
     const post = await findPostByThreadId(messageThreadId);
     if (post && post.user_id === userId) {
       context = {
@@ -83,60 +93,58 @@ export async function trackUserMessage(
         currentState: post.current_state || 'unknown',
         userId
       };
-      
+
       await saveUserMessageLink(post.channel_message_id, messageId, undefined, userId, messageText);
+
+      schedulerLogger.info({
+        channelMessageId: post.channel_message_id,
+        currentState: post.current_state,
+        messageThreadId
+      }, '✅ Найден контекст диалога по messageThreadId');
+    }
+  }
+
+  // 3. FALLBACK: Если нет ни реплая, ни треда - ищем по последнему активному посту
+  if (!context) {
+    const { getUserIncompletePosts } = await import('./db');
+    const incompletePosts = getUserIncompletePosts(userId);
+
+    if (incompletePosts.length > 0) {
+      const lastPost = incompletePosts[0];
+      context = {
+        post: lastPost,
+        currentState: lastPost.current_state || determineStateFromPost(lastPost),
+        userId
+      };
+
+      // Сохраняем связь без конкретного бот-сообщения
+      await saveUserMessageLink(lastPost.channel_message_id, messageId, undefined, userId, messageText);
+
+      schedulerLogger.info({
+        channelMessageId: lastPost.channel_message_id,
+        currentState: lastPost.current_state
+      }, '✅ Найден контекст диалога по последнему незавершенному посту (fallback)');
     }
   }
 
   if (context) {
-    schedulerLogger.info({
-      channelMessageId: context.post.channel_message_id,
-      currentState: context.currentState,
-      method: replyToMessageId ? 'reply' : messageThreadId ? 'thread' : 'active_post'
-    }, '✅ Найден контекст диалога');
-  } else {
-    // Проверяем утренние посты (они хранятся отдельно от interactive_posts)
-    if (messageThreadId) {
-      const { getMorningPostByThreadId } = await import('./db');
-      const morningPost = await getMorningPostByThreadId(messageThreadId);
-
-      if (morningPost && morningPost.user_id === userId) {
-        // Сохраняем сообщение в message_links с state_at_time = null для batch processing
-        await saveUserMessageLink(morningPost.channel_message_id, messageId, undefined, userId, messageText);
-
-        schedulerLogger.info({
-          channelMessageId: morningPost.channel_message_id,
-          userId,
-          messageId,
-          messageThreadId
-        }, '✅ Сохранено утреннее сообщение в message_links');
-
-        // АСИНХРОННО запускаем обработку через LLM (не блокирует бота!)
-        const { processMessageAsync } = await import('./batch-processor');
-        processMessageAsync(morningPost.channel_message_id, userId);
-
-        return {
-          post: morningPost,
-          currentState: 'morning_waiting',
-          userId
-        };
-      }
-    }
-
-    schedulerLogger.warn({
-      userId,
-      messageId,
-      replyToMessageId,
-      messageThreadId,
-      messagePreview: messageText.substring(0, 50)
-    }, '❌ ПРОБЛЕМА: Контекст диалога не найден! Сохраняем с channel_message_id=0');
-
-    // Даже если контекст не найден, сохраняем сообщение для истории
-    // Используем 0 как псевдо channelMessageId для общих сообщений
-    await saveUserMessageLink(0, messageId, undefined, userId, messageText);
+    return context;
   }
 
-  return context;
+  // Если вообще ничего не нашли - сохраняем с channel_message_id=0
+  schedulerLogger.warn({
+    userId,
+    messageId,
+    replyToMessageId,
+    messageThreadId,
+    messagePreview: messageText.substring(0, 50)
+  }, '❌ ПРОБЛЕМА: Контекст диалога не найден! Сохраняем с channel_message_id=0');
+
+  // Даже если контекст не найден, сохраняем сообщение для истории
+  // Используем 0 как псевдо channelMessageId для общих сообщений
+  await saveUserMessageLink(0, messageId, undefined, userId, messageText);
+
+  return null;
 }
 
 // Универсальный трекер для ЛЮБОГО сообщения от бота

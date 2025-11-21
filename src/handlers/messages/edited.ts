@@ -92,7 +92,7 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
       const { updateEditedUserMessage } = await import('../../interactive-tracker');
       await updateEditedUserMessage(messageId, message);
 
-      // СНАЧАЛА проверяем Joy-сессии (они имеют приоритет!)
+      // ✅ JOY-логика обрабатывает редактирование (пользователь может исправлять список)
       const isJoyMessage = await scheduler.handleJoyUserMessage(
         userId,
         message,
@@ -106,7 +106,9 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
         return;
       }
 
-      // ПОТОМ проверяем интерактивные посты (только если не Joy)
+      // ✅ Интерактивная вечерняя логика ТОЖЕ обрабатывает редактирование
+      // Внутри handleInteractiveUserResponse есть проверка: если messageId уже был обработан -
+      // просто обновляет данные, НЕ переходя на следующий шаг
       const isInteractive = await scheduler.handleInteractiveUserResponse(
         userId,
         message,
@@ -122,7 +124,7 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
 
       // Для остальных случаев - просто логируем, без автоответов
       botLogger.info(
-        { userId, chatId, messageId, messageLength: message.length },
+        { userId, chatId, messageId, messageLength: message.length, edited: true },
         '📝 Редактированное сообщение сохранено'
       );
     } catch (error) {
