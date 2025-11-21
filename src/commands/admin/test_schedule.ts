@@ -34,8 +34,16 @@ export function registerTestScheduleCommand(bot: Telegraf, scheduler: Scheduler)
       async () => {
         try {
           logger.info('Запуск тестового cron job');
-          await scheduler.sendInteractiveDailyMessage(chatId, true, true);
-          await ctx.reply('✅ 🧪 Тестовое сообщение отправлено успешно!');
+
+          // FIRE-AND-FORGET: запускаем БЕЗ await чтобы не блокировать cron job на 10-66 секунд!
+          scheduler.sendInteractiveDailyMessage(chatId, true, true).catch(error => {
+            botLogger.error(
+              { error: (error as Error).message, stack: (error as Error).stack, chatId },
+              '❌ Ошибка в sendInteractiveDailyMessage (fire-and-forget)'
+            );
+          });
+
+          await ctx.reply('✅ 🧪 Тестовое сообщение запущено в фоне (генерация продолжается асинхронно)');
           testJob.stop();
           testJob.destroy();
         } catch (e) {

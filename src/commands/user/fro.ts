@@ -28,9 +28,15 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
 
       // Используем интерактивный метод с флагом ручной команды
       // (логика выбора текста: ЧТ/СБ = LLM, остальные = список)
-      botLogger.info('🚀 Запускаем sendInteractiveDailyMessage...');
-      await scheduler.sendInteractiveDailyMessage(chatId, true);
-      botLogger.info('✅ sendInteractiveDailyMessage завершен');
+      // FIRE-AND-FORGET: запускаем БЕЗ await чтобы не блокировать бота на 10-66 секунд!
+      botLogger.info('🚀 Запускаем sendInteractiveDailyMessage (асинхронно, без блокировки)...');
+      scheduler.sendInteractiveDailyMessage(chatId, true).catch(error => {
+        botLogger.error(
+          { error: (error as Error).message, stack: (error as Error).stack, chatId },
+          '❌ Ошибка в sendInteractiveDailyMessage (fire-and-forget)'
+        );
+      });
+      botLogger.info('✅ sendInteractiveDailyMessage запущен в фоне, бот продолжает работать');
 
       // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
       if (scheduler.isTestBot()) {
@@ -39,7 +45,7 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
         botLogger.info('✅ Уведомление о тестовом режиме отправлено');
       }
 
-      botLogger.info('🎉 Команда /fro полностью выполнена');
+      botLogger.info('🎉 Команда /fro выполнена (генерация продолжается в фоне)');
     } catch (error) {
       const err = error as Error;
       botLogger.error(

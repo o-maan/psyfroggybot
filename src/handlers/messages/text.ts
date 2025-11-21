@@ -143,12 +143,14 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
 
       // ПОТОМ проверяем интерактивные посты (только НЕ в личных чатах и только если не Joy)
       if (ctx.chat.type !== 'private') {
-        const isInteractive = await scheduler.handleInteractiveUserResponse(
+        // ⚡ НОВАЯ СИСТЕМА: handleInteractiveUserResponseV2 находит ВСЕ посты и обрабатывает параллельно
+        const isInteractive = await scheduler.handleInteractiveUserResponseV2(
           userId,
           message,
           replyToChatId,
           ctx.message.message_id,
-          messageThreadId
+          messageThreadId,
+          ctx.chat.type
         );
 
         if (isInteractive) {

@@ -109,16 +109,18 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
       // ✅ Интерактивная вечерняя логика ТОЖЕ обрабатывает редактирование
       // Внутри handleInteractiveUserResponse есть проверка: если messageId уже был обработан -
       // просто обновляет данные, НЕ переходя на следующий шаг
-      const isInteractive = await scheduler.handleInteractiveUserResponse(
+      // ⚡ НОВАЯ СИСТЕМА: handleInteractiveUserResponseV2 находит ВСЕ посты и обрабатывает параллельно
+      const isInteractive = await scheduler.handleInteractiveUserResponseV2(
         userId,
         message,
         chatId,
         messageId,
-        messageThreadId
+        messageThreadId,
+        ctx.chat?.type
       );
 
       if (isInteractive) {
-        botLogger.info({ userId, messageId }, '✅ Редактированное сообщение обработано в интерактивном режиме');
+        botLogger.info({ userId, messageId }, '✅ Редактированное сообщение обработано в интерактивном режиме (НОВАЯ СИСТЕМА)');
         return;
       }
 
