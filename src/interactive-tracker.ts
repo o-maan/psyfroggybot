@@ -34,6 +34,10 @@ export async function trackUserMessage(
     messagePreview: messageText.substring(0, 30)
   }, '🔍 Отслеживаем сообщение пользователя');
 
+  // ВСЕГДА сохраняем сообщение пользователя в общую таблицу messages
+  const { saveMessage } = await import('./db');
+  saveMessage(userId, messageText, new Date().toISOString(), userId, messageId, userId);
+
   let context: DialogContext | null = null;
 
   // 1. Если есть реплай - это самый точный способ
@@ -91,6 +95,30 @@ export async function trackUserMessage(
       method: replyToMessageId ? 'reply' : messageThreadId ? 'thread' : 'active_post'
     }, '✅ Найден контекст диалога');
   } else {
+    // Проверяем утренние посты (они хранятся отдельно от interactive_posts)
+    if (messageThreadId) {
+      const { getMorningPostByThreadId } = await import('./db');
+      const morningPost = await getMorningPostByThreadId(messageThreadId);
+
+      if (morningPost && morningPost.user_id === userId) {
+        // Сохраняем сообщение в message_links с state_at_time = null для batch processing
+        await saveUserMessageLink(morningPost.channel_message_id, messageId, undefined, userId, messageText);
+
+        schedulerLogger.info({
+          channelMessageId: morningPost.channel_message_id,
+          userId,
+          messageId,
+          messageThreadId
+        }, '✅ Сохранено утреннее сообщение в message_links для batch processing');
+
+        return {
+          post: morningPost,
+          currentState: 'morning_waiting',
+          userId
+        };
+      }
+    }
+
     schedulerLogger.warn({
       userId,
       messageId,
@@ -178,11 +206,34 @@ async function saveUserMessageLink(
     }
     
     // Определяем какое поле обновлять на основе текущего состояния
-    const post = await getPostById(channelMessageId);
+    let post = await getPostById(channelMessageId);
+
+    // Если не нашли в interactive_posts, проверяем morning_posts
+    let isMorningPost = false;
+    if (!post) {
+      const { getMorningPost } = await import('./db');
+      const morningPost = getMorningPost(channelMessageId);
+
+      if (morningPost) {
+        // Для утренних постов создаем псевдо-post объект
+        post = {
+          channel_message_id: morningPost.channel_message_id,
+          user_id: morningPost.user_id,
+          current_state: null, // Для утренних постов state_at_time будет null - это важно для batch processor!
+        } as any;
+        isMorningPost = true;
+
+        schedulerLogger.debug(
+          { channelMessageId, userMessageId, userId: morningPost.user_id },
+          '🌅 Найден утренний пост - сохраняем в message_links с state_at_time=null'
+        );
+      }
+    }
+
     if (!post) {
       schedulerLogger.error(
         { channelMessageId, userMessageId, userId },
-        '❌ КРИТИЧЕСКАЯ ОШИБКА: Пост не найден в БД!'
+        '❌ КРИТИЧЕСКАЯ ОШИБКА: Пост не найден ни в interactive_posts, ни в morning_posts!'
       );
 
       // FALLBACK: Сохраняем сообщение с channel_message_id=0 чтобы не потерять данные
@@ -211,19 +262,21 @@ async function saveUserMessageLink(
     }
 
     const updateData: any = {};
-    
-    // Универсальная логика - сохраняем в соответствующее поле
-    if (!post.user_task1_message_id && post.current_state?.includes('task1')) {
-      updateData.user_task1_message_id = userMessageId;
-    } else if (!post.user_schema_message_id && post.current_state?.includes('schema')) {
-      updateData.user_schema_message_id = userMessageId;
-    } else if (!post.user_task2_message_id && post.current_state?.includes('task2')) {
-      updateData.user_task2_message_id = userMessageId;
+
+    // Универсальная логика - сохраняем в соответствующее поле (только для вечерних постов, НЕ для утренних)
+    if (!isMorningPost) {
+      if (!post.user_task1_message_id && post.current_state?.includes('task1')) {
+        updateData.user_task1_message_id = userMessageId;
+      } else if (!post.user_schema_message_id && post.current_state?.includes('schema')) {
+        updateData.user_schema_message_id = userMessageId;
+      } else if (!post.user_task2_message_id && post.current_state?.includes('task2')) {
+        updateData.user_task2_message_id = userMessageId;
+      }
     }
-    
+
     // Также сохраняем в отдельную таблицу для полной истории
     const messagePreview = messageText ? messageText.substring(0, 500) : null;
-    const currentState = post.current_state || null;
+    const currentState = post.current_state || null; // Для утренних постов будет null - это важно!
     const save = db.query(`
       INSERT INTO message_links (
         channel_message_id,
@@ -240,12 +293,12 @@ async function saveUserMessageLink(
     save.run(channelMessageId, userMessageId, post.user_id, replyToBotMessageId, messagePreview, currentState);
 
     schedulerLogger.debug(
-      { channelMessageId, userMessageId, userId: post.user_id, currentState },
+      { channelMessageId, userMessageId, userId: post.user_id, currentState, isMorningPost },
       '✅ Сообщение пользователя сохранено в message_links'
     );
-    
-    // Обновляем основную таблицу если есть что обновлять
-    if (Object.keys(updateData).length > 0) {
+
+    // Обновляем основную таблицу если есть что обновлять (только для вечерних постов)
+    if (!isMorningPost && Object.keys(updateData).length > 0) {
       updateData.last_interaction_at = new Date().toISOString();
       updateInteractivePostState(channelMessageId, post.current_state, updateData);
     }

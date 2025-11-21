@@ -1326,6 +1326,43 @@ export const getMorningPost = (channelMessageId: number) => {
   } | undefined;
 };
 
+// Получить утренний пост по thread ID (для сохранения в message_links)
+export const getMorningPostByThreadId = async (threadId: number) => {
+  // Сначала пробуем найти напрямую по channel_message_id
+  const directGet = db.query(`
+    SELECT * FROM morning_posts
+    WHERE channel_message_id = ?
+  `);
+  let result = directGet.get(threadId);
+
+  if (result) {
+    return result as {
+      id: number;
+      channel_message_id: number;
+      user_id: number;
+      created_at: string;
+      current_step: string;
+    };
+  }
+
+  // Если не нашли, пробуем через маппинг пересланных сообщений
+  const mappedChannelId = getChannelMessageIdByThreadId(threadId);
+  if (mappedChannelId) {
+    result = directGet.get(mappedChannelId);
+    if (result) {
+      return result as {
+        id: number;
+        channel_message_id: number;
+        user_id: number;
+        created_at: string;
+        current_step: string;
+      };
+    }
+  }
+
+  return undefined;
+};
+
 // Обновить шаг утреннего поста
 export const updateMorningPostStep = (channelMessageId: number, step: string) => {
   const update = db.query(`
@@ -2020,3 +2057,34 @@ export const getUsersWithUnansweredMessages = () => {
     return [];
   }
 };
+
+/**
+ * Помечает сообщения пользователя как обработанные по channel_message_id
+ * Используется после СИНХРОННОГО сохранения плюшек/негативных событий
+ * чтобы batch processor не обработал их повторно
+ */
+export function markMessagesAsProcessedByChannel(channelMessageId: number, userId: number): void {
+  try {
+    const update = db.query(`
+      UPDATE message_links
+      SET processed_at = datetime('now')
+      WHERE channel_message_id = ?
+        AND user_id = ?
+        AND message_type = 'user'
+        AND processed_at IS NULL
+    `);
+
+    const result = update.run(channelMessageId, userId);
+
+    databaseLogger.debug(
+      { channelMessageId, userId, affectedRows: result.changes },
+      '✅ Сообщения помечены как обработанные (синхронное сохранение событий)'
+    );
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, channelMessageId, userId },
+      'Ошибка пометки сообщений как обработанных'
+    );
+  }
+}
