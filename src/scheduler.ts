@@ -4146,7 +4146,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string; last_button_message_id?: number },
     messageThreadId?: number
   ) {
-    const { updateMorningPostStep, updateMorningPostButtonMessage, saveMessage } = await import('./db');
+    const { updateMorningPostStep, updateMorningPostButtonMessage, saveMessage, db } = await import('./db');
     const { getLastNMessages } = await import('./db');
     const { checkRudeMessage } = await import('./utils/rude-filter');
 
@@ -4162,6 +4162,42 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // Сохраняем сообщение пользователя в БД (независимо от того, нажал ли он кнопку)
     saveMessage(userId, messageText, new Date().toISOString(), userId, messageId, replyToChatId);
     schedulerLogger.debug({ userId, messageText: messageText.substring(0, 50) }, '💾 Сообщение пользователя сохранено в БД');
+
+    // ДОПОЛНИТЕЛЬНО: Сохраняем в message_links для batch-процессора
+    // Это СИНХРОННАЯ операция - НЕ используем async/await
+    try {
+      const messagePreview = messageText ? messageText.substring(0, 500) : null;
+      const saveLinkQuery = db.query(`
+        INSERT INTO message_links (
+          channel_message_id,
+          message_id,
+          message_type,
+          user_id,
+          message_preview,
+          state_at_time,
+          created_at
+        ) VALUES (?, ?, 'user', ?, ?, NULL, datetime('now'))
+      `);
+      saveLinkQuery.run(
+        morningPost.channel_message_id,
+        messageId,
+        userId,
+        messagePreview
+      );
+      schedulerLogger.debug(
+        { userId, channelMessageId: morningPost.channel_message_id, messageId },
+        '💾 Утреннее сообщение сохранено в message_links для batch-процессора'
+      );
+    } catch (linkError) {
+      schedulerLogger.error(
+        {
+          error: (linkError as Error).message,
+          userId,
+          channelMessageId: morningPost.channel_message_id
+        },
+        '❌ Ошибка сохранения утреннего сообщения в message_links'
+      );
+    }
 
     // Проверка на грубость/фигню БЕЗ LLM
     const rudeCheck = await checkRudeMessage(messageText, userId);
@@ -4462,8 +4498,28 @@ ${allDayUserMessages}
 - ТОЛЬКО текст поддержки, без кавычек, без технической информации`;
     }
 
-    const finalResponse = await generateMessage(finalPrompt);
-    const cleanedFinalResponse = cleanLLMText(finalResponse);
+    let cleanedFinalResponse = '';
+
+    try {
+      const finalResponse = await generateMessage(finalPrompt);
+      cleanedFinalResponse = cleanLLMText(finalResponse);
+    } catch (llmError) {
+      schedulerLogger.error({ error: llmError, userId, sentiment }, 'Ошибка генерации финального ответа в processMorningStep3, используем fallback');
+
+      // Fallback сообщения
+      const negativeFallbacks = [
+        'Обнимаю тебя! В тебя большая сила, и я в тебя верю 💚',
+        'Я рядом с тобой, помни об этом 💚 Ты обязательно справишься!'
+      ];
+
+      const positiveFallbacks = [
+        'Ты молодец! 🌟 Пусть хороших эмоций будет еще больше',
+        'Как же я рад за тебя! ✨ Продолжай радоваться жизни, ты на правильном пути'
+      ];
+
+      const fallbacks = sentiment === 'negative' ? negativeFallbacks : positiveFallbacks;
+      cleanedFinalResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    }
 
     // Добавляем фразу "Если захочешь еще чем-то поделиться - я рядом 🤗"
     const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
@@ -5308,13 +5364,15 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем список ситуаций как негативное событие
         (async () => {
           try {
-            const { saveNegativeEvent } = await import('./db');
+            const { saveNegativeEvent, markMessagesAsProcessedByChannel } = await import('./db');
             saveNegativeEvent(
               userId,
               messageText,
               '',
               channelMessageId!.toString()
             );
+            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+            markMessagesAsProcessedByChannel(channelMessageId!, userId);
             schedulerLogger.info({ userId, channelMessageId, textLength: messageText.length }, '💔 Негативное событие (список ситуаций) сохранено асинхронно (вечер, глубокий)');
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения негативного события (список ситуаций, глубокий)');
@@ -5541,13 +5599,15 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            const { savePositiveEvent } = await import('./db');
+            const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
             savePositiveEvent(
               userId,
               messageText,
               '',
               channelMessageId.toString()
             );
+            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+            markMessagesAsProcessedByChannel(channelMessageId, userId);
             schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)');
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, глубокий)');
@@ -6593,13 +6653,15 @@ ${allDayUserMessages}
         // АСИНХРОННО сохраняем позитивное событие (плюшки всегда позитивные)
         (async () => {
           try {
-            const { savePositiveEvent } = await import('./db');
+            const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
             savePositiveEvent(
               userId,
               messageText,
               '',
               channelMessageId.toString()
             );
+            // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+            markMessagesAsProcessedByChannel(channelMessageId, userId);
             schedulerLogger.info({ userId, channelMessageId }, '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)');
           } catch (error) {
             schedulerLogger.error({ error, userId, channelMessageId }, 'Ошибка асинхронного сохранения позитивного события (вечер, упрощенный)');
@@ -6837,7 +6899,7 @@ ${allDayUserMessages}
             const positiveMessages = allUserMessages.slice(halfIndex);
 
             if (positiveMessages && positiveMessages.length > 0) {
-              const { savePositiveEvent } = await import('./db');
+              const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
               const allText = positiveMessages.map((m: any) => m.message_preview || '').filter(Boolean).join('\n');
 
               if (allText) {
@@ -6847,6 +6909,8 @@ ${allDayUserMessages}
                   '',
                   channelMessageId.toString()
                 );
+                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                markMessagesAsProcessedByChannel(channelMessageId, userId);
                 schedulerLogger.info({ userId, channelMessageId, messagesCount: positiveMessages.length }, '💚 Позитивное событие сохранено асинхронно (вечер, после уточнения позитивных эмоций)');
               }
             }
@@ -7326,21 +7390,88 @@ ${allDayUserMessages}
 
       schedulerLogger.info({ userId, isFirstTime }, isFirstTime ? '📝 Первый раз - вводный сценарий' : '🔄 Повторный - основной сценарий');
 
-      // 3. Получаем checkpoint и события
-      const { getJoyCheckpoint, getPositiveEventsSinceCheckpoint } = await import('./db');
-      const checkpoint = getJoyCheckpoint(userId);
-      const checkpointTime = checkpoint?.checkpoint_time || new Date(0).toISOString();
-      const events = getPositiveEventsSinceCheckpoint(userId, checkpointTime);
+      // 3. Получаем события за последние 7 дней (независимо от checkpoint)
+      const { getPositiveEventsSinceCheckpoint } = await import('./db');
+
+      // Берем события с прошлого воскресенья (7 дней назад)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const timeFrom = sevenDaysAgo.toISOString();
+
+      const events = getPositiveEventsSinceCheckpoint(userId, timeFrom);
 
       schedulerLogger.info(
-        { userId, eventsCount: events.length, checkpointTime },
-        '📊 Позитивные события с последнего checkpoint'
+        {
+          userId,
+          eventsCount: events.length,
+          timeFrom,
+          eventsSample: events.slice(0, 5).map(e => ({
+            text: e.event_text?.substring(0, 200),
+            created: e.created_at,
+            cycle: e.cycle_identifier
+          }))
+        },
+        '📊 Позитивные события за последние 7 дней'
       );
 
       // УБРАНА проверка на пустоту событий - основной сценарий работает и без событий!
       // Он просто предложит добавить что-то в список
 
-      // 4. Отправляем пост в канал
+      // 4. ПОДГОТОВКА: Формируем все тексты для комментариев ДО отправки поста в канал
+      let commentText: string;
+      let commentKeyboard: any;
+
+      if (isFirstTime) {
+        // ВВОДНЫЙ СЦЕНАРИЙ - готовим текст
+        schedulerLogger.info({ userId }, '📝 Готовим вводный сценарий');
+        commentText = `<b>Радость</b> – все то, что вызывает <b>положительные эмоции</b>: удовольствие, интерес, вдохновение, трепет и т.д. Необязательно яркие, тебе может быть просто хорошо и спокойно 😊
+<b>Энергия</b> – то, после чего ты чувствуешь <b>заряд, восстановление, ясность, легкость</b> или <b>прилив сил</b> 🔥 – даже если это «ничего не делать».
+
+<b>Что это для тебя?</b>
+
+💡 Одно и то же может давать и радость, и энергию 🤩`;
+
+        // Временные callback_data (будут заменены после получения channelMessageId)
+        commentKeyboard = {
+          inline_keyboard: [
+            [{ text: 'Дай подсказку', callback_data: `joy_sunday_hint_PLACEHOLDER` }],
+            [{ text: 'В другой раз', callback_data: `joy_sunday_skip_PLACEHOLDER` }]
+          ]
+        };
+      } else {
+        // ОСНОВНОЙ СЦЕНАРИЙ - готовим текст с событиями
+        schedulerLogger.info({ userId }, '🔄 Готовим основной сценарий');
+
+        // Форматируем события через LLM (внутри есть fallback при ошибке)
+        let formattedEvents = '';
+        if (events.length > 0) {
+          formattedEvents = await this.formatEventsWithLLM(events);
+          schedulerLogger.info({ eventsLength: formattedEvents.length }, '✅ События отформатированы');
+        }
+
+        // ВАЖНО: Отправляем ДВА сообщения - сначала список, потом вопрос с кнопками
+        // Первое сообщение: только список событий
+        if (formattedEvents) {
+          commentText = `Вот, что вызывало у тебя позитивные эмоции 😍\n\n${formattedEvents}`;
+        } else {
+          commentText = `<b>Напиши, что хочешь добавить в свой список? ❤️‍🔥</b>`;
+        }
+
+        // Второе сообщение будет с вопросом и кнопками (см. ниже после отправки поста)
+
+        // Временные callback_data (будут заменены после получения channelMessageId)
+        commentKeyboard = {
+          inline_keyboard: [
+            [{ text: 'Показать список 📝', callback_data: `joy_view_PLACEHOLDER` }],
+            [{ text: 'Дай подсказку', callback_data: `joy_sunday_hint_PLACEHOLDER` }],
+            [{ text: 'В другой раз 🥲', callback_data: `joy_sunday_skip_PLACEHOLDER` }]
+          ]
+        };
+      }
+
+      schedulerLogger.info({ userId }, '✅ Тексты для комментариев готовы, отправляем пост в канал');
+
+      // 5. ОТПРАВЛЯЕМ ПОСТ В КАНАЛ (только после подготовки всех текстов!)
       let fallbackImagePath: string;
       try {
         fallbackImagePath = this.getNextImage(userId);
@@ -7379,7 +7510,17 @@ ${allDayUserMessages}
 
       const channelMessageId = channelMessage.message_id;
 
-      // 5. Сохраняем сессию /joy
+      // 6. Обновляем callback_data с реальным channelMessageId
+      if (isFirstTime) {
+        commentKeyboard.inline_keyboard[0][0].callback_data = `joy_sunday_hint_${channelMessageId}`;
+        commentKeyboard.inline_keyboard[1][0].callback_data = `joy_sunday_skip_${channelMessageId}`;
+      } else {
+        commentKeyboard.inline_keyboard[0][0].callback_data = `joy_view_${channelMessageId}`;
+        commentKeyboard.inline_keyboard[1][0].callback_data = `joy_sunday_hint_${channelMessageId}`;
+        commentKeyboard.inline_keyboard[2][0].callback_data = `joy_sunday_skip_${channelMessageId}`;
+      }
+
+      // 7. Сохраняем сессию /joy
       const commentsChatId = this.getChatId();
       if (!commentsChatId) {
         throw new Error('CHAT_ID не настроен в переменных окружения');
@@ -7391,17 +7532,46 @@ ${allDayUserMessages}
         chatId: commentsChatId
       });
 
-      // 6. В комментариях показываем нужный сценарий
+      // 8. СРАЗУ отправляем в комментарии (используя асинхронную систему)
+      schedulerLogger.info({ userId, channelMessageId, isFirstTime }, '📨 Отправляем сообщение в комментарии');
+
       if (isFirstTime) {
-        // ВВОДНЫЙ СЦЕНАРИЙ
-        schedulerLogger.info({ userId, channelMessageId }, '📝 Отправляем вводный сценарий');
-        // TODO: Создать метод для вводного сценария
-        await this.sendJoyFirstTimeMessage(channelMessageId, userId, commentsChatId, events);
+        // ВВОДНЫЙ СЦЕНАРИЙ - одно сообщение
+        this.sendJoyMessageAsync(
+          channelMessageId,
+          commentText,
+          commentKeyboard,
+          'joy_intro',
+          userId,
+          commentsChatId
+        );
       } else {
-        // ОСНОВНОЙ СЦЕНАРИЙ
-        schedulerLogger.info({ userId, channelMessageId }, '🔄 Отправляем основной сценарий');
-        // TODO: Создать метод для основного сценария
-        await this.sendJoyRegularMessage(channelMessageId, userId, commentsChatId, events);
+        // ОСНОВНОЙ СЦЕНАРИЙ - ДВА сообщения (список + вопрос с кнопками)
+        if (events.length > 0) {
+          // ЕСТЬ СОБЫТИЯ - отправляем список + вопрос с кнопками
+          const promptText = `<b>Хочешь добавить что-то из этого в свой список?</b>
+Или другое
+<b>Перечисли ниже ❤️‍🔥</b>`;
+
+          this.sendJoyRegularMessagesAsync(
+            channelMessageId,
+            commentText,  // список событий
+            promptText,   // вопрос
+            commentKeyboard,
+            userId,
+            commentsChatId
+          );
+        } else {
+          // НЕТ СОБЫТИЙ - только вопрос с кнопками
+          this.sendJoyMessageAsync(
+            channelMessageId,
+            commentText,
+            commentKeyboard,
+            'joy_main',
+            userId,
+            commentsChatId
+          );
+        }
       }
 
       schedulerLogger.info({ userId, channelMessageId }, '✅ Воскресный пост со списком радости отправлен');
@@ -7542,6 +7712,19 @@ ${formattedEvents}`;
    */
   private async formatEventsWithLLM(events: any[]): Promise<string> {
     try {
+      // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
+      schedulerLogger.info(
+        {
+          eventsCount: events.length,
+          eventsSample: events.slice(0, 3).map(e => ({
+            text: e.event_text?.substring(0, 200),
+            created: e.created_at,
+            cycle: e.cycle_identifier
+          }))
+        },
+        '🔍 НАЧАЛО formatEventsWithLLM - какие события пришли'
+      );
+
       // Формируем список событий для промпта
       const eventsText = events
         .map((event, index) => {
@@ -7563,37 +7746,94 @@ ${formattedEvents}`;
 СОБЫТИЯ:
 ${eventsText}${filterInstruction}
 
-ТРЕБОВАНИЯ К ФОРМАТУ:
-1. Каждый пункт начинается с эмоджи 😊 (именно этот!)
-2. Каждый пункт начинается с МАЛЕНЬКОЙ буквы
-3. Если к событию были описаны эмоции - добавь их в конце через тире
-4. Сохрани авторский стиль формулировок
-5. НЕ добавляй заголовки типа "Вот список событий"
-6. ТОЛЬКО список, ничего больше
+КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
 
-ПРИМЕР ПРАВИЛЬНОГО ФОРМАТА:
-😊 пообедал с другом в новом кафе - радость, интерес
-😊 закончил сложный проект на работе - гордость
+1. **Каждый пункт с НОВОЙ строки** (без пропуска строки между пунктами)
+2. Каждый пункт начинается с эмоджи 😊 (именно этот!)
+3. Каждый пункт начинается с МАЛЕНЬКОЙ буквы после эмоджи
+4. **Убери тестовые события** типа "тестовое позитивное событие", "тест", "проверка" - их НЕ включай в список
+5. **Удаляй ПОЛНЫЕ дубликаты** - если одно и то же событие повторяется несколько раз, оставь только ОДИН раз
+6. **НЕ добавляй отдельно просто эмоции** без события:
+   ❌ "😊 нетерпение" - НЕПРАВИЛЬНО (это просто эмоция)
+   ❌ "😊 радость" - НЕПРАВИЛЬНО (это просто эмоция)
+   ✅ "😊 вкусная еда – радость" - ПРАВИЛЬНО (событие + эмоция)
+7. Если к событию были описаны эмоции - добавь их в конце через " – " (тире с пробелами)
+8. Сохрани авторский стиль формулировок событий
+9. НЕ добавляй заголовки, вводные фразы, комментарии
+10. ТОЛЬКО список событий, ничего больше
+
+ПРАВИЛЬНЫЙ ФОРМАТ:
+😊 пообедал с другом в новом кафе – радость, интерес
+😊 закончил сложный проект на работе – гордость
 😊 прогулка в парке
-😊 вкусный ужин дома - удовольствие, спокойствие
+😊 вкусный ужин дома – удовольствие, спокойствие
 
-Верни ТОЛЬКО отформатированный список.`;
+НЕПРАВИЛЬНЫЕ ПРИМЕРЫ (НЕ делай так):
+❌ "😊 тестовое позитивное событие" - убрать, это тест!
+❌ "😊 нетерпение" - убрать, это просто эмоция без события!
+❌ "😊 вкусная еда – радость
+😊 вкусная еда – радость" - дублирование, оставить только один раз!
+
+Верни ТОЛЬКО отформатированный список событий.`;
 
       schedulerLogger.info({ eventsCount: events.length, shouldFilter }, '🔄 Форматируем события через LLM');
 
       const response = await generateMessage(prompt);
-      const cleanedResponse = cleanLLMText(response);
 
-      schedulerLogger.info({ responseLength: cleanedResponse.length }, '✅ События отформатированы');
+      // Проверяем, не вернулась ли ошибка от LLM
+      if (response === 'HF_JSON_ERROR' || response.includes('ERROR')) {
+        schedulerLogger.warn({ response }, '⚠️ LLM вернул ошибку, используем fallback');
+        throw new Error('LLM вернул ошибку');
+      }
 
-      return cleanedResponse;
+      let cleanedResponse = cleanLLMText(response);
+
+      // POST-PROCESSING: форсируем перенос строк если LLM вернул всё через пробелы
+      // Ищем паттерн: эмоджи + пробел + текст + пробел + эмоджи
+      // Заменяем на: эмоджи + пробел + текст + \n + эмоджи
+      cleanedResponse = cleanedResponse.replace(/😊\s+([^😊]+?)\s+(?=😊)/g, '😊 $1\n');
+
+      // Убеждаемся что последний пункт тоже заканчивается переносом
+      if (!cleanedResponse.endsWith('\n')) {
+        cleanedResponse = cleanedResponse.trim() + '\n';
+      }
+
+      schedulerLogger.info({ responseLength: cleanedResponse.length }, '✅ События отформатированы с переносами строк');
+
+      return cleanedResponse.trim();
     } catch (error) {
       schedulerLogger.error({ error }, 'Ошибка форматирования событий через LLM');
 
       // Fallback: простое форматирование без LLM
-      return events
+      const seen = new Set<string>();
+      const filtered = events.filter(event => {
+        const eventText = event.event_text.toLowerCase().trim();
+
+        // Убираем тестовые события
+        if (eventText.includes('тест') || eventText.includes('проверка')) {
+          return false;
+        }
+
+        // Убираем просто эмоции без события (короткие строки из 1-2 слов)
+        const words = eventText.split(/\s+/);
+        if (words.length <= 2 && !eventText.includes(' ')) {
+          // Это похоже на просто эмоцию (например "радость", "нетерпение")
+          return false;
+        }
+
+        // Убираем дубликаты
+        const key = eventText;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+
+        return true;
+      });
+
+      return filtered
         .map(event => {
-          const emotionsPart = event.emotions_text ? ` - ${event.emotions_text}` : '';
+          const emotionsPart = event.emotions_text ? ` – ${event.emotions_text}` : '';
           return `😊 ${event.event_text}${emotionsPart}`;
         })
         .join('\n');

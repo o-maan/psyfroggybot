@@ -16,7 +16,6 @@ import { handleSkipEmotions } from './skip_emotions';
 import { handleHelpEmotions } from './help_emotions';
 import { handleSkipPositiveEmotions } from './skip_positive_emotions';
 import { handleMorningRespond } from './morning_respond';
-import { handleMorningCantRemember } from './morning_cant_remember';
 import { handleConfirmNegative } from './confirm_negative';
 import { handleSkipEmotionsClarification } from './skip_emotions_clarification';
 import { handleContinueToPlushki } from './continue_to_plushki';
@@ -87,7 +86,6 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
 
   // Обработчики кнопок утреннего поста
   bot.action(/morning_respond_(\d+)/, handleMorningRespond);
-  bot.action(/cant_remember_emotions_(\d+)/, handleMorningCantRemember);
 
   // Обработчик подтверждения выгрузки негативных переживаний
   bot.action(/confirm_negative_(\d+)/, ctx => handleConfirmNegative(ctx, bot, scheduler));

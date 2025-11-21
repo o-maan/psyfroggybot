@@ -135,17 +135,37 @@ export async function handleMorningRespond(ctx: BotContext) {
     if (analysisData.emotions_count >= 3) {
       botLogger.info({ userId }, 'Названо 3+ эмоций, переходим к финальному ответу');
 
-      // Используем специальный промпт для первого финального ответа (без предыдущих ответов бота)
-      const finalPromptTemplate = await readFile('assets/prompts/morning-first-final-response.md', 'utf-8');
-      const finalPrompt = finalPromptTemplate
-        .replace('{{USER_MESSAGES}}', allDayUserMessages)
-        .replace('{{SENTIMENT_TYPE}}', analysisData.sentiment)
-        .replace('{{#if isNegative}}', analysisData.sentiment === 'negative' ? '' : '<!--')
-        .replace('{{else}}', analysisData.sentiment === 'negative' ? '-->' : '')
-        .replace('{{/if}}', '');
+      let cleanedFinalResponse = '';
 
-      const finalResponse = await generateMessage(finalPrompt);
-      const cleanedFinalResponse = cleanLLMText(finalResponse);
+      try {
+        // Используем специальный промпт для первого финального ответа (без предыдущих ответов бота)
+        const finalPromptTemplate = await readFile('assets/prompts/morning-first-final-response.md', 'utf-8');
+        const finalPrompt = finalPromptTemplate
+          .replace('{{USER_MESSAGES}}', allDayUserMessages)
+          .replace('{{SENTIMENT_TYPE}}', analysisData.sentiment)
+          .replace('{{#if isNegative}}', analysisData.sentiment === 'negative' ? '' : '<!--')
+          .replace('{{else}}', analysisData.sentiment === 'negative' ? '-->' : '')
+          .replace('{{/if}}', '');
+
+        const finalResponse = await generateMessage(finalPrompt);
+        cleanedFinalResponse = cleanLLMText(finalResponse);
+      } catch (llmError) {
+        botLogger.error({ error: llmError, userId }, 'Ошибка генерации финального ответа через LLM, используем fallback');
+
+        // Fallback сообщения
+        const negativeFallbacks = [
+          'Вижу, как тебе сейчас непросто... Ты большой молодец, что смог разобраться в своих чувствах и поделиться ими. Это важный шаг! 💚 Я рядом',
+          'Понимаю, как это непросто сейчас для тебя. Спасибо, что не замалчиваешь это, а честно проживаешь свои эмоции. Это сила! 💙 Я горжусь тобой 🌿'
+        ];
+
+        const positiveFallbacks = [
+          'Как же здорово! Чувствую твою радость и вдохновение! 🌟 Это прекрасно, что ты замечаешь и ценишь такие моменты. Пусть их будет больше в твоей жизни!',
+          'Какая прекрасная новость! Я рад за тебя! ✨ Ты заслуживаешь всех этих хороших эмоций. Продолжай наслаждаться этим чувством 💛'
+        ];
+
+        const fallbacks = analysisData.sentiment === 'negative' ? negativeFallbacks : positiveFallbacks;
+        cleanedFinalResponse = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+      }
 
       // Добавляем финальную фразу для завершения цикла
       const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
@@ -374,28 +394,86 @@ ${allDayUserMessages}
       }
     }
 
-    const response = await generateMessage(responsePrompt);
-    const cleanedResponse = extractJsonFromLLM(response);
-
-    botLogger.info({
-      userId,
-      sentiment: analysisData.sentiment,
-      needsEmotions,
-      needsMoreEmotions,
-      emotionsCount: analysisData.emotions_count
-    }, 'Генерируем ответ с двумя частями');
-
-    // Парсим JSON ответ
     let responseData: { support_text: string; question_text?: string } | null = null;
+
     try {
+      const response = await generateMessage(responsePrompt);
+      const cleanedResponse = extractJsonFromLLM(response);
+
+      botLogger.info({
+        userId,
+        sentiment: analysisData.sentiment,
+        needsEmotions,
+        needsMoreEmotions,
+        emotionsCount: analysisData.emotions_count
+      }, 'Генерируем ответ с двумя частями');
+
       responseData = JSON.parse(cleanedResponse);
-    } catch (parseError) {
+    } catch (error) {
       botLogger.error(
-        { error: parseError, result: cleanedResponse },
-        'Ошибка парсинга ответа с двумя частями'
+        { error, sentiment: analysisData.sentiment, needsEmotions, needsMoreEmotions },
+        'Ошибка генерации или парсинга ответа с двумя частями, используем fallback'
       );
-      // Fallback - используем весь текст как support_text
-      responseData = { support_text: cleanedResponse };
+
+      // Fallback сообщения для всех 4 сценариев
+      if (analysisData.sentiment === 'negative') {
+        if (needsEmotions) {
+          // Негатив + 0 эмоций
+          const fallbacks = [
+            {
+              support_text: 'Мне очень жаль это слышать! 😔 Обнимаю 👐🏻',
+              question_text: '\nРасскажи мне, пожалуйста, какие эмоции ты испытал?'
+            },
+            {
+              support_text: 'Это действительно непросто, понимаю! Я здесь, рядом с тобой 💙',
+              question_text: '\nКакие чувства у тебя внутри сейчас? Попробуй их назвать'
+            }
+          ];
+          responseData = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        } else {
+          // Негатив + 1-2 эмоции
+          const fallbacks = [
+            {
+              support_text: 'Это действительно тяжело, понимаю! Спасибо, что делишься 💙',
+              question_text: '\nПопробуй определить, какие еще чувства ты испытал?'
+            },
+            {
+              support_text: 'Слышу тебя и твои переживания 🫠 Я рядом!',
+              question_text: '\nА что еще ты чувствуешь помимо этого? Может быть, есть другие эмоции?'
+            }
+          ];
+          responseData = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        }
+      } else {
+        // Позитивный sentiment
+        if (needsEmotions) {
+          // Позитив + 0 эмоций
+          const fallbacks = [
+            {
+              support_text: 'Вау, меня радуют такие новости! 😊 Это очень здорово!',
+              question_text: '\nКакие эмоции ты испытал при этом?'
+            },
+            {
+              support_text: 'Как приятно это слышать! 🌟 Рад за тебя!',
+              question_text: '\nРасскажи, какие чувства ты почувствовал? Назови их'
+            }
+          ];
+          responseData = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        } else {
+          // Позитив + 1-2 эмоции
+          const fallbacks = [
+            {
+              support_text: 'Супер! 🌟 Продолжай в том же духе! 🤩',
+              question_text: '\nА что еще ты чувствуешь? Какие эмоции тебя переполняют?'
+            },
+            {
+              support_text: 'Я так рад за тебя! ✨ Это восхитительно!',
+              question_text: '\nПопробуй назвать все эмоции, которые ты испытываешь. Что еще есть помимо этого?'
+            }
+          ];
+          responseData = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        }
+      }
     }
 
     if (!responseData) {
