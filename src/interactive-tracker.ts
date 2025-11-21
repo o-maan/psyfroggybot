@@ -109,7 +109,11 @@ export async function trackUserMessage(
           userId,
           messageId,
           messageThreadId
-        }, '✅ Сохранено утреннее сообщение в message_links для batch processing');
+        }, '✅ Сохранено утреннее сообщение в message_links');
+
+        // АСИНХРОННО запускаем обработку через LLM (не блокирует бота!)
+        const { processMessageAsync } = await import('./batch-processor');
+        processMessageAsync(morningPost.channel_message_id, userId);
 
         return {
           post: morningPost,

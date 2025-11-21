@@ -1,6 +1,15 @@
 /**
  * Батчевая обработка сообщений пользователя через LLM
- * Запускается 2 раза в день: в 7:30 МСК (перед утренним постом) и в 21:30 МСК (перед вечерним постом)
+ *
+ * СТРАТЕГИЯ ОБРАБОТКИ:
+ * 1. АСИНХРОННО (processMessageAsync) - сразу после сохранения утреннего сообщения
+ *    - Fire-and-forget паттерн, не блокирует бота
+ *    - Обрабатывает сообщения по мере поступления
+ *
+ * 2. BATCH (processBatchMessages) - в 21:30 МСК перед вечерним постом
+ *    - Перепроверяет все необработанные сообщения
+ *    - Доделывает то, что не успело обработаться асинхронно
+ *    - Гарантирует что ничего не потеряется
  *
  * Задачи:
  * 1. Найти все необработанные сообщения (processed_at IS NULL)
@@ -44,6 +53,7 @@ function getUnprocessedUserMessages(): UnprocessedMessage[] {
       AND processed_at IS NULL
       AND message_preview IS NOT NULL
       AND message_preview != ''
+      AND channel_message_id != 0
     ORDER BY channel_message_id, created_at ASC
   `);
 
@@ -267,4 +277,74 @@ export async function processBatchMessages(): Promise<void> {
       'Критическая ошибка батчевой обработки'
     );
   }
+}
+
+/**
+ * АСИНХРОННАЯ обработка сообщений одного поста сразу после сохранения
+ * Не блокирует работу бота! Fire-and-forget паттерн
+ *
+ * Вызывается из interactive-tracker.ts после сохранения утреннего сообщения в message_links
+ *
+ * @param channelMessageId - ID поста канала
+ * @param userId - ID пользователя
+ */
+export function processMessageAsync(channelMessageId: number, userId: number): void {
+  // Fire-and-forget: запускаем асинхронно, не ждем результата
+  (async () => {
+    try {
+      schedulerLogger.debug(
+        { channelMessageId, userId },
+        '🔄 Запуск асинхронной обработки сообщений поста'
+      );
+
+      // Получаем все необработанные сообщения для этого поста
+      const query = db.query(`
+        SELECT * FROM message_links
+        WHERE channel_message_id = ?
+          AND message_type = 'user'
+          AND processed_at IS NULL
+          AND message_preview IS NOT NULL
+          AND message_preview != ''
+        ORDER BY created_at ASC
+      `);
+
+      const messages = query.all(channelMessageId) as UnprocessedMessage[];
+
+      if (messages.length === 0) {
+        schedulerLogger.debug({ channelMessageId }, 'Нет необработанных сообщений для асинхронной обработки');
+        return;
+      }
+
+      schedulerLogger.info(
+        { channelMessageId, userId, messagesCount: messages.length },
+        '📝 Найдено необработанных сообщений для асинхронной обработки'
+      );
+
+      // Группируем и классифицируем
+      const groups = groupAndClassifyMessages(messages);
+
+      if (groups.length === 0) {
+        return;
+      }
+
+      // Обрабатываем первую (и единственную) группу
+      const group = groups[0];
+      await processGroupWithLLM(group);
+
+      schedulerLogger.info(
+        { channelMessageId, userId },
+        '✅ Асинхронная обработка завершена успешно'
+      );
+    } catch (error) {
+      schedulerLogger.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          channelMessageId,
+          userId
+        },
+        '❌ Ошибка асинхронной обработки сообщения (не критично, batch processor доделает)'
+      );
+    }
+  })();
 }
