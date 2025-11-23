@@ -139,10 +139,38 @@ async function processGroupWithLLM(group: GroupedMessages): Promise<void> {
       if (sentiment && sentiment.sentiment) {
         if (sentiment.sentiment === 'positive') {
           group.positiveMessages.push(...group.unclearMessages);
+          schedulerLogger.info(
+            { channelMessageId: group.channelMessageId, userId: group.userId, count: group.unclearMessages.length },
+            '💚 Позитивные события распределены через LLM'
+          );
         } else if (sentiment.sentiment === 'negative') {
           group.negativeMessages.push(...group.unclearMessages);
+          schedulerLogger.info(
+            { channelMessageId: group.channelMessageId, userId: group.userId, count: group.unclearMessages.length },
+            '💔 Негативные события распределены через LLM'
+          );
+        } else if (sentiment.sentiment === 'mixed') {
+          // Mixed - есть и позитив и негатив → заносим В ОБЕ колонки
+          group.positiveMessages.push(...group.unclearMessages);
+          group.negativeMessages.push(...group.unclearMessages);
+          schedulerLogger.info(
+            { channelMessageId: group.channelMessageId, userId: group.userId, count: group.unclearMessages.length },
+            '🔀 Mixed события распределены в ОБЕ колонки (позитив + негатив)'
+          );
+        } else if (sentiment.sentiment === 'neutral') {
+          // Neutral - НЕ сохраняем (это чистые факты без эмоциональной окраски)
+          schedulerLogger.info(
+            { channelMessageId: group.channelMessageId, userId: group.userId, count: group.unclearMessages.length },
+            '😐 Neutral события пропущены (чистые факты без эмоций)'
+          );
         }
-        // Если neutral или mixed - пропускаем
+      } else {
+        // Если LLM не смог определить тональность - сохраняем как позитивные
+        schedulerLogger.warn(
+          { channelMessageId: group.channelMessageId, userId: group.userId },
+          '⚠️ LLM не определил тональность, сохраняем как позитивные'
+        );
+        group.positiveMessages.push(...group.unclearMessages);
       }
 
       group.unclearMessages = [];
