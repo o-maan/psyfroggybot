@@ -131,7 +131,45 @@ export async function handleMorningRespond(ctx: BotContext) {
 
     botLogger.info({ userId, analysisData }, 'Результат анализа эмоций');
 
-    // Если названо 3 и более эмоций - сразу переходим к финальному ответу
+    // 🔥 ЗАПУСКАЕМ ГЕНЕРАЦИЮ В ФОНЕ (fire-and-forget), чтобы не блокировать callback
+    // Анализ уже готов, теперь можем генерировать ответ асинхронно
+    processResponseInBackground(
+      analysisData,
+      userId,
+      channelMessageId,
+      chatId,
+      threadId,
+      allDayUserMessages,
+      newCycleUserMessages,
+      ctx
+    );
+
+    botLogger.info({ userId }, '✅ Callback завершен, генерация ответа продолжается в фоне');
+  } catch (error) {
+    botLogger.error({ error: (error as Error).message, stack: (error as Error).stack }, 'Ошибка обработки кнопки "Ответь мне"');
+
+    try {
+      await ctx.answerCbQuery('Произошла ошибка, попробуй еще раз 🙏');
+    } catch (answerError) {
+      botLogger.error({ answerError }, 'Не удалось отправить answerCbQuery после ошибки');
+    }
+  }
+}
+
+// Fire-and-forget функция для асинхронной генерации и отправки ответа
+function processResponseInBackground(
+  analysisData: { sentiment: string; emotions_count: number; emotions_described: boolean },
+  userId: number,
+  channelMessageId: number,
+  chatId: number,
+  threadId: number | undefined,
+  allDayUserMessages: string,
+  newCycleUserMessages: string,
+  ctx: BotContext
+) {
+  (async () => {
+    try {
+      // Если названо 3 и более эмоций - сразу переходим к финальному ответу
     if (analysisData.emotions_count >= 3) {
       botLogger.info({ userId }, 'Названо 3+ эмоций, переходим к финальному ответу');
 
@@ -537,13 +575,20 @@ ${allDayUserMessages}
     updateMorningPostStep(channelMessageId, nextStep);
 
     botLogger.info({ userId, nextStep }, '✅ Отправлен ответ с просьбой указать эмоции');
-  } catch (error) {
-    botLogger.error({ error: (error as Error).message, stack: (error as Error).stack }, 'Ошибка обработки кнопки "Ответь мне"');
+    } catch (error) {
+      botLogger.error({ error, userId, channelMessageId }, 'Ошибка фоновой генерации ответа');
 
-    try {
-      await ctx.answerCbQuery('Произошла ошибка, попробуй еще раз 🙏');
-    } catch (answerError) {
-      botLogger.error({ answerError }, 'Не удалось отправить answerCbQuery после ошибки');
+      // Пытаемся отправить fallback сообщение
+      try {
+        const fallbackMessage = 'Извини, возникла ошибка при генерации ответа 😔 Попробуй нажать кнопку еще раз';
+        const sendOptions: any = {};
+        if (threadId) {
+          sendOptions.reply_to_message_id = threadId;
+        }
+        await ctx.telegram.sendMessage(chatId, fallbackMessage, sendOptions);
+      } catch (fallbackError) {
+        botLogger.error({ fallbackError }, 'Не удалось отправить fallback сообщение');
+      }
     }
-  }
+  })();
 }

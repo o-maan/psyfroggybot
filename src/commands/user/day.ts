@@ -20,8 +20,8 @@ export function registerDayCommand(bot: Telegraf, scheduler: Scheduler) {
 
       await ctx.reply('Отправляю утренний пост...☀️');
 
-      // Отправляем утренний пост
-      await scheduler.sendMorningMessage(userId);
+      // Отправляем утренний пост (ручной вызов)
+      await scheduler.sendMorningMessage(userId, true);
 
       await ctx.reply('✅ Тестовый утренний пост отправлен! Проверь канал.');
     } catch (error) {
