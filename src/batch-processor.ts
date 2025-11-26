@@ -103,6 +103,13 @@ function groupAndClassifyMessages(messages: UnprocessedMessage[]): GroupedMessag
     ) {
       // Позитивные состояния
       group.positiveMessages.push(msg);
+    } else if (state.includes('joy_session')) {
+      // JOY сессия - НЕ обрабатываем вообще, пропускаем
+      schedulerLogger.debug(
+        { messageId: msg.id, channelMessageId: msg.channel_message_id, userId: msg.user_id },
+        '🤩 JOY сообщение пропущено - не попадёт в positive_events'
+      );
+      // НЕ добавляем ни в какую группу - просто пропускаем
     } else {
       // Неясное состояние
       group.unclearMessages.push(msg);
@@ -150,12 +157,11 @@ async function processGroupWithLLM(group: GroupedMessages): Promise<void> {
             '💔 Негативные события распределены через LLM'
           );
         } else if (sentiment.sentiment === 'mixed') {
-          // Mixed - есть и позитив и негатив → заносим В ОБЕ колонки
-          group.positiveMessages.push(...group.unclearMessages);
+          // Mixed - ТОЛЬКО в негативные (не портим список радости)
           group.negativeMessages.push(...group.unclearMessages);
           schedulerLogger.info(
             { channelMessageId: group.channelMessageId, userId: group.userId, count: group.unclearMessages.length },
-            '🔀 Mixed события распределены в ОБЕ колонки (позитив + негатив)'
+            '🔀 Mixed события сохранены ТОЛЬКО в негативные (не портим список радости)'
           );
         } else if (sentiment.sentiment === 'neutral') {
           // Neutral - НЕ сохраняем (это чистые факты без эмоциональной окраски)

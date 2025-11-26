@@ -38,6 +38,25 @@ export async function trackUserMessage(
   const { saveMessage } = await import('./db');
   saveMessage(userId, messageText, new Date().toISOString(), userId, messageId, userId);
 
+  // Проверяем, является ли это сообщением в JOY сессии
+  let isJoySession = false;
+  try {
+    const { scheduler } = await import('./bot');
+    const joySession = scheduler.getJoySession(userId);
+    const shortJoySession = scheduler.getShortJoySession(userId);
+
+    if (joySession || shortJoySession) {
+      isJoySession = true;
+      schedulerLogger.info(
+        { userId, messageId, hasJoySession: !!joySession, hasShortJoySession: !!shortJoySession },
+        '🤩 Обнаружена JOY сессия - сообщение будет помечено как joy_session'
+      );
+    }
+  } catch (error) {
+    // Если не удалось проверить JOY сессии - не критично, продолжаем без пометки
+    schedulerLogger.debug({ error }, '⚠️ Не удалось проверить JOY сессии (scheduler еще не инициализирован?)');
+  }
+
   let context: DialogContext | null = null;
 
   // 1. Если есть реплай - это самый точный способ
@@ -52,7 +71,7 @@ export async function trackUserMessage(
       };
 
       // Сохраняем связь с сообщением пользователя
-      await saveUserMessageLink(post.channel_message_id, messageId, replyToMessageId, userId, messageText);
+      await saveUserMessageLink(post.channel_message_id, messageId, replyToMessageId, userId, messageText, isJoySession);
     }
   }
 
@@ -65,7 +84,7 @@ export async function trackUserMessage(
 
     if (morningPost && morningPost.user_id === userId) {
       // Сохраняем сообщение в message_links с state_at_time = null для batch processing
-      await saveUserMessageLink(morningPost.channel_message_id, messageId, undefined, userId, messageText);
+      await saveUserMessageLink(morningPost.channel_message_id, messageId, undefined, userId, messageText, isJoySession);
 
       schedulerLogger.info({
         channelMessageId: morningPost.channel_message_id,
@@ -94,7 +113,7 @@ export async function trackUserMessage(
         userId
       };
 
-      await saveUserMessageLink(post.channel_message_id, messageId, undefined, userId, messageText);
+      await saveUserMessageLink(post.channel_message_id, messageId, undefined, userId, messageText, isJoySession);
 
       schedulerLogger.info({
         channelMessageId: post.channel_message_id,
@@ -118,7 +137,7 @@ export async function trackUserMessage(
       };
 
       // Сохраняем связь без конкретного бот-сообщения
-      await saveUserMessageLink(lastPost.channel_message_id, messageId, undefined, userId, messageText);
+      await saveUserMessageLink(lastPost.channel_message_id, messageId, undefined, userId, messageText, isJoySession);
 
       schedulerLogger.info({
         channelMessageId: lastPost.channel_message_id,
@@ -142,7 +161,7 @@ export async function trackUserMessage(
 
   // Даже если контекст не найден, сохраняем сообщение для истории
   // Используем 0 как псевдо channelMessageId для общих сообщений
-  await saveUserMessageLink(0, messageId, undefined, userId, messageText);
+  await saveUserMessageLink(0, messageId, undefined, userId, messageText, isJoySession);
 
   return null;
 }
@@ -190,7 +209,8 @@ async function saveUserMessageLink(
   userMessageId: number,
   replyToBotMessageId?: number,
   userId?: number,
-  messageText?: string
+  messageText?: string,
+  isJoySession?: boolean
 ) {
   try {
     // Если channelMessageId = 0, это общее сообщение без поста
@@ -288,7 +308,8 @@ async function saveUserMessageLink(
 
     // Также сохраняем в отдельную таблицу для полной истории
     const messagePreview = messageText ? messageText.substring(0, 500) : null;
-    const currentState = post.current_state || null; // Для утренних постов будет null - это важно!
+    // Если это JOY сессия - помечаем специальным state, иначе используем текущее состояние поста
+    const currentState = isJoySession ? 'joy_session' : (post.current_state || null); // Для утренних постов будет null - это важно!
     const save = db.query(`
       INSERT INTO message_links (
         channel_message_id,

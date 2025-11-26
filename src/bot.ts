@@ -46,6 +46,9 @@ wrapTelegramApi(bot);
 const calendarService = new CalendarService();
 const scheduler = new Scheduler(bot, calendarService);
 
+// Экспортируем scheduler для использования в других модулях (например, interactive-tracker)
+export { scheduler };
+
 // Регистрируем middleware
 registerMiddleware(bot, scheduler);
 
