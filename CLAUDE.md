@@ -139,8 +139,8 @@ bun run lint                   # TypeScript type checking
 8. **Проверка ответов и злые посты:**
 
    - `checkUsersResponses()` - проверяет только пользователя 5153477378
-   - Запускается через ANGRY_POST_DELAY_MINUTES минут после каждого поста (по умолчанию 600 минут = 10 часов)
-   - Если пользователь не ответил - генерирует и отправляет "злой" пост
+   - Запускается через cron job в 8:00 утра
+   - Если пользователь не ответил на вчерашний пост - генерирует и отправляет "злой" пост
    - Использует промпты: `no-answer` для текста и `frog-image-promt-angry` для изображения
 
 9. **Управление изображениями:**
@@ -270,7 +270,6 @@ Required variables in `.env`:
 - `CHAT_ID`: Discussion group ID for comments
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: OAuth credentials
 - `NODE_ENV`: Environment mode (affects database path)
-- `ANGRY_POST_DELAY_MINUTES`: Delay before checking user responses (default: 600)
 - `PORT`: Express server port (default: 3000)
 
 ### Deployment
