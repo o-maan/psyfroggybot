@@ -4,6 +4,7 @@ import { CalendarService } from '../calendar';
 import { Scheduler } from '../scheduler';
 import { saveUserToken } from '../db';
 import { botLogger, logger } from '../logger';
+import { sendToUser } from '../utils/send-to-user';
 
 // --- Express сервер для Google OAuth2 callback и REST ---
 export function createOAuthServer(bot: Telegraf, calendarService: CalendarService, scheduler: Scheduler) {
@@ -43,7 +44,7 @@ export function createOAuthServer(bot: Telegraf, calendarService: CalendarServic
       res.send('Авторизация прошла успешно! Можете вернуться к боту.');
       // Можно отправить сообщение админу или вывести в консоль
       logger.info({ chatId, code: code.substring(0, 10) + '...' }, 'OAuth токен успешно получен');
-      await bot.telegram.sendMessage(chatId, 'Авторизация прошла успешно! Можете вернуться к боту.');
+      await sendToUser(bot, chatId, chatId, 'Авторизация прошла успешно! Можете вернуться к боту.');
     } catch (e) {
       const error = e as Error;
       botLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка OAuth токена');

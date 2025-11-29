@@ -2,7 +2,8 @@ import { readFile } from 'fs/promises';
 import type { BotContext } from '../../types';
 import { botLogger } from '../../logger';
 import { getMorningPost, updateMorningPostStep, getMorningPostUserMessages, getMorningPostMessagesAfterLastFinal, updateMorningPostFinalMessageTime } from '../../db';
-import { generateMessage, analyzeWithLowTemp } from '../../llm';
+import { analyzeWithLowTemp } from '../../llm';
+import { generateWithUserContext } from '../../llm-with-context';
 import { cleanLLMText } from '../../utils/clean-llm-text';
 import { extractJsonFromLLM } from '../../utils/extract-json-from-llm';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
@@ -185,7 +186,7 @@ function processResponseInBackground(
           .replace('{{else}}', analysisData.sentiment === 'negative' ? '-->' : '')
           .replace('{{/if}}', '');
 
-        const finalResponse = await generateMessage(finalPrompt);
+        const finalResponse = await generateWithUserContext(userId, finalPrompt);
         cleanedFinalResponse = cleanLLMText(finalResponse);
       } catch (llmError) {
         botLogger.error({ error: llmError, userId }, 'Ошибка генерации финального ответа через LLM, используем fallback');
@@ -435,7 +436,7 @@ ${allDayUserMessages}
     let responseData: { support_text: string; question_text?: string } | null = null;
 
     try {
-      const response = await generateMessage(responsePrompt);
+      const response = await generateWithUserContext(userId, responsePrompt);
       const cleanedResponse = extractJsonFromLLM(response);
 
       botLogger.info({

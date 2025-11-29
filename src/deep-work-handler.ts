@@ -2,9 +2,10 @@ import { readFile } from 'fs/promises';
 import { Telegraf } from 'telegraf';
 import path from 'path';
 import { generateMessage, analyzeWithLowTemp } from './llm';
+import { generateWithUserContext } from './llm-with-context';
 import { botLogger } from './logger';
-import { 
-  updateInteractivePostState, 
+import {
+  updateInteractivePostState,
   getInteractivePost,
   saveMessage,
   updateTaskStatus
@@ -13,6 +14,7 @@ import { sendWithRetry } from './utils/telegram-retry';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
+import { sendToUser } from './utils/send-to-user';
 
 
 // Примеры для разбора по схеме
@@ -67,12 +69,14 @@ export class DeepWorkHandler {
   private exampleCounters: Map<string, number> = new Map();
   private schemaExampleCounters: Map<string, number> = new Map();
   private chatId: number; // ID чата откуда пришло сообщение (как replyToChatId в упрощенном сценарии)
+  private userId: number; // ID пользователя для адаптации текста под пол
   private threadId?: number; // ID треда комментариев (forwardedMessageId) для отправки БЕЗ реплая
 
-  constructor(bot: Telegraf, chatId: number, threadId?: number) {
+  constructor(bot: Telegraf, chatId: number, userId: number, threadId?: number) {
     this.bot = bot;
     // ВАЖНО: используем переданный chatId (это replyToChatId из handleInteractiveUserResponse)
     this.chatId = chatId;
+    this.userId = userId;
     this.threadId = threadId;
   }
 
@@ -850,7 +854,7 @@ export class DeepWorkHandler {
       
       let supportText = 'Понимаю тебя 💚'; // Дефолтный текст
       try {
-        const generatedSupport = await generateMessage(supportPrompt);
+        const generatedSupport = await generateWithUserContext(userId, supportPrompt);
         if (generatedSupport !== 'HF_JSON_ERROR') {
           const cleanedSupport = cleanLLMText(generatedSupport);
           if (cleanedSupport.length <= 80) {

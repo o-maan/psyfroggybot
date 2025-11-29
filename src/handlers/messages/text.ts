@@ -4,6 +4,8 @@ import { botLogger } from '../../logger';
 import { updateUserResponse, saveMessage, getLastNMessages } from '../../db';
 import { generateUserResponse } from '../../llm';
 import { getUserTodayEvents } from '../../calendar';
+import { handleOnboardingMessage } from './onboarding';
+import { sendToUser } from '../../utils/send-to-user';
 
 // ВРЕМЕННО ОТКЛЮЧЕНО: автоматические ответы бота в комментариях
 // Код сохранен для возможного восстановления функциональности в будущем
@@ -32,6 +34,13 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
 
     // Пропускаем команды - они обрабатываются отдельными обработчиками
     if (message.startsWith('/')) {
+      return;
+    }
+
+    // Проверяем, не находится ли пользователь в процессе онбординга
+    const isOnboarding = await handleOnboardingMessage(ctx);
+    if (isOnboarding) {
+      // Сообщение обработано в рамках онбординга
       return;
     }
 
@@ -193,12 +202,12 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
 
       if (AUTO_RESPONSES_ENABLED) {
         // Генерируем контекстуальный ответ через LLM
-        const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined);
+        const textResponse = await generateUserResponse(message, conversationHistory, calendarEvents || undefined, chatId);
 
         // Отправляем текстовый ответ в правильный чат
         // Если сообщение из связанной группы - отвечаем туда же
         // Иначе - в CHAT_ID из конфига
-        await bot.telegram.sendMessage(replyToChatId, textResponse, {
+        await sendToUser(bot, replyToChatId, userId, textResponse, {
           reply_parameters: {
             message_id: ctx.message.message_id,
             chat_id: chatId, // указываем исходный чат для правильной ссылки на сообщение
@@ -223,7 +232,7 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
       // Fallback ответ при ошибке - также проверяем флаг автоответов
       if (AUTO_RESPONSES_ENABLED) {
         const fallbackMessage = 'Спасибо, что поделился! 🤍';
-        await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
+        await sendToUser(bot, replyToChatId, userId, fallbackMessage, {
           reply_parameters: {
             message_id: ctx.message.message_id,
             chat_id: chatId,

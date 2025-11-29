@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик для кнопки "На сегодня хватит - пропустить 😮‍💨"
 export async function handleSkipEmotionsClarification(ctx: BotContext, bot: Telegraf) {
@@ -90,7 +91,7 @@ export async function handleSkipEmotionsClarification(ctx: BotContext, bot: Tele
         chatId,
         userId,
         () =>
-          bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
+          sendToUser(bot, chatId, userId, plushkiText, sendOptions),
         'skip_emotions_clarification_plushki',
         { maxAttempts: 5, intervalMs: 3000 }
       );

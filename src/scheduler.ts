@@ -33,6 +33,7 @@ import {
   updateMorningPostFinalMessageTime,
 } from './db';
 import { generateMessage } from './llm';
+import { generateWithUserContext } from './llm-with-context';
 import { botLogger, calendarLogger, databaseLogger, logger, schedulerLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
@@ -50,6 +51,10 @@ import { AngryPostHandler } from './handlers/posts/angry';
 function escapeHTML(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Дефолтный текст запроса пользователя для тех, кто пропустил шаг онбординга
+// Оставляем пустым, т.к. в промпте уже есть общая информация о назначении бота
+const DEFAULT_USER_REQUEST = '';
 
 export class Scheduler {
   private bot: Telegraf;
@@ -423,7 +428,7 @@ export class Scheduler {
   }
 
   // Генерация простого сообщения через LLM
-  public async generateSimpleMessage(promptName: string, context: any): Promise<string> {
+  public async generateSimpleMessage(promptName: string, context: any, userId: number): Promise<string> {
     try {
       const promptPath = path.join(__dirname, '..', 'assets', 'prompts', `${promptName}.md`);
       let prompt = await readFile(promptPath, 'utf-8');
@@ -441,7 +446,7 @@ export class Scheduler {
 
       schedulerLogger.info({ promptName, promptLength: prompt.length }, 'Генерация простого сообщения');
 
-      const response = await generateMessage(prompt);
+      const response = await generateWithUserContext(userId, prompt);
 
       // Удаляем теги <think>...</think> из ответа
       const cleanedResponse = extractJsonFromLLM(response);
@@ -811,7 +816,7 @@ export class Scheduler {
   }
 
   // Определяем занятость пользователя через LLM анализ календаря
-  private async detectUserBusy(events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
+  private async detectUserBusy(userId: number, events: any[]): Promise<{ probably_busy: boolean; busy_reason: string | null }> {
     try {
       const detectPrompt = await readFile('assets/prompts/detect-busy.md', 'utf-8');
 
@@ -862,7 +867,7 @@ export class Scheduler {
 
       const fullPrompt = detectPrompt + '\n\n' + eventsDescription;
 
-      let response = await generateMessage(fullPrompt);
+      let response = await generateWithUserContext(userId, fullPrompt);
 
       if (response === 'HF_JSON_ERROR') {
         // По умолчанию считаем, что не занят
@@ -1074,7 +1079,7 @@ export class Scheduler {
     }
 
     // Определяем занятость пользователя через анализ календаря
-    const busyStatus = await this.detectUserBusy(events || []);
+    const busyStatus = await this.detectUserBusy(chatId, events || []);
     const promptPath = busyStatus.probably_busy
       ? 'assets/prompts/scheduled-message-flight.md'
       : 'assets/prompts/scheduled-message.md';
@@ -1102,6 +1107,10 @@ export class Scheduler {
     const userGenderToUse = userGender || 'unknown';
     promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
 
+    // Добавляем запрос пользователя в промпт
+    const userRequestToUse = user?.user_request || DEFAULT_USER_REQUEST;
+    promptBase = promptBase.replace(/\{userRequest\}/g, userRequestToUse);
+
     let prompt = promptBase + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
     if (busyStatus.probably_busy) {
       // Если пользователь занят — полностью генерируем текст через HF, ограничиваем 555 символами
@@ -1109,7 +1118,7 @@ export class Scheduler {
         { chatId, busy_reason: busyStatus.busy_reason },
         '✈️ Пользователь занят, используем упрощенный промпт'
       );
-      let rawText = await generateMessage(prompt);
+      let rawText = await generateWithUserContext(chatId, prompt);
       schedulerLogger.info({ chatId, textLength: rawText?.length || 0 }, `📝 LLM сырой ответ получен`);
 
       // Проверяем на ошибку до очистки
@@ -1193,7 +1202,7 @@ export class Scheduler {
     } else {
       // Обычный день — используем структуру с пунктами
       schedulerLogger.info({ chatId }, '📅 Пользователь не занят, используем обычный промпт');
-      const rawJsonText = await generateMessage(prompt);
+      const rawJsonText = await generateWithUserContext(chatId, prompt);
       schedulerLogger.info(
         {
           chatId,
@@ -1439,7 +1448,7 @@ export class Scheduler {
     }
 
     // Определяем занятость пользователя через анализ календаря
-    const busyStatus = await this.detectUserBusy(events || []);
+    const busyStatus = await this.detectUserBusy(chatId, events || []);
 
     // Для интерактивного режима всегда используем обычный промпт
     const promptPath = 'assets/prompts/scheduled-message.md';
@@ -1464,6 +1473,10 @@ export class Scheduler {
     const userGenderToUse = userGender || 'unknown';
     promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
 
+    // Добавляем запрос пользователя в промпт
+    const userRequestToUse = user?.user_request || DEFAULT_USER_REQUEST;
+    promptBase = promptBase.replace(/\{userRequest\}/g, userRequestToUse);
+
     // Проверяем выходной ли день и добавляем инструкции для encouragement
     const isWeekend = this.isWeekend();
     let weekendInstructions = '';
@@ -1478,7 +1491,7 @@ ${weekendPromptContent}`;
     let prompt = promptBase + weekendInstructions + `\n\nСегодня: ${dateTimeStr}.` + eventsStr + previousMessagesBlock;
 
     // Генерируем сообщение
-    const rawJsonText = await generateMessage(prompt);
+    const rawJsonText = await generateWithUserContext(chatId, prompt);
     schedulerLogger.info(
       { chatId, rawLength: rawJsonText?.length || 0 },
       `📝 LLM сырой ответ получен для интерактивного режима`
@@ -3841,7 +3854,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
 
         // Генерируем текст через LLM на основе одного примера
-        const generatedText = await generateMessage(modifiedPrompt);
+        const generatedText = await generateWithUserContext(userId, modifiedPrompt);
 
         // Очищаем текст от технических элементов
         let cleanedText = cleanLLMText(generatedText);
@@ -3912,7 +3925,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         const validationPrompt = null; // this.extractPromptSection(angryPromptsFile, 5);
         if (validationPrompt) {
           const validationRequest = `${validationPrompt}\n\nТекст для проверки:\n${cleanedText}`;
-          const validatedText = await generateMessage(validationRequest);
+          const validatedText = await generateWithUserContext(userId, validationRequest);
 
           // Если валидация вернула результат, используем его
           if (validatedText && validatedText !== 'HF_JSON_ERROR') {
@@ -4071,7 +4084,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
           try {
             const morningPrompt = await readFile('assets/prompts/morning-message.md', 'utf-8');
-            const morningText = await generateMessage(morningPrompt);
+            const morningText = await generateWithUserContext(userId, morningPrompt);
             const cleanedText = cleanLLMText(morningText);
             captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
             schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст через LLM для пятницы');
@@ -4594,7 +4607,7 @@ ${allDayUserMessages}
     let cleanedFinalResponse = '';
 
     try {
-      const finalResponse = await generateMessage(finalPrompt);
+      const finalResponse = await generateWithUserContext(userId, finalPrompt);
       cleanedFinalResponse = cleanLLMText(finalResponse);
     } catch (llmError) {
       schedulerLogger.error(
@@ -5657,7 +5670,7 @@ ${allDayUserMessages}
 
         // Импортируем функцию получения обработчика глубокой работы
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
 
         // Анализируем ответ и выбираем технику
         await deepHandler.analyzeUserResponse(channelMessageId, messageText, userId, messageId);
@@ -5668,21 +5681,21 @@ ${allDayUserMessages}
       // Обработка глубоких состояний
       if (session.currentStep === 'deep_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'deep_waiting_distortions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleDistortionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'deep_waiting_harm') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleHarmResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
@@ -6120,28 +6133,28 @@ ${allDayUserMessages}
       // Обработка состояний разбора по схеме
       if (session.currentStep === 'schema_waiting_trigger') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleTriggerResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_thoughts') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleSchemaThoughtsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_emotions') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleSchemaEmotionsResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_emotions_clarification') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleSchemaEmotionsClarificationResponse(
           channelMessageId,
           messageText,
@@ -6154,14 +6167,14 @@ ${allDayUserMessages}
 
       if (session.currentStep === 'schema_waiting_behavior') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleSchemaBehaviorResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
 
       if (session.currentStep === 'schema_waiting_correction') {
         const { getDeepWorkHandler } = await import('./handlers/callbacks/deep_work_buttons');
-        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, messageThreadId);
+        const deepHandler = getDeepWorkHandler(this.bot, replyToChatId, userId, messageThreadId);
         await deepHandler.handleSchemaCorrectionResponse(channelMessageId, messageText, userId, messageId);
         return;
       }
@@ -7726,7 +7739,7 @@ ${allDayUserMessages}
         // Форматируем события через LLM (внутри есть fallback при ошибке)
         let formattedEvents = '';
         if (validatedEvents.length > 0) {
-          formattedEvents = await this.formatEventsWithLLM(validatedEvents);
+          formattedEvents = await this.formatEventsWithLLM(userId, validatedEvents);
           schedulerLogger.info({ eventsLength: formattedEvents.length }, '✅ События отформатированы');
         }
 
@@ -7909,7 +7922,7 @@ ${allDayUserMessages}
     // Подготавливаем данные для отправки после получения forwardedMessageId
     // Форматируем события через LLM асинхронно
     const formattedEventsPromise =
-      validatedEvents.length > 0 ? this.formatEventsWithLLM(validatedEvents) : Promise.resolve('');
+      validatedEvents.length > 0 ? this.formatEventsWithLLM(userId, validatedEvents) : Promise.resolve('');
 
     // ЛОГИКА ЗАВИСИТ ОТ НАЛИЧИЯ СОБЫТИЙ
     if (validatedEvents.length > 0) {
@@ -7984,7 +7997,7 @@ ${formattedEvents}`;
    * Форматирование позитивных событий недели через LLM
    * Формат: список событий с эмоджи 😊, каждый пункт с маленькой буквы
    */
-  private async formatEventsWithLLM(events: any[]): Promise<string> {
+  private async formatEventsWithLLM(userId: number, events: any[]): Promise<string> {
     try {
       // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
       schedulerLogger.info(

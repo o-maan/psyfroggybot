@@ -3,6 +3,7 @@ import { botLogger } from '../../logger';
 import { JoyHandler } from '../../joy-handler';
 import { Scheduler } from '../../scheduler';
 import { Telegraf, Markup } from 'telegraf';
+import { sendToUser } from '../../utils/send-to-user';
 
 /**
  * Обновляет или создает joy-сессию для пользователя
@@ -573,7 +574,7 @@ export async function handleJoyRemove(ctx: BotContext, bot: Telegraf, scheduler:
         sendOptions.reply_to_message_id = messageThreadId;
       }
 
-      const removeMessage = await bot.telegram.sendMessage(chatId, removeText, sendOptions);
+      const removeMessage = await sendToUser(bot, chatId, userId, removeText, sendOptions);
 
       // Сохраняем ID сообщения с кнопками для удаления следующего
       if (!scheduler.joyLastButtonMessageId) {
@@ -603,7 +604,7 @@ ${sources.map((s, i) => `${i + 1}. ${s.text}`).join('\n')}
         joyButtonsOptions.reply_to_message_id = messageThreadId;
       }
 
-      const instructionMessage = await bot.telegram.sendMessage(chatId, instructionText, joyButtonsOptions);
+      const instructionMessage = await sendToUser(bot, chatId, userId, instructionText, joyButtonsOptions);
 
       // Сохраняем ID скользящего сообщения
       if (!scheduler.joyLastButtonMessageId) {

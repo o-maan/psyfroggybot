@@ -1,6 +1,7 @@
 import { Context, Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
+import { sendToUser } from '../../utils/send-to-user';
 
 /**
  * Обработчики удаления/редактирования для SHORT JOY
@@ -89,7 +90,7 @@ export async function handleShortJoyRemove(ctx: Context, bot: Telegraf, schedule
         sendOptions.reply_to_message_id = messageThreadId;
       }
 
-      const removeMessage = await bot.telegram.sendMessage(chatId, removeText, sendOptions);
+      const removeMessage = await sendToUser(bot, chatId, userId, removeText, sendOptions);
 
       // Сохраняем ID сообщения с кнопками для удаления следующего
       if (!scheduler.shortJoyLastButtonMessageId) {
@@ -120,7 +121,7 @@ ${sources.map((s, i) => `${i + 1}. ${s.text}`).join('\n')}
         shortJoyButtonsOptions.reply_to_message_id = messageThreadId;
       }
 
-      const instructionMessage = await bot.telegram.sendMessage(chatId, instructionText, shortJoyButtonsOptions);
+      const instructionMessage = await sendToUser(bot, chatId, userId, instructionText, shortJoyButtonsOptions);
 
       // Сохраняем состояние режима удаления
       const sessionKey = `${userId}_${shortJoyId}`;
@@ -319,7 +320,7 @@ export async function handleShortJoyRemoveConfirm(ctx: Context, bot: Telegraf, s
       sendOptions.reply_to_message_id = messageThreadId;
     }
 
-    await bot.telegram.sendMessage(chatId, confirmationText, sendOptions);
+    await sendToUser(bot, chatId, userId, confirmationText, sendOptions);
 
     // Проверяем, остались ли источники
     const remainingSources = getAllJoySources(userId);
@@ -385,7 +386,7 @@ export async function handleShortJoyClearAll(ctx: Context, bot: Telegraf, schedu
       sendOptions.reply_to_message_id = messageThreadId;
     }
 
-    await bot.telegram.sendMessage(chatId, confirmText, sendOptions);
+    await sendToUser(bot, chatId, userId, confirmText, sendOptions);
 
     botLogger.info({ userId, shortJoyId }, '✅ Запрошено подтверждение очистки списка SHORT JOY');
   } catch (error) {
@@ -466,7 +467,7 @@ export async function handleShortJoyClearConfirm(ctx: Context, bot: Telegraf, sc
       sendOptions.reply_to_message_id = messageThreadId;
     }
 
-    await bot.telegram.sendMessage(chatId, rebuildText, sendOptions);
+    await sendToUser(bot, chatId, userId, rebuildText, sendOptions);
 
     // Включаем режим накопления для нового списка
     scheduler.shortJoyAddingSessions.set(sessionKey, true);

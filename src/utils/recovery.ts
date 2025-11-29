@@ -3,6 +3,7 @@ import { getUsersWithUnansweredMessages, getLastNMessages, saveMessage } from '.
 import { generateUserResponse } from '../llm';
 import { getUserTodayEvents } from '../calendar';
 import { logger } from '../logger';
+import { sendToUser } from './send-to-user';
 
 // Проверяем, тестовый ли это бот
 const IS_TEST_BOT = process.env.IS_TEST_BOT === 'true';
@@ -84,13 +85,14 @@ export async function recoverUnansweredMessages(bot: Telegraf) {
         const textResponse = await generateUserResponse(
           user.last_message,
           conversationHistory,
-          calendarEvents || undefined
+          calendarEvents || undefined,
+          user.chat_id
         );
 
         // Отправляем ответ
         if (user.telegram_message_id && user.message_chat_id) {
           // Если есть ID сообщения - отвечаем с reply
-          await bot.telegram.sendMessage(replyToChatId, textResponse, {
+          await sendToUser(bot, replyToChatId, user.chat_id, textResponse, {
             reply_parameters: {
               message_id: user.telegram_message_id,
               chat_id: user.message_chat_id,
@@ -98,7 +100,7 @@ export async function recoverUnansweredMessages(bot: Telegraf) {
           });
         } else {
           // Иначе просто отправляем в чат
-          await bot.telegram.sendMessage(replyToChatId, textResponse);
+          await sendToUser(bot, replyToChatId, user.chat_id, textResponse);
         }
 
         // Сохраняем ответ в БД
@@ -130,14 +132,14 @@ export async function recoverUnansweredMessages(bot: Telegraf) {
           const replyToChatId = user.message_chat_id || user.chat_id;
 
           if (user.telegram_message_id && user.message_chat_id) {
-            await bot.telegram.sendMessage(replyToChatId, fallbackMessage, {
+            await sendToUser(bot, replyToChatId, user.chat_id, fallbackMessage, {
               reply_parameters: {
                 message_id: user.telegram_message_id,
                 chat_id: user.message_chat_id,
               },
             });
           } else {
-            await bot.telegram.sendMessage(replyToChatId, fallbackMessage);
+            await sendToUser(bot, replyToChatId, user.chat_id, fallbackMessage);
           }
 
           const fallbackTime = new Date().toISOString();

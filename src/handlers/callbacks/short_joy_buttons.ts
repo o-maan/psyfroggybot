@@ -3,6 +3,7 @@ import { botLogger } from '../../logger';
 import { ShortJoyHandler } from '../../short-joy-handler';
 import { Scheduler } from '../../scheduler';
 import { Telegraf } from 'telegraf';
+import { sendToUser } from '../../utils/send-to-user';
 
 /**
  * Callback обработчики для SHORT JOY (команда /joy)
@@ -279,7 +280,7 @@ export async function handleShortJoyFinish(ctx: BotContext, bot: Telegraf, sched
       sendOptions.reply_to_message_id = messageThreadId;
     }
 
-    await bot.telegram.sendMessage(chatId, finishText, sendOptions);
+    await sendToUser(bot, chatId, userId, finishText, sendOptions);
 
     // Очищаем SHORT JOY Maps
     const sessionKey = `${userId}_${channelMessageId}`;

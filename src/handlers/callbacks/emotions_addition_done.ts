@@ -1,6 +1,7 @@
 import { Context } from 'telegraf';
 import { botLogger } from '../../logger';
 import { Telegraf } from 'telegraf';
+import { sendToUser } from '../../utils/send-to-user';
 
 /**
  * Обработчик кнопки "Описал ☑️" после добавления эмоций (B1/B4)
@@ -90,7 +91,7 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
       chatId,
       userId,
       () =>
-        bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
+        sendToUser(bot, chatId, userId, plushkiText, sendOptions),
       'emotions_addition_done_plushki',
       { maxAttempts: 5, intervalMs: 3000 }
     );

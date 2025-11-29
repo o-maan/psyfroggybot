@@ -7,6 +7,7 @@ import { Telegraf } from 'telegraf';
 import type { PostHandler, MessageContext, PostData } from '../../post-handler-registry';
 import { schedulerLogger } from '../../logger';
 import { incrementAngryPostUserResponse } from '../../db';
+import { sendToUser } from '../../utils/send-to-user';
 
 export class AngryPostHandler implements PostHandler {
   readonly type = 'angry';
@@ -60,7 +61,7 @@ export class AngryPostHandler implements PostHandler {
       sendOptions.reply_to_message_id = messageThreadId;
     }
 
-    await this.bot.telegram.sendMessage(context.chatId, responseText, sendOptions);
+    await sendToUser(this.bot, context.chatId, context.userId, responseText, sendOptions);
 
     schedulerLogger.info({ userId: context.userId, responseCount }, '✅ Отправлен ответ на комментарий к злому посту');
   }

@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { schedulerLogger } from './logger';
-import { getMorningMessageIndexes, saveMorningMessageIndexes } from './db';
+import { getMorningMessageIndexes, saveMorningMessageIndexes, getUserByChatId } from './db';
 
 // Константы
 const WEEKDAY_MESSAGES_FILE = 'assets/morning-messages.md';
@@ -197,8 +197,21 @@ export function getNextGreeting(userId: number): string {
   const indexes = getMorningMessageIndexes(userId);
   const greetingIndex = indexes?.greeting_index ?? 0;
 
-  const greeting = GREETINGS[greetingIndex];
+  let greeting = GREETINGS[greetingIndex];
   const nextIndex = (greetingIndex + 1) % GREETINGS.length;
+
+  // Добавляем имя к приветствию в 50% случаев
+  // НЕ добавляем к "Солнечного тебе дня! ☀️" (индекс 8)
+  if (greetingIndex !== 8 && Math.random() < 0.5) {
+    const user = getUserByChatId(userId);
+    const userName = user?.name;
+
+    if (userName) {
+      // Заменяем "!" на ", {имя}!" перед эмоджи
+      // Например: "Доброе утро! ☀️" → "Доброе утро, Алекс! ☀️"
+      greeting = greeting.replace(/!\s*(?=☀️)/, `, ${userName}! `);
+    }
+  }
 
   // Сохраняем только индекс приветствия, остальное не трогаем
   if (indexes) {

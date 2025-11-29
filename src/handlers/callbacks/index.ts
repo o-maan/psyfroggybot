@@ -20,6 +20,7 @@ import { handleConfirmNegative } from './confirm_negative';
 import { handleSkipEmotionsClarification } from './skip_emotions_clarification';
 import { handleContinueToPlushki } from './continue_to_plushki';
 import { handleEmotionsAdditionDone } from './emotions_addition_done';
+import { registerOnboardingStartCallback } from './onboarding';
 import {
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -70,7 +71,10 @@ import {
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Общий обработчик callback_query
   bot.on('callback_query', handleCallbackQuery);
-  
+
+  // Обработчик онбординга
+  registerOnboardingStartCallback(bot);
+
   // Обработчики кнопок
   bot.action('daily_skip_all', handleDailySkipAll);
   bot.action(/skip_neg_(\d+)/, ctx => handleSkipNeg(ctx, bot));

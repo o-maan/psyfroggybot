@@ -3,6 +3,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
 import path from 'path';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик для кнопки пропуска позитивных эмоций
 export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf) {
@@ -140,7 +141,7 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
         fallbackSendOptions.reply_to_message_id = threadId;
       }
 
-      await bot.telegram.sendMessage(chatId!, finalMessage, fallbackSendOptions);
+      await sendToUser(bot, chatId!, userId, finalMessage, fallbackSendOptions);
     }
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка обработки кнопки пропуска позитивных эмоций');

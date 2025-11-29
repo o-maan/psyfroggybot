@@ -2,15 +2,16 @@ import type { BotContext } from '../../types';
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { DeepWorkHandler } from '../../deep-work-handler';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Храним экземпляры обработчиков для каждого чата/треда
 const deepWorkHandlers = new Map<string, DeepWorkHandler>();
 
-export function getDeepWorkHandler(bot: Telegraf, chatId: number, threadId?: number): DeepWorkHandler {
+export function getDeepWorkHandler(bot: Telegraf, chatId: number, userId: number, threadId?: number): DeepWorkHandler {
   // Ключ теперь включает threadId для правильного кэширования
   const key = threadId ? `${chatId}_${threadId}` : `${chatId}`;
   if (!deepWorkHandlers.has(key)) {
-    deepWorkHandlers.set(key, new DeepWorkHandler(bot, chatId, threadId));
+    deepWorkHandlers.set(key, new DeepWorkHandler(bot, chatId, userId, threadId));
   }
   return deepWorkHandlers.get(key)!;
 }
@@ -34,7 +35,7 @@ export async function handleDeepSituationChoice(ctx: BotContext, bot: Telegraf) 
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     
     // Получаем рекомендованную технику из БД
     const { getInteractivePost } = await import('../../db');
@@ -76,7 +77,7 @@ export async function handleDeepFiltersStart(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.handleFiltersStart(channelMessageId, userId!);
 
   } catch (error) {
@@ -92,7 +93,7 @@ export async function handleDeepFiltersExample(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     
     // Проверяем, не исчерпаны ли примеры
     const key = `examples_${channelMessageId}`;
@@ -143,7 +144,7 @@ export async function handleDeepShowFilters(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.showFiltersCards(channelMessageId, userId!);
 
   } catch (error) {
@@ -167,7 +168,7 @@ export async function handleDeepContinueToTreats(ctx: BotContext, bot: Telegraf)
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.continueToPluskas(channelMessageId, userId!);
 
   } catch (error) {
@@ -193,7 +194,7 @@ export async function handleShowFilters(ctx: any, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.showFilters(channelMessageId, userId);
 
   } catch (error) {
@@ -217,7 +218,7 @@ export async function handleSchemaStart(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.handleSchemaStart(channelMessageId, userId!);
 
   } catch (error) {
@@ -233,7 +234,7 @@ export async function handleSchemaExample(ctx: BotContext, bot: Telegraf) {
     
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     
     // Проверяем счетчик примеров
     const key = `schema_examples_${channelMessageId}`;
@@ -277,7 +278,7 @@ export async function handleSchemaContinue(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     await handler.continueToPluskas(channelMessageId, userId!);
 
   } catch (error) {
@@ -301,7 +302,7 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, threadId);
+    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
     
     // Получаем пост для слов поддержки
     const { getInteractivePost } = await import('../../db');
@@ -337,8 +338,10 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
       sendOptions.reply_to_message_id = threadId;
     }
 
-    await bot.telegram.sendMessage(
+    await sendToUser(
+      bot,
       chatId,
+      userId,
       supportText + '\n\n<b>Какое поведение 💃 или импульс к действию спровоцировала ситуация?</b>\n<i>Что ты сделал? Как отреагировал? Или что хотелось сделать?</i>',
       sendOptions
     );

@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик для кнопки "Идем дальше 🚀" после поддерживающего сообщения
 export async function handleContinueToPlushki(ctx: BotContext, bot: Telegraf) {
@@ -105,7 +106,7 @@ export async function handleContinueToPlushki(ctx: BotContext, bot: Telegraf) {
         chatId,
         userId,
         () =>
-          bot.telegram.sendMessage(chatId, plushkiText, sendOptions),
+          sendToUser(bot, chatId, userId, plushkiText, sendOptions),
         'continue_to_plushki_message',
         { maxAttempts: 5, intervalMs: 3000 }
       );

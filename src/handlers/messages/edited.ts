@@ -2,6 +2,7 @@ import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
 import { updateUserResponse, updateMessage } from '../../db';
+import { handleOnboardingEditedMessage } from './onboarding';
 
 /**
  * Обработчик редактированных сообщений
@@ -36,6 +37,13 @@ export function registerEditedMessageHandler(bot: Telegraf, scheduler: Scheduler
 
     // Пропускаем команды
     if (message.startsWith('/')) {
+      return;
+    }
+
+    // Проверяем, не находится ли пользователь в процессе онбординга
+    const isOnboarding = await handleOnboardingEditedMessage(ctx);
+    if (isOnboarding) {
+      // Сообщение обработано в рамках онбординга
       return;
     }
 

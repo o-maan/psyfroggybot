@@ -5,8 +5,13 @@ import { llmLogger } from './logger';
 import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 import { isLLMError } from './utils/llm-error-check';
+import { getUserByChatId } from './db';
 
 const client = new InferenceClient(process.env.HF_TOKEN);
+
+// Дефолтный текст запроса пользователя для тех, кто пропустил шаг онбординга
+// Оставляем пустым, т.к. в промпте уже есть общая информация о назначении бота
+const DEFAULT_USER_REQUEST = '';
 
 // Примеры текстов для генерации
 const examples = [
@@ -226,13 +231,24 @@ export async function minimalTestLLM() {
 export async function generateUserResponse(
   userMessage: string,
   lastBotMessage?: string,
-  calendarEvents?: string
+  calendarEvents?: string,
+  chatId?: number
 ): Promise<string> {
   const startTime = Date.now();
   try {
     // Загружаем промпт для анализа ответов пользователя
     const promptPath = './assets/prompts/user-response.md';
-    const userResponsePrompt = await readFile(promptPath, 'utf-8');
+    let userResponsePrompt = await readFile(promptPath, 'utf-8');
+
+    // Подставляем запрос пользователя из БД
+    if (chatId) {
+      const user = getUserByChatId(chatId);
+      const userRequest = user?.user_request || DEFAULT_USER_REQUEST;
+      userResponsePrompt = userResponsePrompt.replace(/\{userRequest\}/g, userRequest);
+    } else {
+      // Если chatId не передан, используем дефолтный запрос
+      userResponsePrompt = userResponsePrompt.replace(/\{userRequest\}/g, DEFAULT_USER_REQUEST);
+    }
 
     const model = 'deepseek-ai/DeepSeek-R1-0528';
     llmLogger.info(

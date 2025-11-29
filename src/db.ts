@@ -161,6 +161,15 @@ export const updateUserGender = (chatId: number, gender: string) => {
   updateUser.run(gender, chatId);
 };
 
+export const updateUserRequest = (chatId: number, request: string | null) => {
+  const updateUser = db.query(`
+    UPDATE users
+    SET user_request = ?
+    WHERE chat_id = ?
+  `);
+  updateUser.run(request, chatId);
+};
+
 export const getUserResponseStats = (chatId: number) => {
   const getStats = db.query(`
     SELECT response_count, last_response_time
@@ -172,18 +181,20 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, gender, last_response_time, response_count
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request
     FROM users
     WHERE chat_id = ?
   `);
-  return getUser.get(chatId) as { 
-    id: number; 
-    chat_id: number; 
+  return getUser.get(chatId) as {
+    id: number;
+    chat_id: number;
     username: string | null;
     name: string | null;
     gender: string | null;
     last_response_time: string | null;
     response_count: number;
+    onboarding_state: string | null;
+    user_request: string | null;
   } | undefined;
 };
 
@@ -2088,3 +2099,28 @@ export function markMessagesAsProcessedByChannel(channelMessageId: number, userI
     );
   }
 }
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С ОНБОРДИНГОМ =============
+
+/**
+ * Обновить состояние онбординга пользователя
+ * @param chatId - Chat ID пользователя
+ * @param state - Состояние: 'waiting_start' | 'waiting_name' | null (завершен)
+ */
+export const updateOnboardingState = (chatId: number, state: string | null): void => {
+  try {
+    const stmt = db.query(`
+      UPDATE users
+      SET onboarding_state = ?
+      WHERE chat_id = ?
+    `);
+    stmt.run(state, chatId);
+    databaseLogger.info({ chatId, state }, '✅ Обновлено состояние онбординга');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, chatId, state },
+      '❌ Ошибка обновления состояния онбординга'
+    );
+  }
+};

@@ -3,6 +3,7 @@ import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
 import type { Scheduler } from '../../scheduler';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Список фраз для запроса дополнительных эмоций
 const MORE_EMOTIONS_PHRASES = [
@@ -181,7 +182,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
           chatId,
           userId,
           () =>
-            bot.telegram.sendMessage(chatId, clarificationText, {
+            sendToUser(bot, chatId, userId, clarificationText, {
               parse_mode: 'HTML',
               reply_parameters: { message_id: userMessages[userMessages.length - 1].message_id },
               reply_markup: {
@@ -229,7 +230,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
           chatId,
           userId,
           () =>
-            bot.telegram.sendMessage(chatId, helpMessage, {
+            sendToUser(bot, chatId, userId, helpMessage, {
               parse_mode: 'HTML',
               reply_parameters: { message_id: replyToMessageId },
               reply_markup: {
@@ -276,7 +277,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
             chatId!,
             userId!,
             () =>
-              bot.telegram.sendMessage(chatId!, clarificationText, {
+              sendToUser(bot, chatId!, userId!, clarificationText, {
                 parse_mode: 'HTML',
                 reply_parameters: { message_id: userMessages[userMessages.length - 1].message_id },
                 reply_markup: {
@@ -309,7 +310,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
             chatId,
             userId,
             () =>
-              bot.telegram.sendMessage(chatId, clarificationText, {
+              sendToUser(bot, chatId, userId, clarificationText, {
                 parse_mode: 'HTML',
                 reply_parameters: { message_id: replyToMessageId },
                 reply_markup: {
@@ -363,7 +364,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
             chatId,
             userId,
             () =>
-              bot.telegram.sendMessage(chatId, supportText, {
+              sendToUser(bot, chatId, userId, supportText, {
                 parse_mode: 'HTML',
                 reply_parameters: { message_id: replyToMessageId },
                 reply_markup: {
@@ -421,7 +422,7 @@ export async function handleConfirmNegative(ctx: BotContext, bot: Telegraf, sche
             chatId,
             userId,
             () =>
-              bot.telegram.sendMessage(chatId, clarificationText, {
+              sendToUser(bot, chatId, userId, clarificationText, {
                 parse_mode: 'HTML',
                 reply_parameters: { message_id: userMessages[userMessages.length - 1].message_id },
                 reply_markup: {
@@ -510,7 +511,7 @@ async function sendPlushkiMessage(
       chatId,
       userId,
       () =>
-        bot.telegram.sendMessage(chatId, plushkiText, {
+        sendToUser(bot, chatId, userId, plushkiText, {
           parse_mode: 'HTML',
           reply_parameters: { message_id: replyToMessageId },
           reply_markup: plushkiKeyboard,
@@ -570,7 +571,7 @@ export async function sendEmotionsClarificationStep(
       chatId,
       userId,
       () =>
-        bot.telegram.sendMessage(chatId, text!, {
+        sendToUser(bot, chatId, userId, text!, {
           parse_mode: 'HTML',
           reply_parameters: { message_id: messageId },
           reply_markup: keyboard!,
