@@ -1,5 +1,6 @@
 import { botLogger } from '../../logger';
-import { getUserByChatId, updateUserName, updateOnboardingState, updateUserRequest } from '../../db';
+import { getUserByChatId, updateUserName, updateOnboardingState, updateUserRequest, updateUserTimezone } from '../../db';
+import { detectTimezoneByCity } from '../../utils/timezone-detector';
 
 /**
  * Функция для капитализации первой буквы строки
@@ -95,6 +96,64 @@ export async function handleOnboardingMessage(
     return true;
   }
 
+  if (user.onboarding_state === 'waiting_timezone') {
+    // Пользователь вводит название города для определения timezone
+    const cityName = message.trim();
+
+    if (!cityName) {
+      await ctx.reply('Пожалуйста, напиши название города или нажми кнопку "MSK, UTC+3" 😊');
+      return true;
+    }
+
+    botLogger.info({ chatId, userId, cityName }, '🌍 Определение timezone по городу');
+
+    // Определяем timezone по городу
+    const timezoneResult = await detectTimezoneByCity(cityName);
+
+    // Сохраняем timezone в БД
+    updateUserTimezone(chatId, timezoneResult.timezone, timezoneResult.offset);
+
+    // Переходим к запросу целей
+    updateOnboardingState(chatId, 'waiting_request');
+
+    botLogger.info({
+      chatId,
+      userId,
+      cityName,
+      timezone: timezoneResult.timezone,
+      offset: timezoneResult.offset,
+      source: timezoneResult.source
+    }, '✅ Timezone определен и сохранен');
+
+    // Формируем сообщение в зависимости от источника
+    let confirmMessage = '';
+    if (timezoneResult.source === 'library') {
+      confirmMessage = `Отлично! Установил timezone для ${cityName} ✅`;
+    } else if (timezoneResult.source === 'llm') {
+      confirmMessage = `Определил timezone для ${cityName} ✅`;
+    } else {
+      confirmMessage = `Не смог определить timezone для "${cityName}", установил Москву (UTC+3) по умолчанию ✅\nЕсли это не подходит - напиши другой город`;
+    }
+
+    await ctx.reply(confirmMessage);
+
+    // Импортируем Markup
+    const { Markup } = await import('telegraf');
+
+    // Отправляем запрос о целях с кнопкой "Пропустить"
+    await ctx.reply(
+      `А расскажи мне о своем запросе, что тебя беспокоит, что хочешь улучшить, к чему прийти?\n\n<i>Может лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('Пропустить', 'onboarding_skip_request')]
+        ])
+      }
+    );
+
+    return true;
+  }
+
   if (user.onboarding_state === 'waiting_request') {
     // Пользователь вводит запрос/цели
     const request = message.trim();
@@ -112,16 +171,20 @@ export async function handleOnboardingMessage(
 
     botLogger.info({ chatId, userId, requestLength: request.length }, '✅ Запрос пользователя сохранен, онбординг завершен');
 
-    // Получаем имя и пол пользователя
+    // Получаем имя, пол и timezone пользователя
     const userName = user.name!;
     const userGender = user.gender;
+    const userTimezone = user.timezone;
+
+    // Определяем время отправки в зависимости от timezone пользователя
+    const eveningTime = userTimezone === 'Europe/Moscow' ? '20:00' : '20:00 по твоему времени';
 
     // Отправляем финальное сообщение (с учётом пола)
     const readyText = userGender === 'male' ? 'готов' : 'готова';
     await ctx.reply(
       `Приятно познакомиться, ${userName}! 🤗
 
-Теперь ты ${readyText} к работе. Каждый вечер в 22:00 буду отправлять тебе задания для размышлений и работы над собой.
+Теперь ты ${readyText} к работе. Каждый вечер в ${eveningTime} буду отправлять тебе задания для размышлений и работы над собой.
 
 Если хочешь начать прямо сейчас - просто напиши мне о том, что сейчас чувствуешь или что происходит в твоей жизни. Я буду рад выслушать 💚`
     );

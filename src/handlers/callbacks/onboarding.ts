@@ -1,6 +1,7 @@
 import { Telegraf, Markup } from 'telegraf';
 import { botLogger } from '../../logger';
-import { getUserByChatId, updateOnboardingState, updateUserGender, updateUserRequest } from '../../db';
+import { getUserByChatId, updateOnboardingState, updateUserGender, updateUserRequest, updateUserTimezone } from '../../db';
+import { detectTimezoneByCity } from '../../utils/timezone-detector';
 
 /**
  * Обработчик кнопки "Вперед 🚀" в приветственном сообщении
@@ -56,24 +57,26 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     // Сохраняем пол в БД
     updateUserGender(chatId, 'male');
 
-    // Переходим к запросу целей
-    updateOnboardingState(chatId, 'waiting_request');
+    // Переходим к выбору timezone
+    updateOnboardingState(chatId, 'waiting_timezone');
 
     // Отвечаем пользователю
     await ctx.answerCbQuery('Отлично! 🙋🏻');
 
-    // Отправляем запрос о целях с кнопкой "Пропустить"
+    // Отправляем запрос timezone
     await ctx.reply(
-      `А расскажи мне о своем запросе, что тебя беспокоит, что хочешь улучшить, к чему прийти?\n\n<i>Может лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
+      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🕓
+<b>Укажи свой город</b>
+Если как в Москве (UTC+3) - просто нажми кнопку ниже`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('Пропустить', 'onboarding_skip_request')]
+          [Markup.button.callback('MSK, UTC+3', 'onboarding_timezone_msk')]
         ])
       }
     );
 
-    botLogger.info({ userId, chatId, gender: 'male' }, '✅ Запрос целей отправлен');
+    botLogger.info({ userId, chatId, gender: 'male' }, '✅ Запрос timezone отправлен');
   });
 
   // Обработчик кнопки выбора пола - Женский
@@ -90,11 +93,47 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     // Сохраняем пол в БД
     updateUserGender(chatId, 'female');
 
+    // Переходим к выбору timezone
+    updateOnboardingState(chatId, 'waiting_timezone');
+
+    // Отвечаем пользователю
+    await ctx.answerCbQuery('Отлично! 🙋🏻‍♀️');
+
+    // Отправляем запрос timezone
+    await ctx.reply(
+      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🕓
+<b>Укажи свой город</b>
+Если как в Москве (UTC+3) - просто нажми кнопку ниже`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('MSK, UTC+3', 'onboarding_timezone_msk')]
+        ])
+      }
+    );
+
+    botLogger.info({ userId, chatId, gender: 'female' }, '✅ Запрос timezone отправлен');
+  });
+
+  // Обработчик кнопки "MSK, UTC+3" для выбора московского timezone
+  bot.action('onboarding_timezone_msk', async ctx => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      botLogger.error({}, '❌ Не удалось получить chatId из callback');
+      return;
+    }
+
+    const userId = ctx.from?.id || 0;
+    botLogger.info({ userId, chatId }, '🕓 Пользователь выбрал MSK timezone');
+
+    // Сохраняем timezone в БД
+    updateUserTimezone(chatId, 'Europe/Moscow', 180);
+
     // Переходим к запросу целей
     updateOnboardingState(chatId, 'waiting_request');
 
     // Отвечаем пользователю
-    await ctx.answerCbQuery('Отлично! 🙋🏻‍♀️');
+    await ctx.answerCbQuery('Отлично! 🕓');
 
     // Отправляем запрос о целях с кнопкой "Пропустить"
     await ctx.reply(
@@ -107,7 +146,7 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
       }
     );
 
-    botLogger.info({ userId, chatId, gender: 'female' }, '✅ Запрос целей отправлен');
+    botLogger.info({ userId, chatId, timezone: 'Europe/Moscow' }, '✅ Запрос целей отправлен');
   });
 
   // Обработчик кнопки "Пропустить" для запроса целей
@@ -131,16 +170,20 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     const user = getUserByChatId(chatId);
     const userName = user?.name!;
     const userGender = user?.gender;
+    const userTimezone = user?.timezone;
 
     // Отвечаем пользователю
     await ctx.answerCbQuery('Хорошо!');
+
+    // Определяем время отправки в зависимости от timezone пользователя
+    const eveningTime = userTimezone === 'Europe/Moscow' ? '20:00' : '20:00 по твоему времени';
 
     // Отправляем финальное сообщение (с учётом пола)
     const readyText = userGender === 'male' ? 'готов' : 'готова';
     await ctx.reply(
       `Приятно познакомиться, ${userName}! 🤗
 
-Теперь ты ${readyText} к работе. Каждый вечер в 22:00 буду отправлять тебе задания для размышлений и работы над собой.
+Теперь ты ${readyText} к работе. Каждый вечер в ${eveningTime} буду отправлять тебе задания для размышлений и работы над собой.
 
 Если хочешь начать прямо сейчас - просто напиши мне о том, что сейчас чувствуешь или что происходит в твоей жизни. Я буду рад выслушать 💚`
     );

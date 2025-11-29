@@ -170,6 +170,32 @@ export const updateUserRequest = (chatId: number, request: string | null) => {
   updateUser.run(request, chatId);
 };
 
+/**
+ * Обновляет timezone пользователя
+ */
+export const updateUserTimezone = (chatId: number, timezone: string, offset: number) => {
+  const updateUser = db.query(`
+    UPDATE users
+    SET timezone = ?, timezone_offset = ?
+    WHERE chat_id = ?
+  `);
+  updateUser.run(timezone, offset, chatId);
+  databaseLogger.info({ chatId, timezone, offset }, '✅ Timezone пользователя обновлен');
+};
+
+/**
+ * Получает timezone пользователя
+ */
+export const getUserTimezone = (chatId: number): { timezone: string; timezone_offset: number } | null => {
+  const getTimezone = db.query(`
+    SELECT timezone, timezone_offset
+    FROM users
+    WHERE chat_id = ?
+  `);
+  const result = getTimezone.get(chatId) as { timezone: string; timezone_offset: number } | undefined;
+  return result || null;
+};
+
 export const getUserResponseStats = (chatId: number) => {
   const getStats = db.query(`
     SELECT response_count, last_response_time
@@ -181,7 +207,7 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset
     FROM users
     WHERE chat_id = ?
   `);
@@ -195,6 +221,8 @@ export const getUserByChatId = (chatId: number) => {
     response_count: number;
     onboarding_state: string | null;
     user_request: string | null;
+    timezone: string;
+    timezone_offset: number;
   } | undefined;
 };
 
@@ -547,7 +575,7 @@ export const getChannelMessageIdByThreadId = (threadId: number) => {
 // Получить всех пользователей
 export const getAllUsers = () => {
   const getUsers = db.query(`
-    SELECT chat_id, username, name, gender, last_response_time, response_count
+    SELECT chat_id, username, name, gender, last_response_time, response_count, timezone, timezone_offset
     FROM users
     ORDER BY chat_id
   `);
@@ -558,6 +586,8 @@ export const getAllUsers = () => {
     gender: string | null;
     last_response_time: string;
     response_count: number;
+    timezone: string;
+    timezone_offset: number;
   }[];
 };
 
