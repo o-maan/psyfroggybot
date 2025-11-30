@@ -9086,9 +9086,9 @@ ${eventsText}
 
     const jobs = this.timezoneCronJobs.get(timezone)!;
 
-    // 1. Вечерний пост: 21:27 (временно для теста)
+    // 1. Вечерний пост: 20:00
     jobs.evening = cron.schedule(
-      '27 21 * * *',
+      '0 20 * * *',
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
         for (const chatId of jobs.userIds) {
