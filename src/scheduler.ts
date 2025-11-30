@@ -39,6 +39,7 @@ import { cleanLLMText } from './utils/clean-llm-text';
 import { extractJsonFromLLM } from './utils/extract-json-from-llm';
 import { fixAlternativeJsonKeys } from './utils/fix-json-keys';
 import { isLLMError } from './utils/llm-error-check';
+import { adaptTextForGender } from './utils/gender-adapter';
 import { getEveningMessageText } from './evening-messages';
 import { JoyHandler } from './joy-handler';
 import { sendWithRetry } from './utils/telegram-retry';
@@ -75,6 +76,16 @@ export class Scheduler {
   private morningMessageCronJob: cron.ScheduledTask | null = null;
   private morningBatchProcessingCronJob: cron.ScheduledTask | null = null;
   private eveningBatchProcessingCronJob: cron.ScheduledTask | null = null;
+
+  // Новые cron jobs с группировкой по timezone
+  private timezoneCronJobs: Map<string, {
+    evening: cron.ScheduledTask | null;
+    morningCheck: cron.ScheduledTask | null;
+    morning: cron.ScheduledTask | null;
+    morningBatch: cron.ScheduledTask | null;
+    eveningBatch: cron.ScheduledTask | null;
+    userIds: Set<number>; // Пользователи в этой timezone
+  }> = new Map();
   // Для хранения состояния интерактивных сессий
   private interactiveSessions: Map<
     number,
@@ -217,6 +228,11 @@ export class Scheduler {
 
     // Инициализируем расписание для всех ботов
     this.initializeDailySchedule();
+
+    // 🌍 Инициализируем timezone-based планировщик
+    this.initializeTimezoneBasedSchedule().catch(error => {
+      schedulerLogger.error(error as Error, '❌ Ошибка инициализации timezone-based планировщика');
+    });
   }
 
   // Геттер для получения сервиса календаря (для тестирования)
@@ -4328,7 +4344,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Отправляем сообщение с кнопкой "Ответь мне"
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const user = getUserByChatId(userId);
+      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
@@ -4388,7 +4406,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Пользователь продолжает писать, повторяем сообщение с кнопкой
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const user = getUserByChatId(userId);
+      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
       };
@@ -4468,7 +4488,9 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Отправляем кнопку "Ответь мне"
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-      const responseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const user = getUserByChatId(userId);
+      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
 
       const sendOptions: any = {
         reply_markup: {
@@ -8998,10 +9020,157 @@ ${eventsText}
   }
 
   // Очистка всех таймеров при завершении работы
+  /**
+   * Новая система: Инициализация cron jobs с группировкой по timezone
+   * Создаёт отдельные cron jobs для каждого уникального timezone
+   */
+  private async initializeTimezoneBasedSchedule() {
+    schedulerLogger.info('🌍 Инициализация timezone-based планировщика');
+
+    // Получаем всех пользователей
+    const users = getAllUsers();
+
+    // Группируем пользователей по timezone
+    const usersByTimezone = new Map<string, number[]>();
+
+    for (const user of users) {
+      const timezone = user.timezone || 'Europe/Moscow';
+      if (!usersByTimezone.has(timezone)) {
+        usersByTimezone.set(timezone, []);
+      }
+      usersByTimezone.get(timezone)!.push(user.chat_id);
+    }
+
+    schedulerLogger.info({
+      totalUsers: users.length,
+      uniqueTimezones: usersByTimezone.size,
+      timezones: Array.from(usersByTimezone.keys())
+    }, '📊 Распределение пользователей по timezone');
+
+    // Создаём cron jobs для каждой timezone
+    for (const [timezone, chatIds] of usersByTimezone) {
+      await this.createCronJobsForTimezone(timezone, chatIds);
+    }
+
+    schedulerLogger.info({ totalCrons: this.timezoneCronJobs.size * 5 }, '✅ Timezone-based планировщик инициализирован');
+  }
+
+  /**
+   * Создаёт все cron jobs для конкретной timezone
+   */
+  private async createCronJobsForTimezone(timezone: string, chatIds: number[]) {
+    schedulerLogger.info({ timezone, usersCount: chatIds.length }, `🕐 Создание cron jobs для ${timezone}`);
+
+    // Инициализируем запись для этой timezone
+    if (!this.timezoneCronJobs.has(timezone)) {
+      this.timezoneCronJobs.set(timezone, {
+        evening: null,
+        morningCheck: null,
+        morning: null,
+        morningBatch: null,
+        eveningBatch: null,
+        userIds: new Set(chatIds)
+      });
+    }
+
+    const jobs = this.timezoneCronJobs.get(timezone)!;
+
+    // 1. Вечерний пост: 20:00
+    jobs.evening = cron.schedule(
+      '0 20 * * *',
+      async () => {
+        schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
+        for (const chatId of jobs.userIds) {
+          try {
+            await this.sendDailyMessage(chatId);
+          } catch (error) {
+            schedulerLogger.error({ chatId, timezone, error }, '❌ Ошибка отправки вечернего поста');
+          }
+        }
+      },
+      { timezone }
+    );
+
+    // 2. Утренняя проверка: 08:00
+    jobs.morningCheck = cron.schedule(
+      '0 8 * * *',
+      async () => {
+        schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌅 Утренняя проверка (timezone-based)');
+        // Проверяем ответы пользователей этой timezone
+        await this.checkUsersResponses();
+      },
+      { timezone }
+    );
+
+    // 3. Утренний пост: 09:00
+    jobs.morning = cron.schedule(
+      '0 9 * * *',
+      async () => {
+        schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌄 Утренний пост (timezone-based)');
+        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+        if (adminChatId && jobs.userIds.has(adminChatId)) {
+          try {
+            await this.sendMorningMessage(adminChatId);
+          } catch (error) {
+            schedulerLogger.error({ adminChatId, timezone, error }, '❌ Ошибка отправки утреннего поста');
+          }
+        }
+      },
+      { timezone }
+    );
+
+    // 4. Morning batch: 08:45
+    jobs.morningBatch = cron.schedule(
+      '45 8 * * *',
+      async () => {
+        schedulerLogger.info({ timezone }, '🌄 Morning batch (timezone-based)');
+        try {
+          const { processBatchMessages } = await import('./batch-processor');
+          await processBatchMessages();
+        } catch (error) {
+          schedulerLogger.error({ timezone, error }, '❌ Ошибка morning batch');
+        }
+      },
+      { timezone }
+    );
+
+    // 5. Evening batch: 19:45
+    jobs.eveningBatch = cron.schedule(
+      '45 19 * * *',
+      async () => {
+        schedulerLogger.info({ timezone }, '🌆 Evening batch (timezone-based)');
+        try {
+          const { processBatchMessages } = await import('./batch-processor');
+          await processBatchMessages();
+        } catch (error) {
+          schedulerLogger.error({ timezone, error }, '❌ Ошибка evening batch');
+        }
+      },
+      { timezone }
+    );
+
+    schedulerLogger.info({ timezone, cronCount: 5 }, '✅ Cron jobs созданы');
+  }
+
+  /**
+   * Добавляет нового пользователя в существующую timezone или создаёт новую
+   */
+  async addUserToTimezone(chatId: number, timezone: string) {
+    if (this.timezoneCronJobs.has(timezone)) {
+      // Добавляем в существующую группу
+      this.timezoneCronJobs.get(timezone)!.userIds.add(chatId);
+      schedulerLogger.info({ chatId, timezone }, '➕ Пользователь добавлен в существующую timezone группу');
+    } else {
+      // Создаём новую группу
+      await this.createCronJobsForTimezone(timezone, [chatId]);
+      schedulerLogger.info({ chatId, timezone }, '🆕 Создана новая timezone группа');
+    }
+  }
+
   destroy() {
     logger.info('Stop scheduler...');
 
-    // Останавливаем cron jobs
+    // Останавливаем старые cron jobs
     if (this.dailyCronJob) {
       this.dailyCronJob.stop();
       this.dailyCronJob = null;
@@ -9013,6 +9182,17 @@ ${eventsText}
       this.morningCheckCronJob = null;
       logger.info('Morning check cron job stopped');
     }
+
+    // Останавливаем timezone-based cron jobs
+    for (const [timezone, jobs] of this.timezoneCronJobs) {
+      jobs.evening?.stop();
+      jobs.morningCheck?.stop();
+      jobs.morning?.stop();
+      jobs.morningBatch?.stop();
+      jobs.eveningBatch?.stop();
+      logger.info(`Timezone cron jobs stopped: ${timezone}`);
+    }
+    this.timezoneCronJobs.clear();
 
     // Очищаем все напоминания
     for (const [, timeout] of this.reminderTimeouts.entries()) {
