@@ -2,6 +2,7 @@ import type { BotContext } from '../../types';
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 
 // Обработчик кнопки "Упрощенный сценарий"
@@ -91,7 +92,7 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, firstTaskFullText, sendOptions),
+      () => sendToUser(bot, chatId!, userId!, firstTaskFullText, sendOptions),
       'simplified_first_task'
     );
 

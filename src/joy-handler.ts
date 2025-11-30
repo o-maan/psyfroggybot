@@ -3,6 +3,7 @@ import { botLogger } from './logger';
 import { addJoySource, getAllJoySources } from './db';
 import { sendWithRetry } from './utils/telegram-retry';
 import { generateMessage } from './llm';
+import { sendToUser } from './utils/send-to-user';
 
 /**
  * JoyHandler - обработчик интерактивной логики "Источники радости и энергии" (JOY логика)
@@ -94,7 +95,7 @@ export class JoyHandler {
             sendOptions.reply_to_message_id = this.threadId;
           }
 
-          return await this.bot.telegram.sendMessage(this.chatId, text, sendOptions);
+          return await sendToUser(this.bot, this.chatId, this.userId, text, sendOptions);
         },
         {
           chatId: this.chatId,

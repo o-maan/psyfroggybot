@@ -2,6 +2,7 @@ import type { BotContext } from '../../types';
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Функция экранирования для HTML (Telegram) 
 function escapeHTML(text: string): string {
@@ -76,7 +77,7 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, firstTaskText, sendOptions),
+      () => sendToUser(bot, chatId!, userId!, firstTaskText, sendOptions),
       'deep_first_task'
     );
 

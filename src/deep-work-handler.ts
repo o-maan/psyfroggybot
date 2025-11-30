@@ -126,7 +126,7 @@ export class DeepWorkHandler {
 
     // Используем sendWithRetry для всех отправок
     return await sendWithRetry(
-      () => this.bot.telegram.sendMessage(this.chatId, text, sendOptions),
+      () => sendToUser(this.bot, this.chatId, this.userId, text, sendOptions),
       {
         chatId: this.chatId,
         messageType: options.messageType || 'deep_work_message'
@@ -394,9 +394,9 @@ export class DeepWorkHandler {
         if (this.threadId) {
           fallbackOptions.reply_to_message_id = this.threadId;
         }
-        
+
         await sendWithRetry(
-          () => this.bot.telegram.sendMessage(this.chatId, fallbackText, fallbackOptions),
+          () => sendToUser(this.bot, this.chatId, this.userId, fallbackText, fallbackOptions),
           {
             chatId: this.chatId,
             messageType: 'deep_percept_filters_fallback'
@@ -488,7 +488,7 @@ export class DeepWorkHandler {
       // 4-е нажатие - показываем первое финальное сообщение
       if (count === 3) {
         await sendWithRetry(
-          () => this.bot.telegram.sendMessage(this.chatId,
+          () => sendToUser(this.bot, this.chatId, this.userId,
             'Больше примеров можешь посмотреть в карточках <b>Фильтры восприятия</b>',
             sendOptions
           ),
@@ -509,7 +509,7 @@ export class DeepWorkHandler {
       } else if (count === 4) {
         // 5-е нажатие - показываем финальное сообщение и устанавливаем счетчик в 5
         await sendWithRetry(
-          () => this.bot.telegram.sendMessage(this.chatId,
+          () => sendToUser(this.bot, this.chatId, this.userId,
             'Примеры смотри выше или открывай фильтры восприятия',
             sendOptions
           ),

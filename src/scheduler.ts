@@ -43,6 +43,7 @@ import { adaptTextForGender } from './utils/gender-adapter';
 import { getEveningMessageText } from './evening-messages';
 import { JoyHandler } from './joy-handler';
 import { sendWithRetry } from './utils/telegram-retry';
+import { sendToUser } from './utils/send-to-user';
 import { PostHandlerRegistry, type MessageContext } from './post-handler-registry';
 import { MorningPostHandler } from './handlers/posts/morning';
 import { EveningPostHandler } from './handlers/posts/evening';
@@ -2329,7 +2330,7 @@ ${weekendPromptContent}`;
         messageOptions.reply_to_message_id = forwardedMessageId;
 
         const firstTaskMessage = await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions),
+          () => sendToUser(this.bot, CHAT_ID, originalChatId, firstTaskFullText, messageOptions),
           {
             chatId: originalChatId,
             messageType: 'first_task_with_thread',
@@ -2364,7 +2365,7 @@ ${weekendPromptContent}`;
         );
 
         const firstTaskMessage = await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, firstTaskFullText, messageOptions),
+          () => sendToUser(this.bot, CHAT_ID, originalChatId, firstTaskFullText, messageOptions),
           {
             chatId: originalChatId,
             messageType: 'first_task_no_thread',
@@ -2470,7 +2471,7 @@ ${weekendPromptContent}`;
         messageOptions.reply_to_message_id = forwardedMessageId;
 
         const joyMessage = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, messageText, messageOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, messageText, messageOptions),
           {
             chatId: userId,
             messageType: messageType,
@@ -2506,7 +2507,7 @@ ${weekendPromptContent}`;
         );
 
         const joyMessage = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, messageText, messageOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, messageText, messageOptions),
           {
             chatId: userId,
             messageType: messageType,
@@ -2618,7 +2619,7 @@ ${weekendPromptContent}`;
 
         // Отправляем список событий
         const eventsMsg = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, eventsMessage, eventsOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, eventsMessage, eventsOptions),
           {
             chatId: userId,
             messageType: 'joy_events_list',
@@ -2642,7 +2643,7 @@ ${weekendPromptContent}`;
 
         // Отправляем промпт с кнопками
         const promptMsg = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, promptText, promptOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, promptText, promptOptions),
           {
             chatId: userId,
             messageType: 'joy_prompt',
@@ -2678,7 +2679,7 @@ ${weekendPromptContent}`;
 
         // Отправляем список событий
         const eventsMsg = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, eventsMessage, eventsOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, eventsMessage, eventsOptions),
           {
             chatId: userId,
             messageType: 'joy_events_list',
@@ -2701,7 +2702,7 @@ ${weekendPromptContent}`;
 
         // Отправляем промпт с кнопками
         const promptMsg = await sendWithRetry(
-          () => this.bot.telegram.sendMessage(CHAT_ID, promptText, promptOptions),
+          () => sendToUser(this.bot, CHAT_ID, userId, promptText, promptOptions),
           {
             chatId: userId,
             messageType: 'joy_prompt',
@@ -2887,7 +2888,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         // Отправляем напоминание в личку пользователю
-        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, reminderText), {
+        await this.sendWithRetry(() => sendToUser(this.bot, chatId, chatId, reminderText), {
           chatId,
           messageType: 'daily_reminder',
           maxAttempts: 5,
@@ -2969,7 +2970,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
         // Отправляем напоминание
         const reminderText = '🐸 Вижу, что лягуха не получила ответы на все задания. Давай доделаем - возвращайся 🤗';
-        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, reminderText), {
+        await this.sendWithRetry(() => sendToUser(this.bot, chatId, chatId, reminderText), {
           chatId,
           messageType: 'incomplete_work_reminder',
           maxAttempts: 5,
@@ -4315,7 +4316,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     if (rudeCheck.isRude && rudeCheck.response) {
       await this.sendWithRetry(
         () =>
-          this.bot.telegram.sendMessage(replyToChatId, rudeCheck.response!, {
+          sendToUser(this.bot, replyToChatId, userId, rudeCheck.response!, {
             reply_parameters: { message_id: messageId },
           }),
         {
@@ -4361,7 +4362,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       const sentMessage = await this.sendWithRetry(
-        () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+        () => sendToUser(this.bot, replyToChatId, userId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1',
@@ -4423,7 +4424,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       const sentMessage = await this.sendWithRetry(
-        () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+        () => sendToUser(this.bot, replyToChatId, userId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1_repeat',
@@ -4506,7 +4507,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       const sentMessage = await this.sendWithRetry(
-        () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+        () => sendToUser(this.bot, replyToChatId, userId, responseText, sendOptions),
         {
           chatId: userId,
           messageType: 'morning_step1_repeat',
@@ -4535,7 +4536,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         completedOptions.reply_to_message_id = messageThreadId;
       }
 
-      await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, finalText, completedOptions), {
+      await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, finalText, completedOptions), {
         chatId: userId,
         messageType: 'morning_completed',
         maxAttempts: 5,
@@ -4658,7 +4659,7 @@ ${allDayUserMessages}
       step3Options.reply_to_message_id = messageThreadId;
     }
 
-    await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, fullMessage, step3Options), {
+    await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, fullMessage, step3Options), {
       chatId: userId,
       messageType: 'morning_step3',
       maxAttempts: 5,
@@ -4859,8 +4860,10 @@ ${allDayUserMessages}
             errorOptions.reply_to_message_id = shortJoySession.messageThreadId;
           }
 
-          await this.bot.telegram.sendMessage(
+          await sendToUser(
+            this.bot,
             shortJoySession.chatId,
+            userId,
             'Пожалуйста, укажи номера через запятую или пробел, например: 1, 3, 5',
             errorOptions
           );
@@ -4899,7 +4902,7 @@ ${allDayUserMessages}
           sendOptions.reply_to_message_id = shortJoySession.messageThreadId;
         }
 
-        const confirmMessage = await this.bot.telegram.sendMessage(shortJoySession.chatId, confirmText, sendOptions);
+        const confirmMessage = await sendToUser(this.bot, shortJoySession.chatId, userId, confirmText, sendOptions);
 
         // Сохраняем ID скользящего сообщения
         removalSession.confirmButtonMessageId = confirmMessage.message_id;
@@ -5031,8 +5034,10 @@ ${allDayUserMessages}
             errorOptions.reply_to_message_id = joySession.forwardedMessageId;
           }
 
-          await this.bot.telegram.sendMessage(
+          await sendToUser(
+            this.bot,
             joySession.chatId,
+            userId,
             'Пожалуйста, укажи номера через запятую или пробел, например: 1, 3, 5',
             errorOptions
           );
@@ -5074,7 +5079,7 @@ ${allDayUserMessages}
           sendOptions.reply_to_message_id = messageThreadIdJoy;
         }
 
-        const confirmMessage = await this.bot.telegram.sendMessage(joySession.chatId, confirmText, sendOptions);
+        const confirmMessage = await sendToUser(this.bot, joySession.chatId, userId, confirmText, sendOptions);
 
         // Сохраняем ID скользящего сообщения
         removalSession.confirmButtonMessageId = confirmMessage.message_id;
@@ -5249,7 +5254,7 @@ ${allDayUserMessages}
           sendOptions.reply_to_message_id = messageThreadId;
         }
 
-        await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions), {
+        await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, responseText, sendOptions), {
           chatId: userId,
           messageType: 'angry_post_response',
           maxAttempts: 5,
@@ -5526,7 +5531,7 @@ ${allDayUserMessages}
         // Отправляем ответ
         if (rudeCheck.response) {
           try {
-            await this.bot.telegram.sendMessage(replyToChatId, rudeCheck.response, {
+            await sendToUser(this.bot, replyToChatId, userId, rudeCheck.response, {
               reply_parameters: { message_id: messageId },
             });
           } catch (sendError) {
@@ -5655,7 +5660,7 @@ ${allDayUserMessages}
         }
 
         const secondTaskMessage = await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(replyToChatId, secondTaskText, secondTaskSendOptions),
+          () => sendToUser(this.bot, replyToChatId, userId, secondTaskText, secondTaskSendOptions),
           {
             chatId: userId,
             messageType: 'deep_second_task',
@@ -5736,8 +5741,10 @@ ${allDayUserMessages}
 
         await this.sendWithRetry(
           () =>
-            this.bot.telegram.sendMessage(
+            sendToUser(
+              this.bot,
               replyToChatId,
+              userId,
               '<i>🎉 Отлично! Сложная часть позади!\n' + 'Можно выдохнуть 😌</i>\n\n' + 'Перейдем к более приятной 🤗',
               sendOptionsWithButton
             ),
@@ -5810,7 +5817,7 @@ ${allDayUserMessages}
           }
 
           try {
-            await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
+            await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, helpMessage, sendOptions), {
               chatId: userId,
               messageType: 'positive_emotions_help_deep',
               maxAttempts: 10,
@@ -6115,7 +6122,9 @@ ${allDayUserMessages}
           try {
             await this.sendWithRetry(
               () =>
-                this.bot.telegram.sendMessage(
+                sendToUser(
+                  this.bot,
+                  userId,
                   userId,
                   'Отличная работа! 🌟 Теперь выполни дыхательную практику и нажми "Сделал" после ее завершения'
                 ),
@@ -6269,7 +6278,7 @@ ${allDayUserMessages}
 
         try {
           const confirmationMessage = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, confirmationText, sendOptions),
+            () => sendToUser(this.bot, replyToChatId, userId, confirmationText, sendOptions),
             {
               chatId: userId,
               messageType: 'negative_confirmation',
@@ -6334,7 +6343,7 @@ ${allDayUserMessages}
                 }
 
                 const reminderMessage = await this.sendWithRetry(
-                  () => this.bot.telegram.sendMessage(replyToChatId, reminderText, reminderSendOptions),
+                  () => sendToUser(this.bot, replyToChatId, userId, reminderText, reminderSendOptions),
                   {
                     chatId: userId,
                     messageType: 'negative_reminder',
@@ -6424,7 +6433,7 @@ ${allDayUserMessages}
 
           try {
             const helpMessageResult = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions),
+              () => sendToUser(this.bot, replyToChatId, userId, helpMessage, sendOptions),
               {
                 chatId: userId,
                 messageType: 'emotions_help',
@@ -6476,7 +6485,7 @@ ${allDayUserMessages}
 
         try {
           const task2Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+            () => sendToUser(this.bot, replyToChatId, userId, plushkiText, sendOptions),
             {
               chatId: userId,
               messageType: 'plushki_task',
@@ -6565,7 +6574,7 @@ ${allDayUserMessages}
 
           try {
             const task2Message = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+              () => sendToUser(this.bot, replyToChatId, userId, plushkiText, sendOptions),
               { chatId: userId, messageType: 'plushki_after_old_clarification', maxAttempts: 10, intervalMs: 5000 }
             );
 
@@ -6649,7 +6658,7 @@ ${allDayUserMessages}
 
           try {
             const task2Message = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, plushkiText, sendOptions),
+              () => sendToUser(this.bot, replyToChatId, userId, plushkiText, sendOptions),
               { chatId: userId, messageType: 'plushki_after_clarification', maxAttempts: 10, intervalMs: 5000 }
             );
 
@@ -6720,7 +6729,7 @@ ${allDayUserMessages}
 
         try {
           const confirmationMessage = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, confirmationText, emotionsConfirmOptions),
+            () => sendToUser(this.bot, replyToChatId, userId, confirmationText, emotionsConfirmOptions),
             {
               chatId: userId,
               messageType: 'emotions_addition_confirmation',
@@ -6775,7 +6784,7 @@ ${allDayUserMessages}
 
         try {
           const task2Message = await this.sendWithRetry(
-            () => this.bot.telegram.sendMessage(replyToChatId, responseText, sendOptions),
+            () => sendToUser(this.bot, replyToChatId, userId, responseText, sendOptions),
             {
               chatId: userId,
               messageType: 'plushki_after_schema',
@@ -6810,7 +6819,7 @@ ${allDayUserMessages}
             }
 
             const fallbackMessage = await this.sendWithRetry(
-              () => this.bot.telegram.sendMessage(replyToChatId, fallbackText, fallbackOptions),
+              () => sendToUser(this.bot, replyToChatId, userId, fallbackText, fallbackOptions),
               {
                 chatId: userId,
                 messageType: 'plushki_fallback',
@@ -6895,7 +6904,7 @@ ${allDayUserMessages}
           }
 
           try {
-            await this.sendWithRetry(() => this.bot.telegram.sendMessage(replyToChatId, helpMessage, sendOptions), {
+            await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, helpMessage, sendOptions), {
               chatId: userId,
               messageType: 'positive_emotions_help',
               maxAttempts: 10,
@@ -7301,8 +7310,10 @@ ${allDayUserMessages}
 
             await this.sendWithRetry(
               () =>
-                this.bot.telegram.sendMessage(
+                sendToUser(
+                  this.bot,
                   replyToChatId,
+                  userId,
                   'Выполни практику и нажми "Сделал" после ее завершения',
                   reminderOptions
                 ),
@@ -7576,7 +7587,7 @@ ${allDayUserMessages}
           sendOptions.reply_to_message_id = threadId;
         }
 
-        await this.sendWithRetry(() => this.bot.telegram.sendMessage(chatId, responseText, sendOptions), {
+        await this.sendWithRetry(() => sendToUser(this.bot, chatId, userId, responseText, sendOptions), {
           chatId: userId,
           messageType: 'pending_schema_response',
           maxAttempts: 10,
@@ -8723,7 +8734,7 @@ ${eventsText}
       }
 
       // Отправляем список (БЕЗ картинки и текста поста - сразу список)
-      await this.bot.telegram.sendMessage(chatId, listText, sendOptions);
+      await sendToUser(this.bot, chatId, userId, listText, sendOptions);
 
       // Сохраняем SHORT JOY сессию
       this.shortJoySessions.set(userId, {
@@ -8819,7 +8830,7 @@ ${eventsText}
       }
 
       // Отправляем вводное сообщение
-      await this.bot.telegram.sendMessage(chatId, introText, sendOptions);
+      await sendToUser(this.bot, chatId, userId, introText, sendOptions);
 
       // Устанавливаем флаг активной сессии добавления - пользователь может сразу писать
       // sessionKey аналогичен JoyHandler: userId_channelMessageId

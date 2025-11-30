@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Telegraf } from 'telegraf';
 import { scenarioSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик для кнопки пропуска первого задания - новый формат
 export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
@@ -66,7 +67,7 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
             bot,
             chatId!,
             userId!,
-            () => bot.telegram.sendMessage(chatId!, fallbackText, fallbackOptions),
+            () => sendToUser(bot, chatId!, userId!, fallbackText, fallbackOptions),
             'skip_neg_fallback',
             { maxAttempts: 5, intervalMs: 3000 }
           );
@@ -87,7 +88,7 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
           bot,
           chatId!,
           userId!,
-          () => bot.telegram.sendMessage(chatId!, fallbackText, fallbackOptions2),
+          () => sendToUser(bot, chatId!, userId!, fallbackText, fallbackOptions2),
           'skip_neg_fallback2',
           { maxAttempts: 3, intervalMs: 2000 }
         );
@@ -134,7 +135,7 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       bot,
       chatId!,
       userId!,
-      () => bot.telegram.sendMessage(chatId!, plushkiText, plushkiOptions),
+      () => sendToUser(bot, chatId!, userId!, plushkiText, plushkiOptions),
       'skip_neg_plushki'
     );
 
