@@ -21,6 +21,7 @@ import { handleSkipEmotionsClarification } from './skip_emotions_clarification';
 import { handleContinueToPlushki } from './continue_to_plushki';
 import { handleEmotionsAdditionDone } from './emotions_addition_done';
 import { registerOnboardingStartCallback } from './onboarding';
+import { registerMeCallbacks } from './me';
 import {
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -74,6 +75,9 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
 
   // Обработчик онбординга
   registerOnboardingStartCallback(bot);
+
+  // Обработчики команды /me
+  registerMeCallbacks(bot);
 
   // Обработчики кнопок
   bot.action('daily_skip_all', handleDailySkipAll);

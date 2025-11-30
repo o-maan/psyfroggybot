@@ -5,6 +5,7 @@ import { updateUserResponse, saveMessage, getLastNMessages } from '../../db';
 import { generateUserResponse } from '../../llm';
 import { getUserTodayEvents } from '../../calendar';
 import { handleOnboardingMessage } from './onboarding';
+import { handleMeEditingMessage } from './me-editing';
 import { sendToUser } from '../../utils/send-to-user';
 
 // ВРЕМЕННО ОТКЛЮЧЕНО: автоматические ответы бота в комментариях
@@ -41,6 +42,13 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
     const isOnboarding = await handleOnboardingMessage(ctx);
     if (isOnboarding) {
       // Сообщение обработано в рамках онбординга
+      return;
+    }
+
+    // Проверяем, не редактирует ли пользователь свои данные через /me
+    const isMeEditing = await handleMeEditingMessage(ctx);
+    if (isMeEditing) {
+      // Сообщение обработано в рамках редактирования данных
       return;
     }
 

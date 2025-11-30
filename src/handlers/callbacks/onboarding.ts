@@ -2,6 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { botLogger } from '../../logger';
 import { getUserByChatId, updateOnboardingState, updateUserGender, updateUserRequest, updateUserTimezone } from '../../db';
 import { detectTimezoneByCity } from '../../utils/timezone-detector';
+import { scheduler } from '../../bot';
 
 /**
  * Обработчик кнопки "Вперед 🚀" в приветственном сообщении
@@ -65,7 +66,7 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
 
     // Отправляем запрос timezone
     await ctx.reply(
-      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🕓
+      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🌙🌆☀️
 <b>Укажи свой город</b>
 Если как в Москве (UTC+3) - просто нажми кнопку ниже`,
       {
@@ -101,7 +102,7 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
 
     // Отправляем запрос timezone
     await ctx.reply(
-      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🕓
+      `Чтобы я присылал тебе сообщения 📩 в корректное время - давай уточним тайм зону 🌙🌆☀️
 <b>Укажи свой город</b>
 Если как в Москве (UTC+3) - просто нажми кнопку ниже`,
       {
@@ -127,7 +128,10 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     botLogger.info({ userId, chatId }, '🕓 Пользователь выбрал MSK timezone');
 
     // Сохраняем timezone в БД
-    updateUserTimezone(chatId, 'Europe/Moscow', 180);
+    updateUserTimezone(chatId, 'Europe/Moscow', 180, 'Москва');
+
+    // Добавляем пользователя в timezone-based планировщик
+    await scheduler.addUserToTimezone(chatId, 'Europe/Moscow');
 
     // Переходим к запросу целей
     updateOnboardingState(chatId, 'waiting_request');
@@ -137,7 +141,10 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
 
     // Отправляем запрос о целях с кнопкой "Пропустить"
     await ctx.reply(
-      `А расскажи мне о своем запросе, что тебя беспокоит, что хочешь улучшить, к чему прийти?\n\n<i>Может лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
+      `И последний вопрос 📝
+<b>Расскажи о своем запросе</b>, что тебя беспокоит, что хочешь улучшить, к чему прийти?
+
+<i>Например, может ты хочешь лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -147,6 +154,53 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     );
 
     botLogger.info({ userId, chatId, timezone: 'Europe/Moscow' }, '✅ Запрос целей отправлен');
+  });
+
+  // Обработчик выбора timezone из предложенных городов
+  bot.action(/^timezone_select_(.+)_(.+)$/, async ctx => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      botLogger.error({}, '❌ Не удалось получить chatId из callback');
+      return;
+    }
+
+    const userId = ctx.from?.id || 0;
+    const timezone = ctx.match[1]; // Извлекаем timezone из callback_data
+    const city = decodeURIComponent(ctx.match[2]); // Извлекаем город из callback_data
+
+    botLogger.info({ userId, chatId, timezone, city }, '🌆 Пользователь выбрал timezone из списка');
+
+    // Импортируем getTimezoneOffset
+    const { getTimezoneOffset } = await import('../../utils/timezone-detector');
+    const offset = getTimezoneOffset(timezone);
+
+    // Сохраняем timezone и город в БД
+    updateUserTimezone(chatId, timezone, offset, city);
+
+    // Добавляем пользователя в timezone-based планировщик
+    await scheduler.addUserToTimezone(chatId, timezone);
+
+    // Переходим к запросу целей
+    updateOnboardingState(chatId, 'waiting_request');
+
+    // Отвечаем пользователю
+    await ctx.answerCbQuery('Отлично! ✅');
+
+    // Отправляем запрос о целях с кнопкой "Пропустить"
+    await ctx.reply(
+      `И последний вопрос 📝
+<b>Расскажи о своем запросе</b>, что тебя беспокоит, что хочешь улучшить, к чему прийти?
+
+<i>Например, может ты хочешь лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('Пропустить', 'onboarding_skip_request')]
+        ])
+      }
+    );
+
+    botLogger.info({ userId, chatId, timezone, offset, city }, '✅ Timezone выбран из списка, запрос целей отправлен');
   });
 
   // Обработчик кнопки "Пропустить" для запроса целей
@@ -166,28 +220,71 @@ export function registerOnboardingStartCallback(bot: Telegraf) {
     // Завершаем онбординг
     updateOnboardingState(chatId, null);
 
-    // Получаем имя и пол пользователя
+    // Получаем данные пользователя
     const user = getUserByChatId(chatId);
     const userName = user?.name!;
-    const userGender = user?.gender;
-    const userTimezone = user?.timezone;
+    const userTimezone = user?.timezone || 'Europe/Moscow';
+    const userTimezoneOffset = user?.timezone_offset || 180;
 
     // Отвечаем пользователю
     await ctx.answerCbQuery('Хорошо!');
 
-    // Определяем время отправки в зависимости от timezone пользователя
-    const eveningTime = userTimezone === 'Europe/Moscow' ? '20:00' : '20:00 по твоему времени';
+    // Генерируем финальное сообщение с учетом времени до вечерней лягухи
+    const { generateOnboardingFinalMessage } = await import('../../utils/onboarding-final-message');
+    const finalMessage = generateOnboardingFinalMessage(userName, userTimezone, userTimezoneOffset);
 
-    // Отправляем финальное сообщение (с учётом пола)
-    const readyText = userGender === 'male' ? 'готов' : 'готова';
-    await ctx.reply(
-      `Приятно познакомиться, ${userName}! 🤗
-
-Теперь ты ${readyText} к работе. Каждый вечер в ${eveningTime} буду отправлять тебе задания для размышлений и работы над собой.
-
-Если хочешь начать прямо сейчас - просто напиши мне о том, что сейчас чувствуешь или что происходит в твоей жизни. Я буду рад выслушать 💚`
-    );
+    // Отправляем финальное сообщение
+    if (finalMessage.buttons) {
+      await ctx.reply(finalMessage.text, finalMessage.buttons);
+    } else {
+      await ctx.reply(finalMessage.text);
+    }
 
     botLogger.info({ userId, chatId }, '✅ Онбординг завершен (запрос пропущен)');
+  });
+
+  // Обработчик кнопки "Хочу сейчааааас 😁" - запуск утренней лягухи
+  bot.action('onboarding_start_morning', async ctx => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      botLogger.error({}, '❌ Не удалось получить chatId из callback');
+      return;
+    }
+
+    const userId = ctx.from?.id || 0;
+    botLogger.info({ userId, chatId }, '🌅 Пользователь запустил утреннюю лягуху после онбординга');
+
+    await ctx.answerCbQuery('Отлично! Начинаем! 🐸');
+
+    try {
+      // Импортируем scheduler
+      const { scheduler } = await import('../../bot');
+
+      // Запускаем утреннюю лягуху
+      // Это будет считаться первым запуском, поэтому на следующий день вводное сообщение не отправится
+      await scheduler.sendMorningMessage(chatId, true); // true = manual mode
+
+      botLogger.info({ userId, chatId }, '✅ Утренняя лягуха запущена после онбординга');
+    } catch (error) {
+      botLogger.error({ error, userId, chatId }, '❌ Ошибка запуска утренней лягухи после онбординга');
+      await ctx.reply('Произошла ошибка при запуске утренней лягухи. Попробуй позже или напиши мне о своих чувствах 💚');
+    }
+  });
+
+  // Обработчик кнопки "Ждем вечера"
+  bot.action('onboarding_wait_evening', async ctx => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      botLogger.error({}, '❌ Не удалось получить chatId из callback');
+      return;
+    }
+
+    const userId = ctx.from?.id || 0;
+    botLogger.info({ userId, chatId }, '⏰ Пользователь решил подождать вечерней лягухи');
+
+    await ctx.answerCbQuery('Хорошо! До вечера! 🌙');
+    await ctx.reply('Отлично! Увидимся вечером 🌙\n\nА пока можешь написать мне о том, что сейчас чувствуешь или что происходит в твоей жизни. Я буду рад выслушать 💚');
+
+    botLogger.info({ userId, chatId }, '✅ Пользователь ждет вечерней лягухи');
   });
 }

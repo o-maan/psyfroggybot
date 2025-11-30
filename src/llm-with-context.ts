@@ -19,11 +19,13 @@ import { llmLogger } from './logger';
  *
  * @param userId - ID пользователя для получения данных из БД
  * @param prompt - Промпт для генерации
+ * @param includeUserName - Передавать ли имя в LLM (true = для постов, false = для комментариев)
  * @returns Сгенерированный текст
  */
 export async function generateWithUserContext(
   userId: number,
-  prompt: string
+  prompt: string,
+  includeUserName: boolean = false
 ): Promise<string> {
   // Получаем данные пользователя
   const user = getUserByChatId(userId);
@@ -31,12 +33,15 @@ export async function generateWithUserContext(
   const userGender = user?.gender || 'unknown';
 
   llmLogger.debug(
-    { userId, userName, userGender },
+    { userId, userName, userGender, includeUserName },
     'Генерация с контекстом пользователя'
   );
 
   // Формируем инструкцию о поле пользователя
-  const genderInstruction = `
+  // includeUserName = true: для постов (можно использовать имя в приветствии)
+  // includeUserName = false: для комментариев (НЕ использовать имя, только "ты")
+  const genderInstruction = includeUserName
+    ? `
 ВАЖНАЯ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:
 - Имя пользователя: ${userName || 'неизвестно'}
 - Пол пользователя: ${userGender === 'male' ? 'мужской' : userGender === 'female' ? 'женский' : 'неизвестен'}
@@ -45,6 +50,18 @@ export async function generateWithUserContext(
 - Если пол мужской: используй мужской род ("ты сделал", "ты готов", "ты рад")
 - Если пол женский: используй женский род ("ты сделала", "ты готова", "ты рада")
 - Лягушка (от чьего лица ты пишешь) ВСЕГДА мужского рода: "я рад" (НЕ "я рада"), "я готов" (НЕ "я готова")
+- Можешь использовать имя пользователя в приветствии, но не повторяй его часто
+
+`
+    : `
+ВАЖНАЯ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:
+- Пол пользователя: ${userGender === 'male' ? 'мужской' : userGender === 'female' ? 'женский' : 'неизвестен'}
+
+ПРАВИЛА ОБРАЩЕНИЯ К ПОЛЬЗОВАТЕЛЮ:
+- Если пол мужской: используй мужской род ("ты сделал", "ты готов", "ты рад")
+- Если пол женский: используй женский род ("ты сделала", "ты готова", "ты рада")
+- Лягушка (от чьего лица ты пишешь) ВСЕГДА мужского рода: "я рад" (НЕ "я рада"), "я готов" (НЕ "я готова")
+- НЕ используй имя пользователя в ответах - обращайся просто "ты"
 
 `;
 

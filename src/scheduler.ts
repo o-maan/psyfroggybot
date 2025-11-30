@@ -1135,7 +1135,7 @@ export class Scheduler {
         { chatId, busy_reason: busyStatus.busy_reason },
         '✈️ Пользователь занят, используем упрощенный промпт'
       );
-      let rawText = await generateWithUserContext(chatId, prompt);
+      let rawText = await generateWithUserContext(chatId, prompt, true); // true = включаем имя для вечернего поста
       schedulerLogger.info({ chatId, textLength: rawText?.length || 0 }, `📝 LLM сырой ответ получен`);
 
       // Проверяем на ошибку до очистки
@@ -1219,7 +1219,7 @@ export class Scheduler {
     } else {
       // Обычный день — используем структуру с пунктами
       schedulerLogger.info({ chatId }, '📅 Пользователь не занят, используем обычный промпт');
-      const rawJsonText = await generateWithUserContext(chatId, prompt);
+      const rawJsonText = await generateWithUserContext(chatId, prompt, true); // true = включаем имя для вечернего поста
       schedulerLogger.info(
         {
           chatId,

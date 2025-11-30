@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import { getUserByChatId, updateUserName, updateOnboardingState, updateUserRequest, updateUserTimezone } from '../../db';
 import { detectTimezoneByCity } from '../../utils/timezone-detector';
+import { scheduler } from '../../bot';
 
 /**
  * Функция для капитализации первой буквы строки
@@ -83,10 +84,8 @@ export async function handleOnboardingMessage(
     const genderMessage = await ctx.reply(
       `${name}, укажи свой пол`,
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback('Мужской 🙋🏻', 'onboarding_gender_male'),
-          Markup.button.callback('Женский 🙋🏻‍♀️', 'onboarding_gender_female')
-        ]
+        [Markup.button.callback('Мужской 🙋🏻‍♂️', 'onboarding_gender_male')],
+        [Markup.button.callback('Женский 🙋🏻‍♀️', 'onboarding_gender_female')]
       ])
     );
 
@@ -110,8 +109,40 @@ export async function handleOnboardingMessage(
     // Определяем timezone по городу
     const timezoneResult = await detectTimezoneByCity(cityName);
 
-    // Сохраняем timezone в БД
-    updateUserTimezone(chatId, timezoneResult.timezone, timezoneResult.offset);
+    // Проверяем результат
+    if (timezoneResult.source === 'needsUserChoice') {
+      // Не смогли определить точно - показываем кнопки с похожими городами
+      const { Markup } = await import('telegraf');
+
+      const buttons = timezoneResult.similarCities!.map(city =>
+        [Markup.button.callback(`${city.city} (UTC${city.offset >= 0 ? '+' : ''}${city.offset / 60})`, `timezone_select_${city.timezone}_${encodeURIComponent(city.city)}`)]
+      );
+
+      await ctx.reply(
+        `Извини, небольшая путаница 🙈\nВозможно что-то из этих городов (нажми на нужную кнопку) или попробуй написать по-другому`,
+        Markup.inlineKeyboard(buttons)
+      );
+
+      botLogger.info({
+        chatId,
+        userId,
+        cityName,
+        similarCitiesCount: timezoneResult.similarCities!.length
+      }, '🔍 Показаны похожие города для выбора');
+
+      // Остаёмся в состоянии waiting_timezone - пользователь либо нажмёт кнопку, либо напишет по-другому
+      return true;
+    }
+
+    // Timezone определён успешно
+    const finalTimezone = timezoneResult.timezone!;
+    const finalOffset = timezoneResult.offset!;
+
+    // Сохраняем timezone и город в БД
+    updateUserTimezone(chatId, finalTimezone, finalOffset, cityName);
+
+    // Добавляем пользователя в timezone-based планировщик
+    await scheduler.addUserToTimezone(chatId, finalTimezone);
 
     // Переходим к запросу целей
     updateOnboardingState(chatId, 'waiting_request');
@@ -120,8 +151,8 @@ export async function handleOnboardingMessage(
       chatId,
       userId,
       cityName,
-      timezone: timezoneResult.timezone,
-      offset: timezoneResult.offset,
+      timezone: finalTimezone,
+      offset: finalOffset,
       source: timezoneResult.source
     }, '✅ Timezone определен и сохранен');
 
@@ -131,8 +162,6 @@ export async function handleOnboardingMessage(
       confirmMessage = `Отлично! Установил timezone для ${cityName} ✅`;
     } else if (timezoneResult.source === 'llm') {
       confirmMessage = `Определил timezone для ${cityName} ✅`;
-    } else {
-      confirmMessage = `Не смог определить timezone для "${cityName}", установил Москву (UTC+3) по умолчанию ✅\nЕсли это не подходит - напиши другой город`;
     }
 
     await ctx.reply(confirmMessage);
@@ -142,7 +171,10 @@ export async function handleOnboardingMessage(
 
     // Отправляем запрос о целях с кнопкой "Пропустить"
     await ctx.reply(
-      `А расскажи мне о своем запросе, что тебя беспокоит, что хочешь улучшить, к чему прийти?\n\n<i>Может лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
+      `И последний вопрос 📝
+<b>Расскажи о своем запросе</b>, что тебя беспокоит, что хочешь улучшить, к чему прийти?
+
+<i>Например, может ты хочешь лучше понимать себя, снизить стресс или прийти к балансу в жизни</i>`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -171,23 +203,21 @@ export async function handleOnboardingMessage(
 
     botLogger.info({ chatId, userId, requestLength: request.length }, '✅ Запрос пользователя сохранен, онбординг завершен');
 
-    // Получаем имя, пол и timezone пользователя
+    // Получаем данные пользователя
     const userName = user.name!;
-    const userGender = user.gender;
-    const userTimezone = user.timezone;
+    const userTimezone = user.timezone || 'Europe/Moscow';
+    const userTimezoneOffset = user.timezone_offset || 180;
 
-    // Определяем время отправки в зависимости от timezone пользователя
-    const eveningTime = userTimezone === 'Europe/Moscow' ? '20:00' : '20:00 по твоему времени';
+    // Генерируем финальное сообщение с учетом времени до вечерней лягухи
+    const { generateOnboardingFinalMessage } = await import('../../utils/onboarding-final-message');
+    const finalMessage = generateOnboardingFinalMessage(userName, userTimezone, userTimezoneOffset);
 
-    // Отправляем финальное сообщение (с учётом пола)
-    const readyText = userGender === 'male' ? 'готов' : 'готова';
-    await ctx.reply(
-      `Приятно познакомиться, ${userName}! 🤗
-
-Теперь ты ${readyText} к работе. Каждый вечер в ${eveningTime} буду отправлять тебе задания для размышлений и работы над собой.
-
-Если хочешь начать прямо сейчас - просто напиши мне о том, что сейчас чувствуешь или что происходит в твоей жизни. Я буду рад выслушать 💚`
-    );
+    // Отправляем финальное сообщение
+    if (finalMessage.buttons) {
+      await ctx.reply(finalMessage.text, finalMessage.buttons);
+    } else {
+      await ctx.reply(finalMessage.text);
+    }
 
     return true;
   }
@@ -255,10 +285,8 @@ export async function handleOnboardingEditedMessage(
     const genderMessage = await ctx.reply(
       `${name}, укажи свой пол`,
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback('Мужской 🙋🏻', 'onboarding_gender_male'),
-          Markup.button.callback('Женский 🙋🏻‍♀️', 'onboarding_gender_female')
-        ]
+        [Markup.button.callback('Мужской 🙋🏻‍♂️', 'onboarding_gender_male')],
+        [Markup.button.callback('Женский 🙋🏻‍♀️', 'onboarding_gender_female')]
       ])
     );
 

@@ -167,3 +167,9 @@ dist
 test-output.txt
 coverage-output.txt
 full-output.txt
+*.backup
+*.backup2
+*.backup3
+test-*.ts
+test-*.sh
+ONBOARDING_TEST_REPORT.md

@@ -24,7 +24,10 @@
       "Bash(for file in confirm_negative.ts continue_to_plushki.ts emotions_addition_done.ts skip_emotions_clarification.ts)",
       "Bash(do echo \"=== $file ===\")",
       "Bash(node:*)",
-      "Bash(timeout 5 bun:*)"
+      "Bash(timeout 5 bun:*)",
+      "Bash(for line in 3093 3284 3346 8642)",
+      "Bash(do echo \"=== Line $line ===\")",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

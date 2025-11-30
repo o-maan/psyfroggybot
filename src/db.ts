@@ -171,16 +171,16 @@ export const updateUserRequest = (chatId: number, request: string | null) => {
 };
 
 /**
- * Обновляет timezone пользователя
+ * Обновляет timezone и город пользователя
  */
-export const updateUserTimezone = (chatId: number, timezone: string, offset: number) => {
+export const updateUserTimezone = (chatId: number, timezone: string, offset: number, city?: string) => {
   const updateUser = db.query(`
     UPDATE users
-    SET timezone = ?, timezone_offset = ?
+    SET timezone = ?, timezone_offset = ?, city = ?
     WHERE chat_id = ?
   `);
-  updateUser.run(timezone, offset, chatId);
-  databaseLogger.info({ chatId, timezone, offset }, '✅ Timezone пользователя обновлен');
+  updateUser.run(timezone, offset, city || null, chatId);
+  databaseLogger.info({ chatId, timezone, offset, city }, '✅ Timezone пользователя обновлен');
 };
 
 /**
@@ -207,7 +207,7 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset, city
     FROM users
     WHERE chat_id = ?
   `);
@@ -223,6 +223,7 @@ export const getUserByChatId = (chatId: number) => {
     user_request: string | null;
     timezone: string;
     timezone_offset: number;
+    city: string | null;
   } | undefined;
 };
 
