@@ -2,11 +2,13 @@ import { Telegraf } from 'telegraf';
 import { CalendarService, formatCalendarEvents } from '../../calendar';
 import { botLogger, logger } from '../../logger';
 import { addUser, getLastUserToken } from '../../db';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработка команды /calendar
 export function registerCalendarCommand(bot: Telegraf, calendarService: CalendarService) {
   bot.command('calendar', async ctx => {
     const chatId = ctx.chat.id;
+    const userId = ctx.from?.id || 0;
     // Save user if not exists
     addUser(chatId, ctx.from?.username || '');
     const lastToken = getLastUserToken(chatId);
@@ -30,22 +32,25 @@ export function registerCalendarCommand(bot: Telegraf, calendarService: Calendar
             showDescription: true,
             showLink: true,
           });
-          await ctx.reply(`События за вчера и сегодня:\n\n${eventsList}`, {
+          await sendToUser(bot, chatId, userId, `События за вчера и сегодня:\n\n${eventsList}`, {
             parse_mode: 'HTML',
           });
         } else {
-          await ctx.reply('Событий за вчера и сегодня нет.');
+          await sendToUser(bot, chatId, userId, 'Событий за вчера и сегодня нет.');
         }
         return;
       } catch (e) {
         const error = e as Error;
         botLogger.error({ error: error.message, stack: error.stack, chatId }, 'Ошибка токена календаря');
-        await ctx.reply('Произошла ошибка при настройке доступа к календарю. Попробуйте еще раз.');
+        await sendToUser(bot, chatId, userId, 'Произошла ошибка при настройке доступа к календарю. Попробуйте еще раз.');
       }
     }
     // Pass chatId in state
     const authUrl = calendarService.getAuthUrl({ state: chatId.toString() });
-    await ctx.reply(
+    await sendToUser(
+      bot,
+      chatId,
+      userId,
       'Для доступа к календарю, пожалуйста, перейдите по ссылке и авторизуйтесь:\n' +
         authUrl +
         '\n\n' +

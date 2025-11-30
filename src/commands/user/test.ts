@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработка команды /test
 export function registerTestCommand(bot: Telegraf, scheduler: Scheduler) {
@@ -11,7 +12,10 @@ export function registerTestCommand(bot: Telegraf, scheduler: Scheduler) {
 
     // Генерируем сообщение и проверяем его длину
     const message = await scheduler.generateScheduledMessage(fromId);
-    await ctx.reply(
+    await sendToUser(
+      bot,
+      chatId,
+      fromId,
       `📊 <b>ТЕСТ ГЕНЕРАЦИИ СООБЩЕНИЯ</b>\n\n` +
         `📏 Длина: ${message.length} символов\n` +
         `${

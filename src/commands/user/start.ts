@@ -4,6 +4,7 @@ import { botLogger } from '../../logger';
 import { addUser, updateUserName, updateUserGender, getUserByChatId, updateOnboardingState } from '../../db';
 import { InputFile } from 'telegraf/types';
 import path from 'path';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработка команды /start
 export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
@@ -24,7 +25,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
       botLogger.info({ userId, name: 'Алекс', gender: 'male' }, '✅ Автоматически установлено имя и пол для Алекса');
 
       // Для Алекса показываем старое сообщение (без онбординга)
-      await ctx.reply(
+      await sendToUser(
+        bot,
+        chatId,
+        userId,
         'Привет, Алекс! Я бот-лягушка 🐸\n\n' +
           'Рад тебя видеть! Продолжаем работать вместе 💚'
       );
@@ -39,7 +43,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
 
     if (user && user.name) {
       // Пользователь уже зарегистрирован и имеет имя
-      await ctx.reply(
+      await sendToUser(
+        bot,
+        chatId,
+        userId,
         `Привет, ${user.name}! 🐸\n\nРад снова тебя видеть! Продолжаем работать вместе 💚`
       );
       return;
@@ -74,7 +81,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
       botLogger.error({ error, userId, chatId }, '❌ Ошибка отправки приветственного сообщения');
 
       // Fallback: отправляем текст без картинки
-      await ctx.reply(
+      await sendToUser(
+        bot,
+        chatId,
+        userId,
         welcomeText,
         Markup.inlineKeyboard([
           [Markup.button.callback('Вперед 🚀', 'onboarding_start')]

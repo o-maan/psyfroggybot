@@ -1,5 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработка команды /help
 export function registerHelpCommand(bot: Telegraf) {
@@ -8,6 +9,6 @@ export function registerHelpCommand(bot: Telegraf) {
     const userId = ctx.from?.id || 0;
     botLogger.info({ userId, chatId }, `📱 Команда /help от пользователя ${userId}`);
 
-    await ctx.reply('Кто тут любопытная жопка?! 😁 Не готово еще');
+    await sendToUser(bot, chatId, userId, 'Кто тут любопытная жопка?! 😁 Не готово еще');
   });
 }

@@ -12,6 +12,7 @@ import { registerCalendarCommand } from './calendar';
 import { registerDayCommand } from './day';
 import { registerJoyCommand } from './joy';
 import { registerHelpCommand } from './help';
+import { registerMeCommand } from './me';
 
 export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calendarService: CalendarService) {
   registerPingCommand(bot);
@@ -25,4 +26,5 @@ export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calend
   registerDayCommand(bot, scheduler);
   registerJoyCommand(bot, scheduler);
   registerHelpCommand(bot);
+  registerMeCommand(bot);
 }

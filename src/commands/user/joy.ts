@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
+import { sendToUser } from '../../utils/send-to-user';
 
 /**
  * Регистрация команды /joy - Short Joy логика (пользовательская)
@@ -39,7 +40,8 @@ export function registerJoyCommand(bot: Telegraf, scheduler: Scheduler) {
         botLogger.info({ chatId }, '🚫 Команда /joy вызвана в канале - отправляем сообщение об ошибке');
 
         try {
-          await ctx.reply('Эта команда активна в личных сообщениях с Psy Froggy');
+          // В канале не передаем userId для системного сообщения
+          await sendToUser(bot, chatId, null, 'Эта команда активна в личных сообщениях с Psy Froggy');
         } catch (error) {
           botLogger.error({ error }, 'Не удалось отправить сообщение об ошибке в канал');
         }
@@ -68,7 +70,7 @@ export function registerJoyCommand(bot: Telegraf, scheduler: Scheduler) {
         },
         'Ошибка при выполнении команды /joy'
       );
-      await ctx.reply(`❌ Ошибка: ${err.message}`);
+      await sendToUser(bot, chatId, userId, `❌ Ошибка: ${err.message}`);
     }
   };
 

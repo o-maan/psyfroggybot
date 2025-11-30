@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { updateUserName } from '../../db';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Команда для установки имени пользователя
 export function registerSetnameCommand(bot: Telegraf) {
@@ -11,12 +12,12 @@ export function registerSetnameCommand(bot: Telegraf) {
     const name = text.split(' ').slice(1).join(' ').trim();
 
     if (!name) {
-      await ctx.reply('Пожалуйста, укажите имя после команды. Например: /setname Иван');
+      await sendToUser(bot, chatId, userId, 'Пожалуйста, укажите имя после команды. Например: /setname Иван');
       return;
     }
 
     updateUserName(chatId, name);
     botLogger.info({ userId, chatId, name }, '✅ Установлено имя пользователя');
-    await ctx.reply(`✅ Твоё имя установлено: ${name}`);
+    await sendToUser(bot, chatId, userId, `✅ Твоё имя установлено: ${name}`);
   });
 }
