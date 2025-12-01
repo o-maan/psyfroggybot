@@ -9086,17 +9086,26 @@ ${eventsText}
   private async createCronJobsForTimezone(timezone: string, chatIds: number[]) {
     schedulerLogger.info({ timezone, usersCount: chatIds.length }, `🕐 Создание cron jobs для ${timezone}`);
 
-    // Инициализируем запись для этой timezone
-    if (!this.timezoneCronJobs.has(timezone)) {
-      this.timezoneCronJobs.set(timezone, {
-        evening: null,
-        morningCheck: null,
-        morning: null,
-        morningBatch: null,
-        eveningBatch: null,
-        userIds: new Set(chatIds)
-      });
+    // ВАЖНО: Останавливаем старые cron jobs для этой timezone перед созданием новых
+    if (this.timezoneCronJobs.has(timezone)) {
+      const oldJobs = this.timezoneCronJobs.get(timezone)!;
+      oldJobs.evening?.stop();
+      oldJobs.morningCheck?.stop();
+      oldJobs.morning?.stop();
+      oldJobs.morningBatch?.stop();
+      oldJobs.eveningBatch?.stop();
+      schedulerLogger.info({ timezone }, '🛑 Остановлены старые cron jobs перед пересозданием');
     }
+
+    // Создаем или перезаписываем запись для этой timezone
+    this.timezoneCronJobs.set(timezone, {
+      evening: null,
+      morningCheck: null,
+      morning: null,
+      morningBatch: null,
+      eveningBatch: null,
+      userIds: new Set(chatIds)
+    });
 
     const jobs = this.timezoneCronJobs.get(timezone)!;
 
