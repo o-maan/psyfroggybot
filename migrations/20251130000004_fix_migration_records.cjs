@@ -4,14 +4,9 @@
  */
 
 exports.up = function(knex) {
-  // Удаляем некорректные записи миграций из предыдущих попыток деплоя
+  // Удаляем дубликат записи add_city (она уже есть как 001, не нужна 002)
   return knex('knex_migrations')
-    .whereIn('name', [
-      '20251130000001_update_user_timezone_to_belgrade.cjs',
-      '20251130000001_add_city_to_users.cjs',
-      '20251201000001_update_user_timezone_to_belgrade.cjs',
-      '20251201000002_add_name_to_main_user.cjs'
-    ])
+    .where('name', '20251130000002_add_city_to_users.cjs')
     .del();
 };
 
