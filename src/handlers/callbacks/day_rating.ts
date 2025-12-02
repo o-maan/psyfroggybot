@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import { getDayRatingSupportWord } from '../../utils/support-words';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик кнопок оценки дня
 export async function handleDayRating(ctx: BotContext) {
@@ -50,7 +51,7 @@ export async function handleDayRating(ctx: BotContext) {
 
     await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, fullText, sendOptions),
+      () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId!, fullText, sendOptions),
       'day_rating_support',
       { maxAttempts: 5, intervalMs: 3000 }
     );
