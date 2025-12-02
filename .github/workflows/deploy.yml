@@ -116,13 +116,12 @@ jobs:
             set -e
 
             if [ $PM2_EXISTS -eq 0 ]; then
-              echo "🔄 Перезапускаем существующий процесс..."
-              pm2 restart psy_froggy_bot
-            else
-              echo "🚀 Запускаем новый процесс..."
-              # pm2 start ecosystem.prod.config.cjs --name psy_froggy_bot
-              pm2 start --interpreter ~/.bun/bin/bun src/bot.ts --name psy_froggy_bot
+              echo "🔄 Полностью останавливаем и удаляем старый процесс..."
+              pm2 delete psy_froggy_bot
             fi
+
+            echo "🚀 Запускаем новый процесс..."
+            pm2 start --interpreter ~/.bun/bin/bun src/bot.ts --name psy_froggy_bot
 
             # Сохранить конфигурацию PM2
             pm2 save

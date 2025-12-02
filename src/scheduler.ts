@@ -9116,7 +9116,7 @@ ${eventsText}
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
         for (const chatId of jobs.userIds) {
           try {
-            await this.sendDailyMessage(chatId);
+            await this.sendInteractiveDailyMessage(chatId, false, false);
           } catch (error) {
             schedulerLogger.error({ chatId, timezone, error }, '❌ Ошибка отправки вечернего поста');
           }
