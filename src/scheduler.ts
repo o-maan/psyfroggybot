@@ -4058,13 +4058,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   // Отправка утреннего поста в 9:00
   async sendMorningMessage(chatId: number, isManual: boolean = false) {
     try {
-      schedulerLogger.debug({ chatId, isManual }, 'Начало отправки утреннего сообщения');
+      schedulerLogger.debug({ chatId, isManual, isTestBot: this.isTestBot() }, 'Начало отправки утреннего сообщения');
 
-      // ВАЖНО: Для тестового бота автоматическая рассылка отключена (но ручная работает!)
-      if (this.isTestBot() && !isManual) {
-        schedulerLogger.warn({ chatId }, '⏭️ Тестовый бот: автоматическая утренняя рассылка ОТКЛЮЧЕНА');
-        return;
-      }
+      // ✅ ИЗМЕНЕНО: разрешаем автоматическую рассылку для ВСЕХ ботов (включая тестовый)
+      // Это позволит тестировать автоматическую рассылку локально
+      // if (this.isTestBot() && !isManual) {
+      //   schedulerLogger.warn({ chatId }, '⏭️ Тестовый бот: автоматическая утренняя рассылка ОТКЛЮЧЕНА');
+      //   return;
+      // }
 
       // Показываем, что бот "пишет"
       await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
@@ -9029,13 +9030,11 @@ ${eventsText}
    * Создаёт отдельные cron jobs для каждого уникального timezone
    */
   private async initializeTimezoneBasedSchedule() {
-    // Для тестового бота отключаем автоматическую рассылку
-    if (this.isTestBot()) {
-      schedulerLogger.info('🧪 Тестовый бот: автоматическая timezone-based рассылка отключена');
-      return;
-    }
-
-    schedulerLogger.info('🌍 Инициализация timezone-based планировщика');
+    // ✅ ИЗМЕНЕНО: включаем автоматическую рассылку для ВСЕХ ботов (включая тестовый)
+    // Это позволит тестировать автоматическую рассылку локально
+    schedulerLogger.info('🌍 Инициализация timezone-based планировщика', {
+      isTestBot: this.isTestBot()
+    });
 
     // Получаем всех пользователей (ТОЛЬКО положительные chat_id - исключаем группы!)
     const allUsers = getAllUsers();
@@ -9106,11 +9105,15 @@ ${eventsText}
       '0 20 * * *',
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
-        for (const chatId of jobs.userIds) {
+
+        // ✅ ИСПРАВЛЕНИЕ: отправляем ТОЛЬКО для целевого пользователя (как утренний пост!)
+        const targetUserId = this.getTargetUserId();
+
+        if (targetUserId && jobs.userIds.has(targetUserId)) {
           try {
-            await this.sendInteractiveDailyMessage(chatId, false, false);
+            await this.sendInteractiveDailyMessage(targetUserId, false, false);
           } catch (error) {
-            schedulerLogger.error({ chatId, timezone, error }, '❌ Ошибка отправки вечернего поста');
+            schedulerLogger.error({ targetUserId, timezone, error }, '❌ Ошибка отправки вечернего поста');
           }
         }
       },
