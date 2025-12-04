@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик кнопки "Сделал" для практики - новый формат
 export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
@@ -54,7 +55,7 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
 
         await callbackSendWithRetry(
           ctx,
-          () => ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, fallbackSendOptions),
+          () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId, fallbackText, fallbackSendOptions),
           'pract_done_fallback',
           { maxAttempts: 5, intervalMs: 3000 }
         );
@@ -109,7 +110,7 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
 
     await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, ratingMessage, sendOptions),
+      () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId, ratingMessage, sendOptions),
       'pract_done_rating'
     );
 
