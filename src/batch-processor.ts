@@ -184,29 +184,55 @@ async function processGroupWithLLM(group: GroupedMessages): Promise<void> {
 
     // Сохраняем позитивные события
     if (group.positiveMessages.length > 0) {
+      const { filterEventsText } = await import('./utils/event-filter');
+
       const positiveText = group.positiveMessages
         .map(m => m.message_preview)
         .filter(Boolean)
         .join('\n');
 
       if (positiveText) {
-        savePositiveEvent(
-          group.userId,
-          positiveText,
-          '',
-          group.channelMessageId.toString()
-        );
+        // Применяем фильтрацию (удаляем символы + одиночные эмоции)
+        const { cleanedText, filtered } = filterEventsText(positiveText);
 
-        schedulerLogger.info(
-          {
-            userId: group.userId,
-            channelMessageId: group.channelMessageId,
-            messagesCount: group.positiveMessages.length,
-          },
-          '💚 Позитивное событие сохранено (batch processing)'
-        );
+        if (filtered.length > 0) {
+          schedulerLogger.info(
+            {
+              userId: group.userId,
+              channelMessageId: group.channelMessageId,
+              filtered,
+            },
+            '🗑️ События отфильтрованы в batch processor'
+          );
+        }
 
-        // Отмечаем как обработанные
+        if (cleanedText) {
+          savePositiveEvent(
+            group.userId,
+            cleanedText,
+            '',
+            group.channelMessageId.toString()
+          );
+
+          schedulerLogger.info(
+            {
+              userId: group.userId,
+              channelMessageId: group.channelMessageId,
+              messagesCount: group.positiveMessages.length,
+            },
+            '💚 Позитивное событие сохранено (batch processing)'
+          );
+        } else {
+          schedulerLogger.info(
+            {
+              userId: group.userId,
+              channelMessageId: group.channelMessageId,
+            },
+            '⚠️ Все события отфильтрованы, ничего не сохранено'
+          );
+        }
+
+        // Отмечаем как обработанные в любом случае
         markMessagesAsProcessed(group.positiveMessages.map(m => m.id));
       }
     }

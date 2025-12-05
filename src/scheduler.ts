@@ -2407,7 +2407,8 @@ ${weekendPromptContent}`;
     keyboard: any,
     messageType: string,
     userId: number,
-    CHAT_ID: number
+    CHAT_ID: number,
+    skipGenderAdaptation: boolean = false
   ) {
     try {
       // Периодически проверяем наличие пересланного сообщения
@@ -2471,7 +2472,7 @@ ${weekendPromptContent}`;
         messageOptions.reply_to_message_id = forwardedMessageId;
 
         const joyMessage = await sendWithRetry(
-          () => sendToUser(this.bot, CHAT_ID, userId, messageText, messageOptions),
+          () => sendToUser(this.bot, CHAT_ID, skipGenderAdaptation ? null : userId, messageText, messageOptions),
           {
             chatId: userId,
             messageType: messageType,
@@ -2549,7 +2550,8 @@ ${weekendPromptContent}`;
     promptText: string,
     promptKeyboard: any,
     userId: number,
-    CHAT_ID: number
+    CHAT_ID: number,
+    skipGenderAdaptationForEvents: boolean = true // по умолчанию НЕ адаптируем список событий
   ) {
     try {
       // Периодически проверяем наличие пересланного сообщения
@@ -2617,9 +2619,9 @@ ${weekendPromptContent}`;
         eventsOptions.reply_to_message_id = forwardedMessageId;
         promptOptions.reply_to_message_id = forwardedMessageId;
 
-        // Отправляем список событий
+        // Отправляем список событий (БЕЗ адаптации пола - содержит то, что сам пользователь написал)
         const eventsMsg = await sendWithRetry(
-          () => sendToUser(this.bot, CHAT_ID, userId, eventsMessage, eventsOptions),
+          () => sendToUser(this.bot, CHAT_ID, skipGenderAdaptationForEvents ? null : userId, eventsMessage, eventsOptions),
           {
             chatId: userId,
             messageType: 'joy_events_list',
@@ -2677,9 +2679,9 @@ ${weekendPromptContent}`;
           '⚠️ Таймаут ожидания пересланного сообщения Joy, отправляем в группу'
         );
 
-        // Отправляем список событий
+        // Отправляем список событий (БЕЗ адаптации пола - содержит то, что сам пользователь написал)
         const eventsMsg = await sendWithRetry(
-          () => sendToUser(this.bot, CHAT_ID, userId, eventsMessage, eventsOptions),
+          () => sendToUser(this.bot, CHAT_ID, skipGenderAdaptationForEvents ? null : userId, eventsMessage, eventsOptions),
           {
             chatId: userId,
             messageType: 'joy_events_list',
@@ -5858,19 +5860,26 @@ ${allDayUserMessages}
 
             if (positiveMessages && positiveMessages.length > 0) {
               const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const { filterEventsText } = await import('./utils/event-filter');
+
               const allText = positiveMessages
                 .map((m: any) => m.message_preview || '')
                 .filter(Boolean)
                 .join('\n');
 
               if (allText) {
-                savePositiveEvent(userId, allText, '', channelMessageId.toString());
-                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-                markMessagesAsProcessedByChannel(channelMessageId, userId);
-                schedulerLogger.info(
-                  { userId, channelMessageId, messagesCount: positiveMessages.length },
-                  '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)'
-                );
+                // Применяем фильтрацию
+                const { cleanedText } = filterEventsText(allText);
+
+                if (cleanedText) {
+                  savePositiveEvent(userId, cleanedText, '', channelMessageId.toString());
+                  // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                  markMessagesAsProcessedByChannel(channelMessageId, userId);
+                  schedulerLogger.info(
+                    { userId, channelMessageId, messagesCount: positiveMessages.length },
+                    '💚 Позитивное событие сохранено асинхронно (вечер, глубокий)'
+                  );
+                }
               }
             }
           } catch (error) {
@@ -6001,19 +6010,26 @@ ${allDayUserMessages}
 
             if (positiveMessages && positiveMessages.length > 0) {
               const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const { filterEventsText } = await import('./utils/event-filter');
+
               const allText = positiveMessages
                 .map((m: any) => m.message_preview || '')
                 .filter(Boolean)
                 .join('\n');
 
               if (allText) {
-                savePositiveEvent(userId, allText, '', channelMessageId.toString());
-                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-                markMessagesAsProcessedByChannel(channelMessageId, userId);
-                schedulerLogger.info(
-                  { userId, channelMessageId, messagesCount: positiveMessages.length },
-                  '💚 Позитивное событие сохранено асинхронно (вечер, глубокий сценарий после уточнения позитивных эмоций)'
-                );
+                // Применяем фильтрацию
+                const { cleanedText } = filterEventsText(allText);
+
+                if (cleanedText) {
+                  savePositiveEvent(userId, cleanedText, '', channelMessageId.toString());
+                  // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                  markMessagesAsProcessedByChannel(channelMessageId, userId);
+                  schedulerLogger.info(
+                    { userId, channelMessageId, messagesCount: positiveMessages.length },
+                    '💚 Позитивное событие сохранено асинхронно (вечер, глубокий сценарий после уточнения позитивных эмоций)'
+                  );
+                }
               }
             }
           } catch (error) {
@@ -6944,19 +6960,26 @@ ${allDayUserMessages}
 
             if (positiveMessages && positiveMessages.length > 0) {
               const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const { filterEventsText } = await import('./utils/event-filter');
+
               const allText = positiveMessages
                 .map((m: any) => m.message_preview || '')
                 .filter(Boolean)
                 .join('\n');
 
               if (allText) {
-                savePositiveEvent(userId, allText, '', channelMessageId.toString());
-                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-                markMessagesAsProcessedByChannel(channelMessageId, userId);
-                schedulerLogger.info(
-                  { userId, channelMessageId, messagesCount: positiveMessages.length },
-                  '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)'
-                );
+                // Применяем фильтрацию
+                const { cleanedText } = filterEventsText(allText);
+
+                if (cleanedText) {
+                  savePositiveEvent(userId, cleanedText, '', channelMessageId.toString());
+                  // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                  markMessagesAsProcessedByChannel(channelMessageId, userId);
+                  schedulerLogger.info(
+                    { userId, channelMessageId, messagesCount: positiveMessages.length },
+                    '💚 Позитивное событие сохранено асинхронно (вечер, упрощенный)'
+                  );
+                }
               }
             }
           } catch (error) {
@@ -7194,19 +7217,26 @@ ${allDayUserMessages}
 
             if (positiveMessages && positiveMessages.length > 0) {
               const { savePositiveEvent, markMessagesAsProcessedByChannel } = await import('./db');
+              const { filterEventsText } = await import('./utils/event-filter');
+
               const allText = positiveMessages
                 .map((m: any) => m.message_preview || '')
                 .filter(Boolean)
                 .join('\n');
 
               if (allText) {
-                savePositiveEvent(userId, allText, '', channelMessageId.toString());
-                // Помечаем сообщения как обработанные чтобы batch processor их не трогал
-                markMessagesAsProcessedByChannel(channelMessageId, userId);
-                schedulerLogger.info(
-                  { userId, channelMessageId, messagesCount: positiveMessages.length },
-                  '💚 Позитивное событие сохранено асинхронно (вечер, после уточнения позитивных эмоций)'
-                );
+                // Применяем фильтрацию
+                const { cleanedText } = filterEventsText(allText);
+
+                if (cleanedText) {
+                  savePositiveEvent(userId, cleanedText, '', channelMessageId.toString());
+                  // Помечаем сообщения как обработанные чтобы batch processor их не трогал
+                  markMessagesAsProcessedByChannel(channelMessageId, userId);
+                  schedulerLogger.info(
+                    { userId, channelMessageId, messagesCount: positiveMessages.length },
+                    '💚 Позитивное событие сохранено асинхронно (вечер, после уточнения позитивных эмоций)'
+                  );
+                }
               }
             }
           } catch (error) {
@@ -8037,282 +8067,82 @@ ${formattedEvents}`;
         '🔍 НАЧАЛО formatEventsWithLLM - какие события пришли'
       );
 
-      // ФИЛЬТРУЕМ события ПЕРЕД форматированием
-      const filteredEvents = events.filter(event => {
-        const eventText = event.event_text.toLowerCase().trim();
+      // НОВАЯ ФИЛЬТРАЦИЯ: используем утилиту event-filter
+      const { filterEventsText } = await import('./utils/event-filter');
 
-        // Убираем тестовые события
-        if (eventText.includes('тест') || eventText.includes('проверка') || eventText.includes('тестовое')) {
-          schedulerLogger.debug({ eventText }, '🧪 Тестовое событие отфильтровано');
-          return false;
-        }
+      // Фильтруем и очищаем события
+      const filteredEvents = events
+        .map(event => {
+          const eventText = event.event_text.trim();
 
-        // Убираем просто эмоции без события (короткие строки из 1-2 слов)
-        const words = eventText.split(/\s+/);
-        if (words.length <= 2 && !eventText.includes(' ')) {
-          schedulerLogger.debug({ eventText }, '😶 Просто эмоция отфильтрована');
-          return false;
-        }
-
-        return true;
-      });
-
-      schedulerLogger.info({ original: events.length, filtered: filteredEvents.length }, '🔍 События отфильтрованы');
-
-      /**
-       * УМНАЯ ПРЕДОБРАБОТКА: обнаружение и обработка эмоций-одиночек
-       *
-       * Проблема: пользователь пишет "событие", потом отдельно "радость, спокойствие"
-       * Сохраняется как: "событие\nрадость, спокойствие"
-       * LLM видит это как ДВА события и создает два пункта
-       *
-       * Решение:
-       * 1. Обнаруживаем строки которые являются только перечислением эмоций
-       * 2. Объединяем с предыдущим событием через " – "
-       * 3. Если эмоции-одиночка стоит отдельно (нет предыдущего события) - удаляем
-       */
-      function isEmotionsOnly(text: string): boolean {
-        const trimmed = text.trim();
-
-        // Пустая строка
-        if (!trimmed) return false;
-
-        // Очень короткие строки (1-2 слова без запятых) - это одиночная эмоция
-        const words = trimmed.split(/\s+/);
-        if (words.length <= 2 && !trimmed.includes(',')) {
-          return true;
-        }
-
-        // Перечисление через запятую
-        const hasCommas = trimmed.includes(',');
-
-        // Список известных эмоций
-        const emotionKeywords = [
-          'радость',
-          'грусть',
-          'страх',
-          'гнев',
-          'удовольствие',
-          'спокойствие',
-          'вовлеченность',
-          'интерес',
-          'нетерпение',
-          'волнение',
-          'тревога',
-          'восторг',
-          'счастье',
-          'печаль',
-          'раздражение',
-          'удивление',
-          'гордость',
-          'стыд',
-          'вина',
-          'зависть',
-          'благодарность',
-          'любовь',
-          'ненависть',
-          'отвращение',
-          'презрение',
-          'жалость',
-          'умиротворение',
-          'ясность',
-          'легкость',
-          'трепет',
-          'вдохновение',
-          'азарт',
-          'расслабление',
-          'напряжение',
-          'усталость',
-          'энергия',
-        ];
-
-        const lowerText = trimmed.toLowerCase();
-
-        // Если есть запятые и содержит эмоции - скорее всего перечисление
-        if (hasCommas) {
-          const matchedEmotions = emotionKeywords.filter(emotion => lowerText.includes(emotion));
-          if (matchedEmotions.length >= 1) {
-            // Проверяем что НЕТ глаголов (признак события)
-            const verbPatterns = [
-              /\b(был|была|было|были|пошел|пошла|сделал|сделала|встретил|получил|увидел|поел|выпил|посмотрел|прочитал|написал|позвонил)\b/i,
-              /\b(иду|иди|идет|делаю|делает|встречаю|получаю|вижу|ем|пью|смотрю|читаю|пишу|звоню)\b/i,
-            ];
-            const hasVerbs = verbPatterns.some(pattern => pattern.test(lowerText));
-
-            if (!hasVerbs) {
-              return true; // Перечисление эмоций без глаголов
-            }
-          }
-        }
-
-        // Одиночная эмоция без запятых
-        if (!hasCommas && words.length <= 3) {
-          const matchedEmotions = emotionKeywords.filter(emotion => lowerText.includes(emotion));
-          if (matchedEmotions.length >= 1) {
-            // Дополнительная проверка: это ТОЛЬКО эмоция или событие с эмоцией?
-            // Если весь текст - это ОДНА эмоция (слово = эмоция), то true
-            // Если есть другие слова (например "вкусная еда"), то false
-            const isOnlyEmotion = emotionKeywords.some(emotion => lowerText === emotion);
-            if (isOnlyEmotion) {
-              return true;
-            }
-          }
-        }
-
-        return false;
-      }
-
-      function processEventText(eventText: string): string | null {
-        // Разбиваем текст на строки
-        const lines = eventText
-          .split('\n')
-          .map(line => line.trim())
-          .filter(Boolean);
-
-        if (lines.length === 0) return null;
-
-        // Если одна строка - проверяем что это НЕ эмоция-одиночка
-        if (lines.length === 1) {
-          if (isEmotionsOnly(lines[0])) {
-            schedulerLogger.warn({ line: lines[0] }, '⚠️ Одиночная эмоция БЕЗ события - удаляем');
+          // Убираем тестовые события
+          if (
+            eventText.toLowerCase().includes('тест') ||
+            eventText.toLowerCase().includes('проверка') ||
+            eventText.toLowerCase().includes('тестовое')
+          ) {
+            schedulerLogger.debug({ eventText }, '🧪 Тестовое событие отфильтровано');
             return null;
           }
-          return eventText; // Обычная строка
-        }
 
-        // Обрабатываем многострочный текст
-        const processedLines: string[] = [];
+          // Применяем фильтрацию (убираем символы + одиночные эмоции)
+          const { cleanedText, filtered } = filterEventsText(event.event_text);
 
-        for (let i = 0; i < lines.length; i++) {
-          const currentLine = lines[i];
-
-          if (isEmotionsOnly(currentLine)) {
-            schedulerLogger.debug({ line: currentLine, index: i }, '🎭 Обнаружена эмоция-одиночка');
-
-            // Если есть предыдущая строка (событие) - присоединяем к ней
-            if (processedLines.length > 0) {
-              const prevLine = processedLines[processedLines.length - 1];
-              // Объединяем через " – " только если еще не присоединено
-              if (!prevLine.includes(' – ')) {
-                processedLines[processedLines.length - 1] = `${prevLine} – ${currentLine}`;
-                schedulerLogger.debug(
-                  { combined: processedLines[processedLines.length - 1] },
-                  '✅ Эмоция присоединена к событию'
-                );
-              } else {
-                // Уже есть эмоции - добавляем через запятую
-                processedLines[processedLines.length - 1] = `${prevLine}, ${currentLine}`;
-                schedulerLogger.debug(
-                  { combined: processedLines[processedLines.length - 1] },
-                  '✅ Эмоция добавлена к существующим'
-                );
-              }
-            } else {
-              // Нет предыдущей строки - эмоция-одиночка без события → пропускаем
-              schedulerLogger.warn({ line: currentLine }, '⚠️ Эмоция-одиночка БЕЗ события - пропущена');
-            }
-          } else {
-            // Обычная строка (событие) - добавляем
-            processedLines.push(currentLine);
+          if (!cleanedText) {
+            schedulerLogger.debug(
+              { original: event.event_text, filtered },
+              '🗑️ Событие полностью отфильтровано'
+            );
+            return null;
           }
-        }
-
-        return processedLines.length > 0 ? processedLines.join('\n') : null;
-      }
-
-      // Применяем умную предобработку к каждому событию
-      const processedEvents = filteredEvents
-        .map(event => {
-          const processed = processEventText(event.event_text);
-          if (!processed) return null;
 
           return {
             ...event,
-            event_text: processed,
+            event_text: cleanedText,
           };
         })
-        .filter(Boolean) as typeof filteredEvents;
+        .filter(Boolean) as typeof events;
 
       schedulerLogger.info(
-        { before: filteredEvents.length, after: processedEvents.length },
-        '🧹 Умная предобработка завершена'
+        { original: events.length, filtered: filteredEvents.length },
+        '🔍 События отфильтрованы (новая логика)'
       );
 
       /**
-       * УМНОЕ УДАЛЕНИЕ ДУБЛИКАТОВ
-       *
-       * Проблема: В БД могут быть ДВА события:
-       * 1. "была на дне рождения у бабушки..."
-       * 2. "была на дне рождения у бабушки... – радость, спокойствие"
-       *
-       * Это дубликаты! Нужно оставить только ПОЛНУЮ версию (с эмоциями).
-       *
-       * Логика:
-       * - Если одно событие полностью содержится в начале другого (до " – ")
-       * - Оставляем только более полное (с эмоциями)
+       * УДАЛЕНИЕ ДУБЛИКАТОВ
+       * Простая логика: если event_text совпадает - оставляем первый
        */
-      function removeDuplicateEvents(events: typeof processedEvents): typeof processedEvents {
-        const result: typeof processedEvents = [];
+      function removeDuplicateEvents(events: typeof filteredEvents): typeof filteredEvents {
+        const result: typeof filteredEvents = [];
         const seen = new Set<string>();
 
-        // Сортируем по длине (от длинных к коротким) чтобы сначала обработать полные версии
-        const sorted = [...events].sort((a, b) => b.event_text.length - a.event_text.length);
+        for (const event of events) {
+          const eventText = event.event_text.trim().toLowerCase();
 
-        for (const event of sorted) {
-          const eventText = event.event_text.trim();
-
-          // Получаем базовую часть события (до " – " если есть)
-          const baseText = eventText.split(' – ')[0].trim();
-
-          // Проверяем: нет ли уже более полной версии этого события?
-          let isDuplicate = false;
-
-          for (const seenText of seen) {
-            const seenBase = seenText.split(' – ')[0].trim();
-
-            // Если базовые части совпадают - это дубликат
-            if (baseText.toLowerCase() === seenBase.toLowerCase()) {
-              isDuplicate = true;
-              schedulerLogger.debug({ duplicate: eventText, original: seenText }, '🗑️ Найден дубликат - пропускаем');
-              break;
-            }
-          }
-
-          if (!isDuplicate) {
+          if (!seen.has(eventText)) {
             result.push(event);
             seen.add(eventText);
+          } else {
+            schedulerLogger.debug({ duplicate: event.event_text }, '🗑️ Найден дубликат - пропускаем');
           }
         }
 
-        // Восстанавливаем исходный порядок (по created_at)
-        return result.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        return result;
       }
 
-      const deduplicatedEvents = removeDuplicateEvents(processedEvents);
+      const deduplicatedEvents = removeDuplicateEvents(filteredEvents);
 
       schedulerLogger.info(
-        { before: processedEvents.length, after: deduplicatedEvents.length },
+        { before: filteredEvents.length, after: deduplicatedEvents.length },
         '🗑️ Удаление дубликатов завершено'
       );
 
       // Формируем список событий для промпта
       const eventsText = deduplicatedEvents
         .map((event, index) => {
-          let eventWithEmotions = event.event_text;
-
-          // Добавляем эмоции только если они есть И не дублируют текст события
-          if (event.emotions_text && event.emotions_text.trim() !== '') {
-            const emotionsLower = event.emotions_text.toLowerCase().trim();
-            const eventLower = event.event_text.toLowerCase().trim();
-
-            // Проверяем что эмоции ещё НЕ упомянуты в тексте события
-            if (!eventLower.includes(emotionsLower)) {
-              // Добавляем эмоции через " – " (чтобы LLM их просто сохранил)
-              eventWithEmotions = `${event.event_text} – ${event.emotions_text}`;
-            }
-          }
-
-          return `${index + 1}. ${eventWithEmotions}`;
+          // Передаем текст события КАК ЕСТЬ (если эмоции уже в тексте - они останутся)
+          // Но НЕ добавляем emotions_text отдельно через тире
+          return `${index + 1}. ${event.event_text}`;
         })
         .join('\n');
 
@@ -8334,8 +8164,11 @@ ${eventsText}${filterInstruction}
 КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
 
 1. **НЕ МЕНЯЙ слова и формулировки пользователя!** Только добавляй эмоджи и переносы строк
-2. **Если событие УЖЕ содержит эмоции в тексте** (например, "Порадовало, что кот пришел") - оставь КАК ЕСТЬ, не дублируй эмоции
-3. **РАЗДЕЛЯЙ НЕСКОЛЬКО СОБЫТИЙ В ОДНОМ ПУНКТЕ:**
+2. **НЕ добавляй эмоции через тире** - если в тексте пользователя их нет, не добавляй!
+3. **УДАЛЯЙ одиночные эмоции/чувства БЕЗ конкретного события:**
+   ❌ "радость", "любовь к себе", "гордость", "удовольствие" - это НЕ события, удаляй их!
+   ✅ "танцы", "красивый закат", "тёплый душ", "вкусный ужин" - это КОНКРЕТНЫЕ события, оставляй!
+4. **РАЗДЕЛЯЙ НЕСКОЛЬКО СОБЫТИЙ В ОДНОМ ПУНКТЕ:**
    - Если пользователь перечислил несколько событий через запятую - РАЗДЕЛИ их на отдельные пункты
    - Если есть союзы "и", "а еще", "также", "потом" - это РАЗНЫЕ события, раздели на отдельные пункты
    - Пример: "вкусные штуки ела порадовало, ого я села за работу эт хорошо горжусь собой, а еще табличку веду для психа довольна собой я молодец"
@@ -8343,24 +8176,28 @@ ${eventsText}${filterInstruction}
      😊 вкусные штуки ела порадовало
      😊 ого я села за работу эт хорошо горжусь собой
      😊 а еще табличку веду для психа довольна собой я молодец
-4. Каждый пункт с НОВОЙ строки (без пропуска строк между пунктами)
-5. Каждый пункт начинается с эмоджи 😊 (именно этот!)
-6. После эмоджи текст начинается с маленькой буквы
-7. **Удаляй ПОЛНЫЕ дубликаты** - если одно и то же событие повторяется несколько раз, оставь только ОДИН раз
-8. НЕ добавляй заголовки, вводные фразы, комментарии
-9. ТОЛЬКО список событий, ничего больше
+5. Каждый пункт с НОВОЙ строки (без пропуска строк между пунктами)
+6. Каждый пункт начинается с эмоджи 😊 (именно этот!)
+7. После эмоджи текст начинается с маленькой буквы
+8. **Удаляй ПОЛНЫЕ дубликаты** - если одно и то же событие повторяется несколько раз, оставь только ОДИН раз
+9. НЕ добавляй заголовки, вводные фразы, комментарии
+10. ТОЛЬКО список событий, ничего больше
 
 ПРАВИЛЬНЫЙ ФОРМАТ (текст пользователя сохранен!):
-😊 пообедал с другом в новом кафе – радость, интерес
-😊 закончил сложный проект на работе – гордость
+😊 пообедал с другом в новом кафе
+😊 закончил сложный проект на работе
 😊 порадовало, что кот пришел
-😊 вкусный ужин дома – удовольствие, спокойствие
+😊 вкусный ужин дома
+😊 танцы
+😊 красивый закат
 
 НЕПРАВИЛЬНЫЕ ПРИМЕРЫ (НЕ делай так):
 ❌ "😊 приятный обед с другом в кафе" - НЕПРАВИЛЬНО! (изменил формулировку "пообедал" → "приятный обед")
-❌ "😊 кот пришел – радость" - НЕПРАВИЛЬНО! (убрал "порадовало" и добавил эмоцию, которой не было)
-❌ "😊 вкусная еда – радость
-😊 вкусная еда – радость" - НЕПРАВИЛЬНО! (дублирование)
+❌ "😊 радость" - НЕПРАВИЛЬНО! (это абстрактная эмоция, а НЕ событие)
+❌ "😊 любовь к себе" - НЕПРАВИЛЬНО! (это чувство, а НЕ событие)
+❌ "😊 вкусная еда – радость" - НЕПРАВИЛЬНО! (добавил эмоцию через тире, которой не было)
+❌ "😊 вкусная еда
+😊 вкусная еда" - НЕПРАВИЛЬНО! (дублирование)
 
 Верни ТОЛЬКО отформатированный список событий БЕЗ изменения формулировок пользователя.`;
 
@@ -8728,7 +8565,8 @@ ${eventsText}
       }
 
       // Отправляем список (БЕЗ картинки и текста поста - сразу список)
-      await sendToUser(this.bot, chatId, userId, listText, sendOptions);
+      // userId = null, т.к. список содержит только то, что сам пользователь написал (не нужна адаптация пола)
+      await sendToUser(this.bot, chatId, null, listText, sendOptions);
 
       // Сохраняем SHORT JOY сессию
       this.shortJoySessions.set(userId, {
