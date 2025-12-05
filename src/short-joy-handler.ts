@@ -69,11 +69,13 @@ export class ShortJoyHandler {
    * Универсальный метод отправки сообщений с retry
    * ВСЕГДА отправка БЕЗ reply (через reply_to_message_id на первое сообщение треда)
    * replyToMessageId больше НЕ используется - параметр оставлен для совместимости
+   * @param skipGenderAdaptation - если true, пропускает адаптацию пола (для списков радости)
    */
   private async sendMessage(
     text: string,
     replyToMessageId?: number,
-    extra?: any
+    extra?: any,
+    skipGenderAdaptation: boolean = false
   ) {
     try {
       return await sendWithRetry(
@@ -85,7 +87,9 @@ export class ShortJoyHandler {
             sendOptions.reply_to_message_id = this.threadId;
           }
 
-          return await sendToUser(this.bot, this.chatId, this.userId, text, sendOptions);
+          // Если skipGenderAdaptation = true, передаем null вместо userId (список содержит то, что сам пользователь написал)
+          const userIdForGender = skipGenderAdaptation ? null : this.userId;
+          return await sendToUser(this.bot, this.chatId, userIdForGender, text, sendOptions);
         },
         {
           chatId: this.chatId,
@@ -497,7 +501,8 @@ ${messages.map((m, i) => `${i + 1}. ${m}`).join('\n')}
             [Markup.button.callback('Убрать лишнее 🙅🏻', `short_joy_remove_${this.channelMessageId}`)],
             [Markup.button.callback('Завершить', `short_joy_finish_${this.channelMessageId}`)]
           ])
-        }
+        },
+        true // skipGenderAdaptation - список содержит только то, что сам пользователь написал
       );
 
       // Сохраняем ID сообщения со списком в отдельную Map (НЕ скользящее - постоянное)
