@@ -19,7 +19,6 @@ export async function generateDayRatingSupportWords(): Promise<DayRatingSupportW
 
   try {
     // Загружаем промпт из файла
-    const { readFileSync } = await import('fs');
     const prompt = await readFile('assets/prompts/day-rating-support-words.md', 'utf-8');
 
     // Делаем ОДИН запрос к LLM для генерации всех 5 вариантов
@@ -30,12 +29,29 @@ export async function generateDayRatingSupportWords(): Promise<DayRatingSupportW
       return defaults;
     }
 
-    // Извлекаем JSON из ответа
-    const { extractJsonFromLLM } = await import('./extract-json-from-llm');
-    const jsonText = extractJsonFromLLM(response);
+    // generateMessage уже извлекает JSON для промптов со словом "JSON"
+    // Но на случай косяка LLM делаем fallback с повторным извлечением
 
-    // Парсим JSON
-    const parsed = JSON.parse(jsonText);
+    let parsed: any;
+    try {
+      // Пытаемся распарсить напрямую (обычный случай)
+      parsed = JSON.parse(response);
+    } catch (parseError) {
+      // Если не удалось - пытаемся извлечь JSON еще раз (fallback)
+      botLogger.warn(
+        {
+          parseError: (parseError as Error).message,
+          responsePreview: response.substring(0, 200)
+        },
+        'Не удалось распарсить JSON напрямую, пытаюсь извлечь повторно'
+      );
+
+      const { extractJsonFromLLM } = await import('./extract-json-from-llm');
+      const jsonText = extractJsonFromLLM(response);
+      parsed = JSON.parse(jsonText);
+
+      botLogger.info('✅ JSON успешно извлечен при повторной попытке');
+    }
 
     // Валидируем и очищаем каждое поле
     const supportWords: DayRatingSupportWords = { ...defaults };

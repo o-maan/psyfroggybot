@@ -3,9 +3,10 @@ import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
 import { sendToUser } from '../../utils/send-to-user';
+import type { Telegraf } from 'telegraf';
 
 // Обработчик кнопки "Сделал" для практики - новый формат
-export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
+export async function handlePractDone(ctx: BotContext, bot: Telegraf, scheduler: Scheduler) {
   try {
     const channelMessageId = parseInt(ctx.match![1]);
     const userId = ctx.from?.id;
@@ -55,7 +56,7 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
 
         await callbackSendWithRetry(
           ctx,
-          () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId, fallbackText, fallbackSendOptions),
+          () => sendToUser(bot, ctx.chat!.id, userId, fallbackText, fallbackSendOptions),
           'pract_done_fallback',
           { maxAttempts: 5, intervalMs: 3000 }
         );
@@ -110,7 +111,7 @@ export async function handlePractDone(ctx: BotContext, scheduler: Scheduler) {
 
     await callbackSendWithRetry(
       ctx,
-      () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId, ratingMessage, sendOptions),
+      () => sendToUser(bot, ctx.chat!.id, userId, ratingMessage, sendOptions),
       'pract_done_rating'
     );
 

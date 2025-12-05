@@ -3,9 +3,10 @@ import type { BotContext } from '../../types';
 import { getDayRatingSupportWord } from '../../utils/support-words';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
 import { sendToUser } from '../../utils/send-to-user';
+import type { Telegraf } from 'telegraf';
 
 // Обработчик кнопок оценки дня
-export async function handleDayRating(ctx: BotContext) {
+export async function handleDayRating(ctx: BotContext, bot: Telegraf) {
   try {
     const match = ctx.match![0].split('_');
     const channelMessageId = parseInt(match[2]);
@@ -51,7 +52,7 @@ export async function handleDayRating(ctx: BotContext) {
 
     await callbackSendWithRetry(
       ctx,
-      () => sendToUser(ctx.telegram as any, ctx.chat!.id, userId!, fullText, sendOptions),
+      () => sendToUser(bot, ctx.chat!.id, userId!, fullText, sendOptions),
       'day_rating_support',
       { maxAttempts: 5, intervalMs: 3000 }
     );

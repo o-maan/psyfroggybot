@@ -83,7 +83,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action('daily_skip_all', handleDailySkipAll);
   bot.action(/skip_neg_(\d+)/, ctx => handleSkipNeg(ctx, bot));
   bot.action('daily_skip_negative', handleDailySkipNegative);
-  bot.action(/pract_done_(\d+)/, ctx => handlePractDone(ctx, scheduler));
+  bot.action(/pract_done_(\d+)/, ctx => handlePractDone(ctx, bot, scheduler));
   bot.action(/practice_done_(\d+)/, handlePracticeDone);
   bot.action(/pract_delay_(\d+)/, handlePractDelay);
   bot.action(/practice_postpone_(\d+)/, ctx => handlePracticePostpone(ctx, scheduler));
@@ -136,7 +136,7 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Обработчик оценки дня
   bot.action(/day_rating_(\d+)_(\d+)/, async ctx => {
     const { handleDayRating } = await import('./day_rating');
-    await handleDayRating(ctx);
+    await handleDayRating(ctx, bot);
   });
 
   // ВАЖНО: SHORT JOY обработчики ДОЛЖНЫ быть ДО обычных Joy,
