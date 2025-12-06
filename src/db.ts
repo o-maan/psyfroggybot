@@ -207,7 +207,7 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset, city
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset, city, dm_enabled, channel_enabled
     FROM users
     WHERE chat_id = ?
   `);
@@ -224,7 +224,60 @@ export const getUserByChatId = (chatId: number) => {
     timezone: string;
     timezone_offset: number;
     city: string | null;
+    dm_enabled: number; // 🆕 Режим ЛС (0 или 1)
+    channel_enabled: number; // 🆕 Режим канала (0 или 1)
   } | undefined;
+};
+
+// 🆕 Функции для управления режимами работы бота (ЛС и канал)
+
+/**
+ * Включить режим личных сообщений для пользователя
+ */
+export const enableDMMode = (chatId: number) => {
+  const update = db.query('UPDATE users SET dm_enabled = 1 WHERE chat_id = ?');
+  update.run(chatId);
+  databaseLogger.info({ chatId }, '✅ Режим ЛС включен для пользователя');
+};
+
+/**
+ * Отключить режим личных сообщений для пользователя
+ */
+export const disableDMMode = (chatId: number) => {
+  const update = db.query('UPDATE users SET dm_enabled = 0 WHERE chat_id = ?');
+  update.run(chatId);
+  databaseLogger.info({ chatId }, '🚫 Режим ЛС отключен для пользователя');
+};
+
+/**
+ * Включить режим канала для пользователя (только для главных)
+ */
+export const enableChannelMode = (chatId: number) => {
+  const update = db.query('UPDATE users SET channel_enabled = 1 WHERE chat_id = ?');
+  update.run(chatId);
+  databaseLogger.info({ chatId }, '✅ Режим канала включен для пользователя');
+};
+
+/**
+ * Отключить режим канала для пользователя
+ */
+export const disableChannelMode = (chatId: number) => {
+  const update = db.query('UPDATE users SET channel_enabled = 0 WHERE chat_id = ?');
+  update.run(chatId);
+  databaseLogger.info({ chatId }, '🚫 Режим канала отключен для пользователя');
+};
+
+/**
+ * Получить статус режимов для пользователя
+ */
+export const getUserModes = (chatId: number): { dm_enabled: boolean; channel_enabled: boolean } | null => {
+  const query = db.query('SELECT dm_enabled, channel_enabled FROM users WHERE chat_id = ?');
+  const result = query.get(chatId) as { dm_enabled: number; channel_enabled: number } | undefined;
+  if (!result) return null;
+  return {
+    dm_enabled: Boolean(result.dm_enabled),
+    channel_enabled: Boolean(result.channel_enabled),
+  };
 };
 
 // Функции для работы с сообщениями
@@ -576,7 +629,7 @@ export const getChannelMessageIdByThreadId = (threadId: number) => {
 // Получить всех пользователей
 export const getAllUsers = () => {
   const getUsers = db.query(`
-    SELECT chat_id, username, name, gender, last_response_time, response_count, timezone, timezone_offset
+    SELECT chat_id, username, name, gender, last_response_time, response_count, timezone, timezone_offset, dm_enabled, channel_enabled
     FROM users
     ORDER BY chat_id
   `);
@@ -589,6 +642,8 @@ export const getAllUsers = () => {
     response_count: number;
     timezone: string;
     timezone_offset: number;
+    dm_enabled: number;
+    channel_enabled: number;
   }[];
 };
 
