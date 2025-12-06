@@ -7,7 +7,7 @@ import { db, disableDMMode, disableChannelMode, enableChannelMode, clearAllJoySo
 /**
  * Обработчик отмены сброса (общая кнопка для обоих режимов)
  */
-export async function handleResetCancel(ctx: BotContext): Promise<void> {
+export async function handleResetCancel(ctx: BotContext, bot: Telegraf): Promise<void> {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id || 0;
 
@@ -20,7 +20,7 @@ export async function handleResetCancel(ctx: BotContext): Promise<void> {
     // Удаляем сообщение с кнопками
     await ctx.deleteMessage();
 
-    await sendToUser(ctx.telegram as any, chatId, userId, 'Отменено ☑️');
+    await sendToUser(bot, chatId, userId, 'Отменено ☑️');
 
     await ctx.answerCbQuery();
     botLogger.info({ userId, chatId }, '✅ Сброс отменен');
@@ -42,7 +42,7 @@ export async function handleResetCancel(ctx: BotContext): Promise<void> {
 /**
  * Обработчик подтверждения сброса данных в ЛС
  */
-export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
+export async function handleResetConfirmDM(ctx: BotContext, bot: Telegraf): Promise<void> {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id || 0;
 
@@ -215,7 +215,7 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
     // Отправляем сообщение об успешном сбросе с кнопкой "Старт"
     botLogger.info({ chatId }, '🔄 Отправляем сообщение об успешном сбросе');
     await sendToUser(
-      ctx.telegram as any,
+      bot,
       chatId,
       null, // не адаптируем под пол - это системное сообщение
       'Ты можешь начать заново 😊',
@@ -247,7 +247,7 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
 /**
  * Обработчик подтверждения сброса данных в канале
  */
-export async function handleResetConfirmChannel(ctx: BotContext): Promise<void> {
+export async function handleResetConfirmChannel(ctx: BotContext, bot: Telegraf): Promise<void> {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id || 0;
 
@@ -309,7 +309,7 @@ export async function handleResetConfirmChannel(ctx: BotContext): Promise<void> 
 
     // Отправляем сообщение об успешном сбросе с кнопкой "Запустить рассылку в канал"
     await sendToUser(
-      ctx.telegram as any,
+      bot,
       chatId,
       userId,
       'Ты можешь начать заново',
@@ -340,7 +340,7 @@ export async function handleResetConfirmChannel(ctx: BotContext): Promise<void> 
 /**
  * Обработчик кнопки "Запустить рассылку в канал" после сброса
  */
-export async function handleStartChannelFromReset(ctx: BotContext): Promise<void> {
+export async function handleStartChannelFromReset(ctx: BotContext, bot: Telegraf): Promise<void> {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id || 0;
 
@@ -357,7 +357,7 @@ export async function handleStartChannelFromReset(ctx: BotContext): Promise<void
     await ctx.deleteMessage();
 
     await sendToUser(
-      ctx.telegram as any,
+      bot,
       chatId,
       userId,
       '📺 Режим канала включен!\n\n' +
@@ -386,8 +386,8 @@ export async function handleStartChannelFromReset(ctx: BotContext): Promise<void
  * Регистрация callback handlers для кнопок reset
  */
 export function registerResetCallbacks(bot: Telegraf) {
-  bot.action('reset_cancel', handleResetCancel);
-  bot.action('reset_confirm_dm', handleResetConfirmDM);
-  bot.action('reset_confirm_channel', handleResetConfirmChannel);
-  bot.action('start_channel_from_reset', handleStartChannelFromReset);
+  bot.action('reset_cancel', ctx => handleResetCancel(ctx, bot));
+  bot.action('reset_confirm_dm', ctx => handleResetConfirmDM(ctx, bot));
+  bot.action('reset_confirm_channel', ctx => handleResetConfirmChannel(ctx, bot));
+  bot.action('start_channel_from_reset', ctx => handleStartChannelFromReset(ctx, bot));
 }
