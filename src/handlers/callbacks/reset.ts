@@ -17,12 +17,8 @@ export async function handleResetCancel(ctx: BotContext, bot: Telegraf): Promise
   }
 
   try {
-    // Удаляем сообщение с кнопками
-    await ctx.deleteMessage();
-
-    await sendToUser(bot, chatId, userId, 'Отменено ☑️');
-
-    await ctx.answerCbQuery();
+    // Просто отвечаем на callback query с сообщением
+    await ctx.answerCbQuery('Отменено ☑️');
     botLogger.info({ userId, chatId }, '✅ Сброс отменен');
   } catch (error) {
     const err = error as Error;
