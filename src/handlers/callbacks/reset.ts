@@ -183,7 +183,8 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
       throw e;
     }
 
-    // 12. Сбрасываем имя, пол, запрос, таймзону, состояние онбординга
+    // 12. Сбрасываем имя, пол, запрос, состояние онбординга
+    // ВАЖНО: timezone и timezone_offset имеют NOT NULL constraint, устанавливаем значения по умолчанию
     try {
       botLogger.info({ chatId }, '🔄 Шаг 12: Сбрасываем профиль пользователя');
       db.query(`
@@ -191,8 +192,8 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
         SET name = NULL,
             gender = NULL,
             user_request = NULL,
-            timezone = NULL,
-            timezone_offset = NULL,
+            timezone = 'Europe/Moscow',
+            timezone_offset = 180,
             city = NULL,
             onboarding_state = NULL,
             last_response_time = NULL,
