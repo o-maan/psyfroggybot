@@ -22,6 +22,7 @@ import { handleContinueToPlushki } from './continue_to_plushki';
 import { handleEmotionsAdditionDone } from './emotions_addition_done';
 import { registerOnboardingStartCallback } from './onboarding';
 import { registerMeCallbacks } from './me';
+import { registerResetCallbacks } from './reset';
 import {
   handleDeepSituationChoice,
   handleDeepFiltersStart,
@@ -78,6 +79,9 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
 
   // Обработчики команды /me
   registerMeCallbacks(bot);
+
+  // Обработчики команды /reset и /reset_channel
+  registerResetCallbacks(bot);
 
   // Обработчики кнопок
   bot.action('daily_skip_all', handleDailySkipAll);

@@ -7,6 +7,7 @@ import { getUserTodayEvents } from '../../calendar';
 import { handleOnboardingMessage } from './onboarding';
 import { handleMeEditingMessage } from './me-editing';
 import { sendToUser } from '../../utils/send-to-user';
+import { isWaitingForUnpackSituation, clearUnpackWaiting } from '../../commands/user/unpack';
 
 // ВРЕМЕННО ОТКЛЮЧЕНО: автоматические ответы бота в комментариях
 // Код сохранен для возможного восстановления функциональности в будущем
@@ -50,6 +51,44 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
     if (isMeEditing) {
       // Сообщение обработано в рамках редактирования данных
       return;
+    }
+
+    // Проверяем, не ожидает ли пользователь ввода ситуации для /unpack
+    if (isWaitingForUnpackSituation(userId)) {
+      try {
+        // Импортируем DeepWorkHandler динамически
+        const { DeepWorkHandler } = await import('../../deep-work-handler');
+
+        // Сохраняем сообщение пользователя
+        saveMessage(chatId, message, new Date().toISOString(), userId);
+
+        // Создаем handler для обработки ситуации
+        const handler = new DeepWorkHandler(bot, chatId, userId);
+
+        // Запускаем логику разбора ситуации (вызываем analyzeUserResponse без channelMessageId)
+        // Используем chatId как channelMessageId для совместимости
+        await handler.analyzeUserResponse(chatId, message, userId);
+
+        // Очищаем статус ожидания
+        clearUnpackWaiting(userId);
+
+        botLogger.info({ userId, chatId }, '✅ Обработана ситуация для /unpack');
+        return;
+      } catch (error) {
+        const err = error as Error;
+        botLogger.error(
+          {
+            error: err.message,
+            stack: err.stack,
+            chatId,
+            userId,
+          },
+          'Ошибка при обработке ситуации /unpack'
+        );
+        await sendToUser(bot, chatId, userId, `❌ Ошибка: ${err.message}`);
+        clearUnpackWaiting(userId);
+        return;
+      }
     }
 
     // Получаем ID чата и канала

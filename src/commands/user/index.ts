@@ -13,6 +13,9 @@ import { registerDayCommand } from './day';
 import { registerJoyCommand } from './joy';
 import { registerHelpCommand } from './help';
 import { registerMeCommand } from './me';
+import { registerPsytasksCommand } from './psytasks';
+import { registerUnpackCommand } from './unpack';
+import { registerResetCommand } from './reset';
 
 export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calendarService: CalendarService) {
   registerPingCommand(bot);
@@ -27,4 +30,7 @@ export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calend
   registerJoyCommand(bot, scheduler);
   registerHelpCommand(bot);
   registerMeCommand(bot);
+  registerPsytasksCommand(bot); // 🆕 Задания от психолога
+  registerUnpackCommand(bot); // 🆕 Разобрать ситуацию
+  registerResetCommand(bot); // 🆕 Сброс данных ЛС
 }
