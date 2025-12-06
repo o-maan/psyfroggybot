@@ -264,8 +264,9 @@ export async function sendToUser(
     return await bot.telegram.sendMessage(chatId, text, options);
   }
 
-  // Получаем данные пользователя
-  const user = getUserByChatId(userId);
+  // Получаем данные пользователя по chatId (НЕ userId!)
+  // ВАЖНО: getUserByChatId принимает chatId, а не Telegram userId
+  const user = getUserByChatId(chatId);
   const userGender = (user?.gender || 'unknown') as 'male' | 'female' | 'unknown' | null;
   const userName = user?.name || null;
 
