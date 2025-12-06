@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import { sendToUser } from '../../utils/send-to-user';
-import { db, disableDMMode, disableChannelMode, clearAllJoySources, getUserByChatId } from '../../db';
+import { db, disableDMMode, disableChannelMode, enableChannelMode, clearAllJoySources, getUserByChatId } from '../../db';
 
 /**
  * Обработчик отмены сброса (общая кнопка для обоих режимов)
@@ -239,10 +239,56 @@ export async function handleResetConfirmChannel(ctx: BotContext): Promise<void> 
 }
 
 /**
+ * Обработчик кнопки "Запустить рассылку в канал" после сброса
+ */
+export async function handleStartChannelFromReset(ctx: BotContext): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const userId = ctx.from?.id || 0;
+
+  if (!chatId) {
+    botLogger.error({ userId }, 'ChatId не определен в handleStartChannelFromReset');
+    return;
+  }
+
+  try {
+    // Включаем режим канала
+    enableChannelMode(chatId);
+
+    // Удаляем сообщение с кнопкой
+    await ctx.deleteMessage();
+
+    await sendToUser(
+      ctx.telegram as any,
+      chatId,
+      userId,
+      '📺 Режим канала включен!\n\n' +
+        'Автоматическая рассылка в канал запущена.\n\n' +
+        'Чтобы остановить, используй команду /stop_channel'
+    );
+
+    await ctx.answerCbQuery();
+    botLogger.info({ userId, chatId }, '✅ Режим канала включен после сброса');
+  } catch (error) {
+    const err = error as Error;
+    botLogger.error(
+      {
+        error: err.message,
+        stack: err.stack,
+        chatId,
+        userId,
+      },
+      'Ошибка при включении режима канала после сброса'
+    );
+    await ctx.answerCbQuery('Произошла ошибка');
+  }
+}
+
+/**
  * Регистрация callback handlers для кнопок reset
  */
 export function registerResetCallbacks(bot: Telegraf) {
   bot.action('reset_cancel', handleResetCancel);
   bot.action('reset_confirm_dm', handleResetConfirmDM);
   bot.action('reset_confirm_channel', handleResetConfirmChannel);
+  bot.action('start_channel_from_reset', handleStartChannelFromReset);
 }
