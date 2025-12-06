@@ -46,8 +46,11 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id || 0;
 
+  botLogger.info({ chatId, userId, hasChat: !!ctx.chat }, '🔍 handleResetConfirmDM вызван');
+
   if (!chatId) {
     botLogger.error({ userId }, 'ChatId не определен в handleResetConfirmDM');
+    await ctx.answerCbQuery('Ошибка: ChatId не определен');
     return;
   }
 
@@ -55,49 +58,67 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
     botLogger.info({ userId, chatId }, '🔄 Начинается сброс данных ЛС');
 
     // Получаем внутренний ID пользователя из БД
+    botLogger.info({ chatId }, '🔍 Получаем пользователя из БД');
     const user = getUserByChatId(chatId);
+    botLogger.info({ chatId, user: user ? 'найден' : 'не найден', userId: user?.id }, '🔍 Результат getUserByChatId');
+
     if (!user) {
       botLogger.error({ chatId, userId }, 'Пользователь не найден в БД');
       await ctx.answerCbQuery('Пользователь не найден');
       return;
     }
     const internalUserId = user.id;
+    botLogger.info({ internalUserId, chatId }, '✅ Internal user ID получен');
 
     // Удаляем ВСЕ данные пользователя из БД
+    botLogger.info({ chatId, internalUserId }, '🗑️ Начинаем удаление данных');
+
     // 1. Отключаем режим ЛС
+    botLogger.info({ chatId }, '🔄 Шаг 1: Отключаем режим ЛС');
     disableDMMode(chatId);
 
     // 2. Удаляем все сообщения
+    botLogger.info({ internalUserId }, '🔄 Шаг 2: Удаляем сообщения');
     db.query('DELETE FROM messages WHERE user_id = ?').run(internalUserId);
 
     // 3. Удаляем интерактивные посты
+    botLogger.info({ internalUserId }, '🔄 Шаг 3: Удаляем интерактивные посты');
     db.query('DELETE FROM interactive_posts WHERE user_id = ?').run(internalUserId);
 
     // 4. Удаляем утренние посты
+    botLogger.info({ internalUserId }, '🔄 Шаг 4: Удаляем утренние посты');
     db.query('DELETE FROM morning_posts WHERE user_id = ?').run(internalUserId);
 
     // 5. Удаляем источники радости
+    botLogger.info({ chatId }, '🔄 Шаг 5: Удаляем источники радости');
     clearAllJoySources(chatId);
 
     // 6. Удаляем позитивные события
+    botLogger.info({ internalUserId }, '🔄 Шаг 6: Удаляем позитивные события');
     db.query('DELETE FROM positive_events WHERE user_id = ?').run(internalUserId);
 
     // 7. Удаляем негативные события
+    botLogger.info({ internalUserId }, '🔄 Шаг 7: Удаляем негативные события');
     db.query('DELETE FROM negative_events WHERE user_id = ?').run(internalUserId);
 
     // 8. Сбрасываем индексы сообщений
+    botLogger.info({ internalUserId }, '🔄 Шаг 8: Сбрасываем индексы сообщений');
     db.query('DELETE FROM morning_message_indexes WHERE user_id = ?').run(internalUserId);
 
     // 9. Сбрасываем checkpoint списка радости
+    botLogger.info({ internalUserId }, '🔄 Шаг 9: Сбрасываем checkpoint списка радости');
     db.query('DELETE FROM joy_list_checkpoints WHERE user_id = ?').run(internalUserId);
 
     // 10. Сбрасываем счетчик вечерних постов
+    botLogger.info({ chatId }, '🔄 Шаг 10: Сбрасываем счетчик вечерних постов');
     db.query('UPDATE users SET evening_posts_count = 0 WHERE chat_id = ?').run(chatId);
 
     // 11. Сбрасываем дату первого вечернего поста
+    botLogger.info({ chatId }, '🔄 Шаг 11: Сбрасываем дату первого вечернего поста');
     db.query('UPDATE users SET first_evening_post_date = NULL WHERE chat_id = ?').run(chatId);
 
     // 12. Сбрасываем имя, пол, запрос, таймзону, состояние онбординга
+    botLogger.info({ chatId }, '🔄 Шаг 12: Сбрасываем профиль пользователя');
     db.query(`
       UPDATE users
       SET name = NULL,
@@ -112,10 +133,14 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
       WHERE chat_id = ?
     `).run(chatId);
 
+    botLogger.info({ chatId }, '✅ Все данные удалены, отправляем подтверждение');
+
     // Удаляем сообщение с кнопками
+    botLogger.info({ chatId }, '🔄 Удаляем сообщение с кнопками');
     await ctx.deleteMessage();
 
     // Отправляем сообщение об успешном сбросе с кнопкой "Старт"
+    botLogger.info({ chatId }, '🔄 Отправляем сообщение об успешном сбросе');
     await sendToUser(
       ctx.telegram as any,
       chatId,
@@ -128,6 +153,7 @@ export async function handleResetConfirmDM(ctx: BotContext): Promise<void> {
       }
     );
 
+    botLogger.info({ chatId }, '🔄 Отвечаем на callback query');
     await ctx.answerCbQuery();
     botLogger.info({ userId, chatId }, '✅ Данные ЛС успешно сброшены');
   } catch (error) {
