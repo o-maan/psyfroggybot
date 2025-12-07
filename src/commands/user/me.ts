@@ -44,14 +44,7 @@ export function registerMeCommand(bot: Telegraf) {
 
       const request = user.user_request || 'Не указан';
 
-      const messageText = `Твои данные 📋
-
-Имя: ${name}
-Пол: ${gender}
-Тайм зона: ${timezoneText}
-Запрос: ${request}
-
-<b>Что хочешь изменить?</b>`;
+      const messageText = `Твои данные 📋\n\nИмя: ${name}\nПол: ${gender}\nТайм зона: ${timezoneText}\nЗапрос: ${request}\n\n<b>Что хочешь изменить?</b>`;
 
       // Отправляем сообщение с кнопками
       await sendToUser(
