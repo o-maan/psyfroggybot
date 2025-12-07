@@ -12,7 +12,18 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
 
     try {
       // Проверка на админа
-      if (!isAdmin(userId)) {
+      const adminCheck = isAdmin(userId);
+      botLogger.info(
+        {
+          userId,
+          isAdmin: adminCheck,
+          adminChatId: process.env.ADMIN_CHAT_ID,
+          mainUserId: process.env.MAIN_USER_ID,
+        },
+        '🔐 Проверка прав доступа для /fro'
+      );
+
+      if (!adminCheck) {
         await sendToUser(bot, chatId, userId, 'Эта команда доступна только администратору');
         return;
       }

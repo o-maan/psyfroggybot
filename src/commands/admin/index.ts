@@ -27,6 +27,7 @@ import { registerTestAngryCommand } from './test-angry';
 import { registerTestMorningCommand } from './test_morning';
 import { registerJoy1Command } from './joy_1';
 import { registerResetChannelCommand } from './reset_channel';
+import { registerFroCommand } from './fro';
 
 // Функция для регистрации всех административных команд
 export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
@@ -55,4 +56,5 @@ export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
   registerTestMorningCommand(bot, scheduler);
   registerJoy1Command(bot, scheduler);
   registerResetChannelCommand(bot); // 🆕 Сброс данных канала (только админы)
+  registerFroCommand(bot, scheduler); // 🆕 Ручной вызов вечернего поста
 }
