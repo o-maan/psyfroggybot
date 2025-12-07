@@ -1115,11 +1115,6 @@ export class Scheduler {
 
     let promptBase = await readFile(promptPath, 'utf-8');
 
-    // Добавляем имя пользователя в промпт
-    // Если имя не установлено, используем дефолтное значение
-    const userNameToUse = userName || 'друг';
-    promptBase = promptBase.replace(/\{userName\}/g, userNameToUse);
-
     // Добавляем пол пользователя в промпт
     const userGenderToUse = userGender || 'unknown';
     promptBase = promptBase.replace(/\{userGender\}/g, userGenderToUse);
@@ -1177,6 +1172,15 @@ export class Scheduler {
         json = fixAlternativeJsonKeys(json, { chatId, source: 'flight' });
 
         if (json && typeof json === 'object' && json.encouragement && json.flight && json.flight.additional_task) {
+          // Добавляем имя пользователя к encouragement для ЧТ(4) и СБ(6)
+          if (userName && (dayOfWeek === 4 || dayOfWeek === 6)) {
+            json.encouragement.text = `${userName}, ${json.encouragement.text}`;
+            schedulerLogger.info(
+              { chatId, userName, dayOfWeek },
+              '✨ Добавлено имя пользователя к encouragement (flight режим, ЧТ/СБ)'
+            );
+          }
+
           // Только encouragement и flight
           schedulerLogger.info(
             {
@@ -1198,6 +1202,15 @@ export class Scheduler {
       try {
         json = JSON.parse(jsonText);
         if (json && json.encouragement && json.encouragement.text) {
+          // Добавляем имя пользователя к encouragement для ЧТ(4) и СБ(6)
+          if (userName && (dayOfWeek === 4 || dayOfWeek === 6)) {
+            json.encouragement.text = `${userName}, ${json.encouragement.text}`;
+            schedulerLogger.info(
+              { chatId, userName, dayOfWeek },
+              '✨ Добавлено имя пользователя к encouragement (flight fallback, ЧТ/СБ)'
+            );
+          }
+
           schedulerLogger.info(
             {
               chatId,
@@ -1324,6 +1337,15 @@ export class Scheduler {
             `Invalid structure: missing fields - encouragement: ${!!json?.encouragement}, negative_part: ${!!json?.negative_part}, positive_part: ${!!json?.positive_part}, feels_and_emotions: ${
               'feels_and_emotions' in (json || {})
             }`
+          );
+        }
+
+        // Добавляем имя пользователя к encouragement для ЧТ(4) и СБ(6)
+        if (userName && (dayOfWeek === 4 || dayOfWeek === 6)) {
+          json.encouragement.text = `${userName}, ${json.encouragement.text}`;
+          schedulerLogger.info(
+            { chatId, userName, dayOfWeek },
+            '✨ Добавлено имя пользователя к encouragement (обычный режим, ЧТ/СБ)'
           );
         }
       } catch (parseError) {
@@ -1481,10 +1503,6 @@ export class Scheduler {
     );
 
     let promptBase = await readFile(promptPath, 'utf-8');
-
-    // Добавляем имя пользователя в промпт
-    const userNameToUse = userName || 'друг';
-    promptBase = promptBase.replace(/\{userName\}/g, userNameToUse);
 
     // Добавляем пол пользователя в промпт
     const userGenderToUse = userGender || 'unknown';
@@ -1689,6 +1707,15 @@ ${weekendPromptContent}`;
         },
         '✅ JSON успешно распарсен, encouragement валиден'
       );
+
+      // Добавляем имя пользователя к encouragement для ЧТ(4) и СБ(6)
+      if (userName && (dayOfWeek === 4 || dayOfWeek === 6)) {
+        json.encouragement.text = `${userName}, ${json.encouragement.text}`;
+        schedulerLogger.info(
+          { chatId, userName, dayOfWeek },
+          '✨ Добавлено имя пользователя к encouragement (интерактивный режим, ЧТ/СБ)'
+        );
+      }
     } catch (error) {
       // Подробное логирование ошибки
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -2775,14 +2802,15 @@ ${weekendPromptContent}`;
       return;
     }
 
-    // Отправляем ОДИН пост в канал (используем ID админа для генерации)
+    // Отправляем ОДИН пост в канал (используем ID целевого пользователя для генерации)
+    const TARGET_USER_ID = this.getTargetUserId();
+
     try {
-      await this.sendInteractiveDailyMessage(adminChatId);
+      await this.sendInteractiveDailyMessage(TARGET_USER_ID);
       successCount = 1;
-      schedulerLogger.info('messageGenerated', adminChatId, 0, 0); // Логируем успешную отправку
+      schedulerLogger.info('messageGenerated', TARGET_USER_ID, 0, 0); // Логируем успешную отправку
 
       // Устанавливаем напоминание только для целевого пользователя
-      const TARGET_USER_ID = this.getTargetUserId();
       const sentTime = new Date().toISOString();
 
       // Проверяем, есть ли целевой пользователь в списке
@@ -2805,7 +2833,6 @@ ${weekendPromptContent}`;
     }
 
     // Отправляем отчет админу
-    const TARGET_USER_ID = this.getMainUserId();
     const reportMessage = `📊 Отчет о ежедневной отправке:
 ✅ Пост отправлен: ${successCount === 1 ? 'Да' : 'Нет'}
 ❌ Ошибок: ${errorCount}

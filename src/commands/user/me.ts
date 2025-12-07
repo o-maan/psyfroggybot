@@ -44,16 +44,15 @@ export function registerMeCommand(bot: Telegraf) {
 
       const request = user.user_request || 'Не указан';
 
-      const messageText = `Твои данные 📋\n\nИмя: ${name}\nПол: ${gender}\nТайм зона: ${timezoneText}\nЗапрос: ${request}\n\n<b>Что хочешь изменить?</b>`;
+      const messageText = `Твои данные 📋\n\nИмя: ${name}\nПол: ${gender}\nТайм зона: ${timezoneText}\nЗапрос: ${request}\n\n*Что хочешь изменить?*`;
 
-      // Отправляем сообщение с кнопками
-      await sendToUser(
-        bot,
+      // Отправляем НАПРЯМУЮ через bot.telegram.sendMessage (БЕЗ gender-адаптации!)
+      // Текст универсальный и подходит для любого рода
+      await bot.telegram.sendMessage(
         chatId,
-        userId,
         messageText,
         {
-          parse_mode: 'HTML',
+          parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('Изменить имя ✏️', 'me_edit_name')],
             [Markup.button.callback('Изменить пол 👤', 'me_edit_gender')],
