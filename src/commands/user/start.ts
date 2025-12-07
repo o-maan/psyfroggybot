@@ -47,10 +47,8 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
 
     if (user && user.name) {
       // Пользователь уже зарегистрирован и имеет имя
-      await sendToUser(
-        bot,
+      await bot.telegram.sendMessage(
         chatId,
-        userId,
         `Привет, ${user.name}! 🐸\n\nРад снова тебя видеть! Продолжаем работать вместе 💚`
       );
       return;
