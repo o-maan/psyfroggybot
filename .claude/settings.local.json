@@ -27,7 +27,9 @@
       "Bash(timeout 5 bun:*)",
       "Bash(for line in 3093 3284 3346 8642)",
       "Bash(do echo \"=== Line $line ===\")",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(cp:*)",
+      "Bash(awk:*)"
     ],
     "deny": [],
     "ask": []

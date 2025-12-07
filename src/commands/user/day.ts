@@ -2,19 +2,19 @@ import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
 import { sendToUser } from '../../utils/send-to-user';
+import { isAdmin } from '../../utils/admin-check';
 
 // Команда /day - тестовая команда для админа (аналог /test_morning)
 export function registerDayCommand(bot: Telegraf, scheduler: Scheduler) {
   bot.command('day', async ctx => {
-    const userId = ctx.from?.id;
+    const userId = ctx.from?.id || 0;
     const chatId = ctx.chat.id;
 
     botLogger.info({ userId, chatId }, 'Получена команда /day');
 
     try {
       // Проверяем что это админ
-      const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-      if (userId !== adminChatId) {
+      if (!isAdmin(userId)) {
         // Для не-админов передаем userId для адаптации пола
         await sendToUser(bot, chatId, userId, 'Эта команда доступна только администратору');
         return;

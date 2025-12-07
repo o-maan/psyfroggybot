@@ -2,19 +2,26 @@ import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
 import { sendToUser } from '../../utils/send-to-user';
+import { isAdmin } from '../../utils/admin-check';
 
-// Обработка команды /fro
+// Обработка команды /fro (только для админа)
 export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
   bot.command('fro', async ctx => {
     const chatId = ctx.chat.id;
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+    const userId = ctx.from?.id || 0;
 
     try {
+      // Проверка на админа
+      if (!isAdmin(userId)) {
+        await sendToUser(bot, chatId, userId, 'Эта команда доступна только администратору');
+        return;
+      }
+
       // Отладочная информация
       botLogger.info(
         {
           chatId,
-          adminChatId,
+          userId,
           isTestBot: scheduler.isTestBot(),
           channelId: scheduler.CHANNEL_ID,
           targetUserId: scheduler.getTargetUserId(),
@@ -24,7 +31,7 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
 
       // Сначала отвечаем пользователю
       botLogger.info('📤 Отправляем первый ответ пользователю...');
-      await sendToUser(bot, chatId, ctx.from?.id, '🐸 Отправляю сообщение...');
+      await sendToUser(bot, chatId, null, '🐸 Отправляю сообщение...');
       botLogger.info('✅ Первый ответ отправлен');
 
       // Используем интерактивный метод с флагом ручной команды
@@ -42,7 +49,7 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
       // Для тестового бота - отправляем уведомление о том, что проверка будет запущена
       if (scheduler.isTestBot()) {
         botLogger.info('📤 Отправляем уведомление о тестовом режиме...');
-        await sendToUser(bot, chatId, ctx.from?.id, '🤖 Тестовый режим: проверка ответов запланирована через заданное время');
+        await sendToUser(bot, chatId, null, '🤖 Тестовый режим: проверка ответов запланирована через заданное время');
         botLogger.info('✅ Уведомление о тестовом режиме отправлено');
       }
 
@@ -58,7 +65,7 @@ export function registerFroCommand(bot: Telegraf, scheduler: Scheduler) {
         },
         'Ошибка при выполнении команды /fro'
       );
-      await sendToUser(bot, chatId, ctx.from?.id, `❌ Ошибка: ${err.message}`);
+      await sendToUser(bot, chatId, null, `❌ Ошибка: ${err.message}`);
     }
   });
 }

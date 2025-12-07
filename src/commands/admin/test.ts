@@ -2,20 +2,27 @@ import { Telegraf } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
 import { sendToUser } from '../../utils/send-to-user';
+import { isAdmin } from '../../utils/admin-check';
 
-// Обработка команды /test
+// Обработка команды /test (только для админа)
 export function registerTestCommand(bot: Telegraf, scheduler: Scheduler) {
   bot.command('test', async ctx => {
     const chatId = ctx.chat.id;
-    const fromId = ctx.from?.id;
-    botLogger.info({ userId: fromId || 0, chatId }, `📱 Команда /test от пользователя ${fromId}`);
+    const userId = ctx.from?.id || 0;
+    botLogger.info({ userId, chatId }, `📱 Команда /test от пользователя ${userId}`);
+
+    // Проверка на админа
+    if (!isAdmin(userId)) {
+      await sendToUser(bot, chatId, userId, 'Эта команда доступна только администратору');
+      return;
+    }
 
     // Генерируем сообщение и проверяем его длину
-    const message = await scheduler.generateScheduledMessage(fromId);
+    const message = await scheduler.generateScheduledMessage(userId);
     await sendToUser(
       bot,
       chatId,
-      fromId,
+      null,
       `📊 <b>ТЕСТ ГЕНЕРАЦИИ СООБЩЕНИЯ</b>\n\n` +
         `📏 Длина: ${message.length} символов\n` +
         `${
@@ -27,7 +34,7 @@ export function registerTestCommand(bot: Telegraf, scheduler: Scheduler) {
 
     // Отправляем в канал только если не превышен лимит
     if (message.length <= 1024) {
-      await scheduler.sendDailyMessage(fromId);
+      await scheduler.sendDailyMessage(userId);
     }
   });
 }

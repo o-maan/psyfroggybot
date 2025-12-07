@@ -1,7 +1,7 @@
 import { Telegraf, Markup } from 'telegraf';
 import { Scheduler } from '../../scheduler';
 import { botLogger } from '../../logger';
-import { addUser, updateUserName, updateUserGender, getUserByChatId, updateOnboardingState } from '../../db';
+import { addUser, updateUserName, updateUserGender, getUserByChatId, updateOnboardingState, enableDMMode } from '../../db';
 import { InputFile } from 'telegraf/types';
 import path from 'path';
 import { sendToUser } from '../../utils/send-to-user';
@@ -16,6 +16,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
 
     // Добавляем пользователя в планировщик для рассылки
     scheduler.addUser(chatId);
+
+    // 🆕 Включаем режим личных сообщений (ЛС) для пользователя
+    enableDMMode(chatId);
+    botLogger.info({ userId, chatId }, '✅ Режим ЛС включен для пользователя');
 
     // Проверяем, если это Алекс (ID: 5153477378), автоматически устанавливаем имя и пол
     if (userId === 5153477378) {
