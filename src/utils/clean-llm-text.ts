@@ -82,10 +82,10 @@ export function cleanLLMText(text: string): string {
   
   // Убираем markdown ссылки [text](url) -> text
   cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-  
-  // Убираем HTML теги
-  cleaned = cleaned.replace(/<[^>]+>/g, '');
-  
+
+  // НЕ удаляем HTML теги! Они используются в Telegram для форматирования (<b>, <i>, <code>, <pre> и т.д.)
+  // Telegram поддерживает HTML форматирование, и мы должны его сохранить
+
   // Удаляем технические фразы LLM
   cleaned = cleaned.replace(/^(Ответ:|Answer:|Результат:|Result:|Output:|Вывод:|Response:)\s*/gmi, '');
   cleaned = cleaned.replace(/^(Вот|Here is|Here's|Это)\s+(ответ|текст|результат|answer|text|result):?\s*/gmi, '');
