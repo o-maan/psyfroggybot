@@ -1941,6 +1941,11 @@ ${weekendPromptContent}`;
     // }
 
     try {
+      // ✅ Проверяем режимы работы пользователя (dm_enabled, channel_enabled)
+      const user = getUserByChatId(chatId);
+      const dmEnabled = user?.dm_enabled ?? false;
+      const channelEnabled = user?.channel_enabled ?? false;
+
       schedulerLogger.debug(
         {
           chatId,
@@ -1949,9 +1954,17 @@ ${weekendPromptContent}`;
           chatGroupId: this.getChatId(),
           isManualCommand,
           skipDayCheck,
+          dmEnabled,
+          channelEnabled,
         },
         'Начало отправки интерактивного сообщения'
       );
+
+      // Если оба режима выключены - ничего не отправляем
+      if (!dmEnabled && !channelEnabled) {
+        schedulerLogger.warn({ chatId }, '⏭️ Оба режима (DM и канал) выключены для пользователя, пропускаем отправку');
+        return;
+      }
 
       // Проверка на воскресенье - показываем список радости
       if (!skipDayCheck) {
@@ -2092,13 +2105,17 @@ ${weekendPromptContent}`;
 
       // Функция отправки для использования в sendWithRetry
       const sendPhotoFunction = async () => {
+        // ✅ Определяем куда отправлять: в канал или в ЛС
+        const targetChatId = channelEnabled ? this.CHANNEL_ID : chatId;
+        const targetCaption = channelEnabled ? captionWithComment : firstPart; // В ЛС без "Переходи в комментарии"
+
         if (imageBuffer) {
           // Отправляем сгенерированное изображение
           return await this.bot.telegram.sendPhoto(
-            this.CHANNEL_ID,
+            targetChatId,
             { source: imageBuffer },
             {
-              caption: captionWithComment,
+              caption: targetCaption,
               parse_mode: 'HTML',
             }
           );
@@ -2115,10 +2132,10 @@ ${weekendPromptContent}`;
 
           const imageFile = await readFile(imagePath);
           return await this.bot.telegram.sendPhoto(
-            this.CHANNEL_ID,
+            targetChatId,
             { source: imageFile },
             {
-              caption: captionWithComment,
+              caption: targetCaption,
               parse_mode: 'HTML',
             }
           );
@@ -2230,9 +2247,32 @@ ${weekendPromptContent}`;
           sentAt: postSentTime.toISOString(),
           timestamp: postSentTime.getTime(),
           hasGeneratedImage: !!imageBuffer,
+          channelEnabled,
+          dmEnabled,
         },
-        'Основной пост отправлен в канал'
+        channelEnabled ? 'Основной пост отправлен в канал' : 'Основной пост отправлен в ЛС'
       );
+
+      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled) {
+        try {
+          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (оба режима включены)');
+
+          // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
+          await this.bot.telegram.sendPhoto(
+            chatId,
+            imageBuffer ? { source: imageBuffer } : { source: await readFile(this.getNextImage(chatId)) },
+            {
+              caption: firstPart, // Без приглашения в комментарии
+              parse_mode: 'HTML',
+            }
+          );
+
+          schedulerLogger.info({ chatId }, '✅ Копия успешно отправлена в ЛС');
+        } catch (dmError) {
+          schedulerLogger.error({ error: dmError, chatId }, '❌ Ошибка отправки копии в ЛС');
+        }
+      }
 
       // Асинхронно генерируем и обновляем слова поддержки в БД (не блокируем)
       const messageId = sentMessage.message_id;
@@ -3500,39 +3540,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     }
   }
 
-  // Проверка ответа целевого пользователя и отправка "злого" поста
-  // ВАЖНО: Проверяется целевой пользователь (зависит от isTestBot):
-  //   - Тестовый бот: проверяет TEST_USER_ID (из env)
-  //   - Основной бот: проверяет MAIN_USER_ID (из env, fallback: 5153477378)
-  // Если пользователь не ответил на задание - отправляется ОДИН злой пост в его канал
-  // Эта проверка запускается через cron job в 8:00 по локальной timezone бота
-  private async checkUsersResponses() {
-    // Всегда проверяем целевого пользователя из конфигурации (зависит от isTestBot)
-    const TARGET_USER_ID = this.getTargetUserId();
-
-    schedulerLogger.info(
-      {
-        targetUserId: TARGET_USER_ID,
-      },
-      `🔍 Проверка ответов пользователя ${TARGET_USER_ID}`
-    );
-
-    const now = new Date();
+  // ✅ Новый метод: проверка ОДНОГО пользователя (вызывается для каждого пользователя отдельно)
+  private async checkUserResponse(userId: number) {
+    schedulerLogger.info({ userId }, `🔍 Проверка ответов пользователя ${userId}`);
 
     // Получаем время последней рассылки для проверки
     const lastDailyRun = await this.getLastDailyRunTime();
 
     let hasResponded = false;
     let sentPost = false;
-    let error: string | null = null;
 
-    // Проверяем только целевого пользователя
     try {
-      const stats = getUserResponseStats(TARGET_USER_ID);
+      const stats = getUserResponseStats(userId);
 
       schedulerLogger.info(
         {
-          userId: TARGET_USER_ID,
+          userId,
           stats,
           lastDailyRun: lastDailyRun?.toISOString(),
           lastResponseTime: stats?.last_response_time,
@@ -3549,51 +3572,29 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       );
 
       if (!hasResponded) {
-        schedulerLogger.info(
-          { userId: TARGET_USER_ID },
-          `Пользователь ${TARGET_USER_ID} не ответил на вчерашнее задание`
-        );
+        schedulerLogger.info({ userId }, `Пользователь ${userId} не ответил на вчерашнее задание`);
 
         // Отправляем "злой" пост
         try {
-          await this.sendAngryPost(TARGET_USER_ID);
+          await this.sendAngryPost(userId);
           sentPost = true;
         } catch (err) {
-          error = `Ошибка отправки злого поста: ${err}`;
-          schedulerLogger.error({ error: err, userId: TARGET_USER_ID }, 'Ошибка отправки злого поста');
+          schedulerLogger.error({ error: err, userId }, 'Ошибка отправки злого поста');
+          throw err;
         }
       } else {
-        schedulerLogger.info({ userId: TARGET_USER_ID }, `Пользователь ${TARGET_USER_ID} ответил на вчерашнее задание`);
+        schedulerLogger.info({ userId }, `Пользователь ${userId} ответил на вчерашнее задание`);
       }
     } catch (err) {
-      error = `Ошибка проверки пользователя: ${err}`;
-      schedulerLogger.error({ error: err, userId: TARGET_USER_ID }, 'Ошибка проверки ответа пользователя');
+      schedulerLogger.error({ error: err, userId }, 'Ошибка проверки ответа пользователя');
+      throw err;
     }
+  }
 
-    // Отправляем отчет админу
-    const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-    if (adminChatId) {
-      const reportMessage =
-        `📊 <b>Отчет утренней проверки:</b>\n\n` +
-        `👤 Проверен пользователь: <code>${TARGET_USER_ID}</code>\n` +
-        `${hasResponded ? '✅ Ответил на вчерашнее задание' : '😴 НЕ ответил на вчерашнее задание'}\n` +
-        `${sentPost ? '😠 Злой пост отправлен в канал' : ''}\n` +
-        `${error ? `\n❌ Ошибка: ${error}` : ''}`;
-
-      try {
-        await this.sendWithRetry(
-          () => this.bot.telegram.sendMessage(adminChatId, reportMessage, { parse_mode: 'HTML' }),
-          {
-            chatId: adminChatId,
-            messageType: 'admin_morning_report',
-            maxAttempts: 5,
-            intervalMs: 3000,
-          }
-        );
-      } catch (adminError) {
-        schedulerLogger.error(adminError as Error, 'Ошибка отправки отчета админу');
-      }
-    }
+  // Старый метод для обратной совместимости (для команд и тестов)
+  private async checkUsersResponses() {
+    const TARGET_USER_ID = this.getTargetUserId();
+    await this.checkUserResponse(TARGET_USER_ID);
   }
 
   // Извлечение конкретной секции промпта из файла
@@ -3759,6 +3760,17 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
   // Отправка "злого" поста для пользователя, который не ответил
   private async sendAngryPost(userId: number) {
+    // ✅ Проверяем режимы работы пользователя
+    const user = getUserByChatId(userId);
+    const dmEnabled = user?.dm_enabled ?? false;
+    const channelEnabled = user?.channel_enabled ?? false;
+
+    // Если оба режима выключены - ничего не отправляем
+    if (!dmEnabled && !channelEnabled) {
+      schedulerLogger.warn({ userId }, '⏭️ Оба режима выключены, пропускаем отправку злого поста');
+      return;
+    }
+
     // ВРЕМЕННО: разрешаем отправку злого поста для тестового бота
     // if (this.isTestBot()) {
     //   schedulerLogger.warn('⚠️ Отправка злого поста отключена для тестового бота');
@@ -4036,11 +4048,14 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         imagePath = this.angryImageFiles[Math.floor(Math.random() * this.angryImageFiles.length)];
       }
 
-      // Отправляем в канал с повторными попытками
+      // ✅ Определяем куда отправлять: в канал или в ЛС
+      const targetChatId = channelEnabled ? this.CHANNEL_ID : userId;
+
+      // Отправляем с повторными попытками
       const sentMessage = await this.sendWithRetry(
         async () => {
           return await this.bot.telegram.sendPhoto(
-            this.CHANNEL_ID,
+            targetChatId,
             { source: imagePath },
             {
               caption: finalText,
@@ -4056,7 +4071,30 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
       );
 
-      schedulerLogger.info({ userId, messageId: sentMessage.message_id }, '😠 Злой пост отправлен в канал');
+      schedulerLogger.info(
+        { userId, messageId: sentMessage.message_id, targetChatId, channelEnabled, dmEnabled },
+        channelEnabled ? '😠 Злой пост отправлен в канал' : '😠 Злой пост отправлен в ЛС'
+      );
+
+      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled) {
+        try {
+          schedulerLogger.info({ userId }, '📬 Отправка дополнительной копии злого поста в ЛС (оба режима включены)');
+
+          await this.bot.telegram.sendPhoto(
+            userId,
+            { source: imagePath },
+            {
+              caption: finalText,
+              parse_mode: 'HTML',
+            }
+          );
+
+          schedulerLogger.info({ userId }, '✅ Копия злого поста успешно отправлена в ЛС');
+        } catch (dmError) {
+          schedulerLogger.error({ error: dmError, userId }, '❌ Ошибка отправки копии злого поста в ЛС');
+        }
+      }
 
       // Сохраняем информацию о злом посте в БД
       const { saveAngryPost } = await import('./db');
@@ -4089,7 +4127,18 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
   // Отправка утреннего поста в 9:00
   async sendMorningMessage(chatId: number, isManual: boolean = false) {
     try {
-      schedulerLogger.debug({ chatId, isManual, isTestBot: this.isTestBot() }, 'Начало отправки утреннего сообщения');
+      // ✅ Проверяем режимы работы пользователя (dm_enabled, channel_enabled)
+      const user = getUserByChatId(chatId);
+      const dmEnabled = user?.dm_enabled ?? false;
+      const channelEnabled = user?.channel_enabled ?? false;
+
+      schedulerLogger.debug({ chatId, isManual, isTestBot: this.isTestBot(), dmEnabled, channelEnabled }, 'Начало отправки утреннего сообщения');
+
+      // Если оба режима выключены - ничего не отправляем
+      if (!dmEnabled && !channelEnabled) {
+        schedulerLogger.warn({ chatId }, '⏭️ Оба режима (DM и канал) выключены для пользователя, пропускаем отправку');
+        return;
+      }
 
       // ✅ ИЗМЕНЕНО: разрешаем автоматическую рассылку для ВСЕХ ботов (включая тестовый)
       // Это позволит тестировать автоматическую рассылку локально
@@ -4099,10 +4148,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // }
 
       // Показываем, что бот "пишет"
-      await this.bot.telegram.sendChatAction(this.CHANNEL_ID, 'upload_photo');
+      const targetChatId = channelEnabled ? this.CHANNEL_ID : chatId;
+      await this.bot.telegram.sendChatAction(targetChatId, 'upload_photo');
 
       // Определяем пользователя
-      const userId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+      const userId = chatId; // Используем переданный chatId вместо getTestUserId/getMainUserId
 
       // ПРОВЕРЯЕМ: нужно ли показать вводное сообщение (только первый раз)
       const { shouldShowMorningIntro, getMorningIntro, buildMorningPost } = await import('./morning-messages');
@@ -4193,23 +4243,29 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем основной пост БЕЗ кнопок
+      // ✅ Определяем финальный текст: в ЛС без "Переходи в комментарии"
+      const finalCaption = channelEnabled ? captionWithComment : captionWithComment.replace('\n\nПереходи в комментарии и продолжим 😉', '');
+
       let sentMessage;
       if (imageBuffer) {
         sentMessage = await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
+          targetChatId,
           { source: imageBuffer },
           {
-            caption: captionWithComment,
+            caption: finalCaption,
             parse_mode: 'HTML',
           }
         );
         schedulerLogger.info(
           {
             chatId,
-            messageLength: captionWithComment.length,
+            targetChatId,
+            messageLength: finalCaption.length,
             imageSize: imageBuffer.length,
+            channelEnabled,
+            dmEnabled,
           },
-          'Утреннее сообщение с сгенерированным изображением отправлено'
+          channelEnabled ? 'Утреннее сообщение отправлено в канал' : 'Утреннее сообщение отправлено в ЛС'
         );
       } else {
         // Fallback: используем картинки для утренних постов
@@ -4240,24 +4296,48 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         }
 
         sentMessage = await this.bot.telegram.sendPhoto(
-          this.CHANNEL_ID,
+          targetChatId,
           { source: imagePath },
           {
-            caption: captionWithComment,
+            caption: finalCaption,
             parse_mode: 'HTML',
           }
         );
         schedulerLogger.info(
           {
             chatId,
-            messageLength: captionWithComment.length,
+            targetChatId,
+            messageLength: finalCaption.length,
             imagePath,
+            channelEnabled,
+            dmEnabled,
           },
-          'Утреннее сообщение с изображением отправлено (fallback)'
+          channelEnabled ? 'Утреннее сообщение отправлено в канал (fallback)' : 'Утреннее сообщение отправлено в ЛС (fallback)'
         );
       }
 
       const messageId = sentMessage.message_id;
+
+      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled) {
+        try {
+          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии утреннего поста в ЛС (оба режима включены)');
+
+          // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
+          await this.bot.telegram.sendPhoto(
+            chatId,
+            imageBuffer ? { source: imageBuffer } : { source: await readFile(this.getNextMorningImage()) },
+            {
+              caption: finalCaption.replace('\n\nПереходи в комментарии и продолжим 😉', ''), // Удаляем приглашение в комментарии
+              parse_mode: 'HTML',
+            }
+          );
+
+          schedulerLogger.info({ chatId }, '✅ Копия утреннего поста успешно отправлена в ЛС');
+        } catch (dmError) {
+          schedulerLogger.error({ error: dmError, chatId }, '❌ Ошибка отправки копии утреннего поста в ЛС');
+        }
+      }
 
       // Сохраняем пост в БД как утренний (с типом morning)
       const { saveMorningPost } = await import('./db');
@@ -7776,7 +7856,18 @@ ${allDayUserMessages}
    */
   async sendJoyPostWithWeeklySummary(userId: number, skipInteractionCheck: boolean = false) {
     try {
-      schedulerLogger.info({ userId, skipInteractionCheck }, '🌟 Начало воскресной логики со списком радости');
+      // ✅ Проверяем режимы работы пользователя
+      const user = getUserByChatId(userId);
+      const dmEnabled = user?.dm_enabled ?? false;
+      const channelEnabled = user?.channel_enabled ?? false;
+
+      schedulerLogger.info({ userId, skipInteractionCheck, dmEnabled, channelEnabled }, '🌟 Начало воскресной логики со списком радости');
+
+      // Если оба режима выключены - ничего не отправляем
+      if (!dmEnabled && !channelEnabled) {
+        schedulerLogger.warn({ userId }, '⏭️ Оба режима выключены, пропускаем отправку JOY поста');
+        return;
+      }
 
       // 1. Проверяем достаточно ли вечерних постов для показа Joy (минимум 3)
       if (!skipInteractionCheck) {
@@ -7927,13 +8018,27 @@ ${allDayUserMessages}
       }
 
       const imageBuffer = await readFile(fallbackImagePath);
+
+      // Определяем куда отправлять: канал или ЛС
+      const targetChatId = channelEnabled ? this.CHANNEL_ID : userId;
+
       const channelMessage = await this.bot.telegram.sendPhoto(
-        this.CHANNEL_ID,
+        targetChatId,
         { source: imageBuffer },
         { caption: postText, parse_mode: 'HTML' }
       );
 
       const channelMessageId = channelMessage.message_id;
+
+      // Если включены оба режима - отправляем копию в ЛС
+      if (channelEnabled && dmEnabled) {
+        schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС');
+        await this.bot.telegram.sendPhoto(
+          userId,
+          { source: imageBuffer },
+          { caption: postText, parse_mode: 'HTML' }
+        );
+      }
 
       // 6. Обновляем callback_data с реальным channelMessageId
       if (isFirstTime) {
@@ -7945,24 +8050,36 @@ ${allDayUserMessages}
         commentKeyboard.inline_keyboard[2][0].callback_data = `joy_sunday_skip_${channelMessageId}`;
       }
 
-      // 7. Сохраняем сессию /joy
-      const commentsChatId = this.getChatId();
-      if (!commentsChatId) {
-        throw new Error('CHAT_ID не настроен в переменных окружения');
+      // 7. Определяем куда отправлять интерактивные сообщения
+      let targetInteractionChatId: number;
+
+      if (channelEnabled) {
+        // Для канала - отправляем в группу комментариев
+        const commentsChatId = this.getChatId();
+        if (!commentsChatId) {
+          throw new Error('CHAT_ID не настроен в переменных окружения');
+        }
+        targetInteractionChatId = commentsChatId;
+      } else {
+        // Для ЛС - отправляем в личку пользователя
+        targetInteractionChatId = userId;
       }
 
       this.joySessions.set(userId, {
         channelMessageId,
         userId,
-        chatId: commentsChatId,
+        chatId: targetInteractionChatId,
       });
 
-      // 8. СРАЗУ отправляем в комментарии (используя асинхронную систему)
-      schedulerLogger.info({ userId, channelMessageId, isFirstTime }, '📨 Отправляем сообщение в комментарии');
+      // 8. СРАЗУ отправляем интерактивное сообщение (в комментарии или ЛС)
+      schedulerLogger.info(
+        { userId, channelMessageId, isFirstTime, targetChatId: targetInteractionChatId },
+        channelEnabled ? '📨 Отправляем сообщение в комментарии' : '📨 Отправляем сообщение в ЛС'
+      );
 
       if (isFirstTime) {
         // ВВОДНЫЙ СЦЕНАРИЙ - одно сообщение
-        this.sendJoyMessageAsync(channelMessageId, commentText, commentKeyboard, 'joy_intro', userId, commentsChatId);
+        this.sendJoyMessageAsync(channelMessageId, commentText, commentKeyboard, 'joy_intro', userId, targetInteractionChatId);
       } else {
         // ОСНОВНОЙ СЦЕНАРИЙ - ДВА сообщения (список + вопрос с кнопками)
         if (events.length > 0) {
@@ -7977,11 +8094,11 @@ ${allDayUserMessages}
             promptText, // вопрос
             commentKeyboard,
             userId,
-            commentsChatId
+            targetInteractionChatId
           );
         } else {
           // НЕТ СОБЫТИЙ - только вопрос с кнопками
-          this.sendJoyMessageAsync(channelMessageId, commentText, commentKeyboard, 'joy_main', userId, commentsChatId);
+          this.sendJoyMessageAsync(channelMessageId, commentText, commentKeyboard, 'joy_main', userId, targetInteractionChatId);
         }
       }
 
@@ -8952,13 +9069,20 @@ ${eventsText}
 
     // Получаем всех пользователей (ТОЛЬКО положительные chat_id - исключаем группы!)
     const allUsers = getAllUsers();
-    const users = allUsers.filter(user => user.chat_id > 0);
+
+    // ✅ ФИЛЬТРУЕМ: только пользователи с включенной доставкой (dm_enabled=1 ИЛИ channel_enabled=1)
+    const users = allUsers.filter(user => {
+      const isRealUser = user.chat_id > 0; // НЕ группа
+      const hasDeliveryEnabled = user.dm_enabled === 1 || user.channel_enabled === 1;
+      return isRealUser && hasDeliveryEnabled;
+    });
 
     schedulerLogger.info({
       totalUsersInDb: allUsers.length,
       actualUsers: users.length,
-      filteredGroups: allUsers.length - users.length
-    }, '👥 Фильтрация пользователей');
+      filteredGroups: allUsers.filter(u => u.chat_id <= 0).length,
+      filteredNoDelivery: allUsers.filter(u => u.chat_id > 0 && u.dm_enabled === 0 && u.channel_enabled === 0).length
+    }, '👥 Фильтрация пользователей (только с включенной доставкой)');
 
     // Группируем пользователей по timezone
     const usersByTimezone = new Map<string, number[]>();
@@ -9020,14 +9144,17 @@ ${eventsText}
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
 
-        // ✅ ИСПРАВЛЕНИЕ: отправляем ТОЛЬКО для целевого пользователя (как утренний пост!)
-        const targetUserId = this.getTargetUserId();
+        // ✅ КРИТИЧЕСКИ ВАЖНО: сохраняем время рассылки ДО отправки поста
+        await this.saveLastDailyRunTime(new Date());
+        schedulerLogger.info({ timezone }, '✅ Сохранено время последней вечерней рассылки для проверки ответов');
 
-        if (targetUserId && jobs.userIds.has(targetUserId)) {
+        // ✅ ИСПРАВЛЕНИЕ: отправляем ВСЕМ пользователям этой timezone
+        for (const userId of jobs.userIds) {
           try {
-            await this.sendInteractiveDailyMessage(targetUserId, false, false);
+            schedulerLogger.info({ userId, timezone }, '📤 Отправка вечернего поста пользователю');
+            await this.sendInteractiveDailyMessage(userId, false, false);
           } catch (error) {
-            schedulerLogger.error({ targetUserId, timezone, error }, '❌ Ошибка отправки вечернего поста');
+            schedulerLogger.error({ userId, timezone, error }, '❌ Ошибка отправки вечернего поста');
           }
         }
       },
@@ -9039,8 +9166,16 @@ ${eventsText}
       '0 8 * * *',
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌅 Утренняя проверка (timezone-based)');
-        // Проверяем ответы пользователей этой timezone
-        await this.checkUsersResponses();
+
+        // ✅ ИСПРАВЛЕНИЕ: проверяем ВСЕХ пользователей этой timezone
+        for (const userId of jobs.userIds) {
+          try {
+            schedulerLogger.info({ userId, timezone }, '🔍 Проверка ответов пользователя');
+            await this.checkUserResponse(userId);
+          } catch (error) {
+            schedulerLogger.error({ userId, timezone, error }, '❌ Ошибка проверки ответов пользователя');
+          }
+        }
       },
       { timezone }
     );
@@ -9050,12 +9185,14 @@ ${eventsText}
       '0 9 * * *',
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌄 Утренний пост (timezone-based)');
-        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-        if (adminChatId && jobs.userIds.has(adminChatId)) {
+
+        // ✅ ИСПРАВЛЕНИЕ: отправляем ВСЕМ пользователям этой timezone
+        for (const userId of jobs.userIds) {
           try {
-            await this.sendMorningMessage(adminChatId);
+            schedulerLogger.info({ userId, timezone }, '📤 Отправка утреннего поста пользователю');
+            await this.sendMorningMessage(userId);
           } catch (error) {
-            schedulerLogger.error({ adminChatId, timezone, error }, '❌ Ошибка отправки утреннего поста');
+            schedulerLogger.error({ userId, timezone, error }, '❌ Ошибка отправки утреннего поста');
           }
         }
       },
