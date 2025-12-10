@@ -35,9 +35,15 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
     finalMessage += '3. <b>Дыхательная практика</b>\n\n';
     finalMessage += '<blockquote><b>Дыхание по квадрату:</b>\nВдох на 4 счета, задержка дыхания на 4 счета, выдох на 4 счета и задержка на 4 счета</blockquote>';
 
+    const { getUserByChatId } = require('../../db');
+    const { getFixedText } = require('../../utils/send-to-user');
+    const user = getUserByChatId(chatId);
+    const userGender = (user?.gender || 'male') as 'male' | 'female' | 'unknown';
+    const buttonText = getFixedText('button_practice_done', userGender) || '✅ Сделал';
+
     const practiceKeyboard = {
       inline_keyboard: [
-        [{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }],
+        [{ text: buttonText, callback_data: `pract_done_${channelMessageId}` }],
         [{ text: '⏰ Отложить на 1 час', callback_data: `pract_delay_${channelMessageId}` }],
       ],
     };

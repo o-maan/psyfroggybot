@@ -375,6 +375,49 @@ export async function handleJoySundaySkip(ctx: BotContext, bot: Telegraf, schedu
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
 
+    // ⚠️ КРИТИЧЕСКИ ВАЖНО: Создаем запись в interactive_posts ПЕРЕД показом выбора сценария
+    // Это нужно чтобы scenario_deep.ts и scenario_simplified.ts НЕ создавали fallback запись
+    const { saveInteractivePost, getInteractivePost } = await import('../../db');
+
+    // Проверяем, не существует ли уже запись (на случай повторного нажатия)
+    const existingPost = getInteractivePost(channelMessageId);
+
+    if (!existingPost) {
+      // Создаем минимальную структуру messageData для вечернего поста
+      const messageData = {
+        encouragement: { text: 'Привет! 🐸 Давай поработаем с твоими переживаниями' },
+        negative_part: { additional_text: null },
+        positive_part: { additional_text: null },
+        feels_and_emotions: { additional_text: null }
+      };
+
+      // Сохраняем пост в БД
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+
+      botLogger.info(
+        { userId, channelMessageId, messageThreadId },
+        '💾 Создана запись interactive_post для перехода JOY (sunday skip) → вечерняя логика'
+      );
+    } else {
+      botLogger.debug(
+        { userId, channelMessageId },
+        '⚠️ Запись interactive_post уже существует (повторное нажатие или другой кейс)'
+      );
+    }
+
+    // Сохраняем forwardedMessageId для правильной маршрутизации ответов
+    if (messageThreadId) {
+      // Проверяем, не сохранен ли уже
+      const existingForwardedId = scheduler['forwardedMessages'].get(channelMessageId);
+      if (!existingForwardedId) {
+        scheduler.saveForwardedMessage(channelMessageId, messageThreadId);
+        botLogger.info(
+          { channelMessageId, messageThreadId },
+          '📎 Сохранен forwardedMessageId для маршрутизации JOY (sunday skip) → вечерняя логика'
+        );
+      }
+    }
+
     // Создаем JoyHandler для отправки БЕЗ реплая
     const { JoyHandler } = await import('../../joy-handler');
     const joyHandler = new JoyHandler(
@@ -445,6 +488,49 @@ export async function handleJoyContinue(ctx: BotContext, bot: Telegraf, schedule
 
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
+
+    // ⚠️ КРИТИЧЕСКИ ВАЖНО: Создаем запись в interactive_posts ПЕРЕД показом выбора сценария
+    // Это нужно чтобы scenario_deep.ts и scenario_simplified.ts НЕ создавали fallback запись
+    const { saveInteractivePost, getInteractivePost } = await import('../../db');
+
+    // Проверяем, не существует ли уже запись (на случай повторного нажатия)
+    const existingPost = getInteractivePost(channelMessageId);
+
+    if (!existingPost) {
+      // Создаем минимальную структуру messageData для вечернего поста
+      const messageData = {
+        encouragement: { text: 'Привет! 🐸 Давай поработаем с твоими переживаниями' },
+        negative_part: { additional_text: null },
+        positive_part: { additional_text: null },
+        feels_and_emotions: { additional_text: null }
+      };
+
+      // Сохраняем пост в БД
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+
+      botLogger.info(
+        { userId, channelMessageId, messageThreadId },
+        '💾 Создана запись interactive_post для перехода JOY → вечерняя логика'
+      );
+    } else {
+      botLogger.debug(
+        { userId, channelMessageId },
+        '⚠️ Запись interactive_post уже существует (повторное нажатие или другой кейс)'
+      );
+    }
+
+    // Сохраняем forwardedMessageId для правильной маршрутизации ответов
+    if (messageThreadId) {
+      // Проверяем, не сохранен ли уже
+      const existingForwardedId = scheduler['forwardedMessages'].get(channelMessageId);
+      if (!existingForwardedId) {
+        scheduler.saveForwardedMessage(channelMessageId, messageThreadId);
+        botLogger.info(
+          { channelMessageId, messageThreadId },
+          '📎 Сохранен forwardedMessageId для маршрутизации JOY → вечерняя логика'
+        );
+      }
+    }
 
     // Создаем JoyHandler для отправки БЕЗ реплая
     const { JoyHandler } = await import('../../joy-handler');
@@ -1023,6 +1109,49 @@ export async function handleJoyLater(ctx: BotContext, bot: Telegraf, scheduler: 
 
     // Обновляем/создаем Joy-сессию для правильной маршрутизации сообщений
     ensureJoySession(scheduler, userId, channelMessageId, chatId, messageThreadId);
+
+    // ⚠️ КРИТИЧЕСКИ ВАЖНО: Создаем запись в interactive_posts ПЕРЕД показом выбора сценария
+    // Это нужно чтобы scenario_deep.ts и scenario_simplified.ts НЕ создавали fallback запись
+    const { saveInteractivePost, getInteractivePost } = await import('../../db');
+
+    // Проверяем, не существует ли уже запись (на случай повторного нажатия)
+    const existingPost = getInteractivePost(channelMessageId);
+
+    if (!existingPost) {
+      // Создаем минимальную структуру messageData для вечернего поста
+      const messageData = {
+        encouragement: { text: 'Привет! 🐸 Давай поработаем с твоими переживаниями' },
+        negative_part: { additional_text: null },
+        positive_part: { additional_text: null },
+        feels_and_emotions: { additional_text: null }
+      };
+
+      // Сохраняем пост в БД
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+
+      botLogger.info(
+        { userId, channelMessageId, messageThreadId },
+        '💾 Создана запись interactive_post для перехода JOY (later) → вечерняя логика'
+      );
+    } else {
+      botLogger.debug(
+        { userId, channelMessageId },
+        '⚠️ Запись interactive_post уже существует (повторное нажатие или другой кейс)'
+      );
+    }
+
+    // Сохраняем forwardedMessageId для правильной маршрутизации ответов
+    if (messageThreadId) {
+      // Проверяем, не сохранен ли уже
+      const existingForwardedId = scheduler['forwardedMessages'].get(channelMessageId);
+      if (!existingForwardedId) {
+        scheduler.saveForwardedMessage(channelMessageId, messageThreadId);
+        botLogger.info(
+          { channelMessageId, messageThreadId },
+          '📎 Сохранен forwardedMessageId для маршрутизации JOY (later) → вечерняя логика'
+        );
+      }
+    }
 
     // Создаем JoyHandler для отправки БЕЗ реплая
     const { JoyHandler } = await import('../../joy-handler');

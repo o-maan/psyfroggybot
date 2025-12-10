@@ -1,6 +1,7 @@
 import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик кнопки "Пропустить" для схемы разбора ситуации
 export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
@@ -36,7 +37,7 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
           fallbackSendOptions.reply_to_message_id = threadId;
         }
 
-        await ctx.telegram.sendMessage(ctx.chat!.id, fallbackText, fallbackSendOptions);
+        await sendToUser({ telegram: ctx.telegram } as any, ctx.chat!.id, ctx.from?.id, fallbackText, fallbackSendOptions);
         botLogger.info({ channelMessageId }, 'Fallback плюшки отправлены после пропуска схемы');
       } catch (fallbackError) {
         botLogger.error({ error: fallbackError }, 'Ошибка отправки fallback для skip_schema');
@@ -77,7 +78,7 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
       sendOptions.reply_to_message_id = threadId;
     }
 
-    const task2Message = await ctx.telegram.sendMessage(ctx.chat!.id, responseText, sendOptions);
+    const task2Message = await sendToUser({ telegram: ctx.telegram } as any, ctx.chat!.id, ctx.from?.id, responseText, sendOptions);
 
     // Сохраняем ID сообщения с плюшками
     updateInteractivePostState(channelMessageId, 'waiting_positive', {

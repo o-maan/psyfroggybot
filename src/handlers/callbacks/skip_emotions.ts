@@ -2,6 +2,7 @@ import { botLogger } from '../../logger';
 import type { BotContext } from '../../types';
 import type { Scheduler } from '../../scheduler';
 import { callbackSendWithRetry } from '../../utils/telegram-retry';
+import { sendToUser } from '../../utils/send-to-user';
 
 // Обработчик кнопки "Уже описал" для пропуска дополнительного вопроса про эмоции
 export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) {
@@ -41,7 +42,7 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
 
     // Отправляем слова поддержки + плюшки с новым текстом
     const supportText = scheduler.getRandomSupportText();
-    const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+    const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал${'${:а}'} 😍`;
 
     const sendOptions: any = {
       parse_mode: 'HTML',
@@ -54,9 +55,10 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
       sendOptions.reply_to_message_id = threadId;
     }
 
+    const userId = ctx.from!.id;
     const task2Message = await callbackSendWithRetry(
       ctx,
-      () => ctx.telegram.sendMessage(ctx.chat!.id, plushkiText, sendOptions),
+      () => sendToUser({ telegram: ctx.telegram } as any, ctx.chat!.id, userId, plushkiText, sendOptions),
       'skip_emotions_plushki'
     );
 

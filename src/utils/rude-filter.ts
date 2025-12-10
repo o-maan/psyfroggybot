@@ -1122,14 +1122,14 @@ function isNonRussianText(text: string): boolean {
 
 // Получить ответ для набора букв с учетом счетчика
 function getKeyboardSpamResponse(userId?: number): string {
-  if (!userId) return "Кажется, ты сел на клавиатуру 😁";
-  
+  if (!userId) return "Кажется, ты сел${:а} на клавиатуру 😁";
+
   const count = (keyboardSpamCounter.get(userId) || 0) + 1;
   keyboardSpamCounter.set(userId, count);
-  
+
   switch (count) {
     case 1:
-      return "Кажется, ты сел на клавиатуру 😁";
+      return "Кажется, ты сел${:а} на клавиатуру 😁";
     case 2:
       return "Неть, так не пойдет 🙈";
     case 3:

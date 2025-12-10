@@ -43,8 +43,14 @@ export async function handlePractDelay(ctx: BotContext) {
         const reminderMessage = '⏰ Напоминание: пора сделать дыхательную практику! Это займет всего пару минут 💚';
 
         // Добавляем кнопку "Сделал" к напоминанию
+        const { getUserByChatId } = require('../../db');
+        const { getFixedText } = require('../../utils/send-to-user');
+        const user = getUserByChatId(ctx.chat!.id);
+        const userGender = (user?.gender || 'male') as 'male' | 'female' | 'unknown';
+        const buttonText = getFixedText('button_practice_done', userGender) || '✅ Сделал';
+
         const practiceKeyboard = {
-          inline_keyboard: [[{ text: '✅ Сделал', callback_data: `pract_done_${channelMessageId}` }]],
+          inline_keyboard: [[{ text: buttonText, callback_data: `pract_done_${channelMessageId}` }]],
         };
 
         const reminderSendOptions: any = {

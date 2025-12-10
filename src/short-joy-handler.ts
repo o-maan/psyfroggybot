@@ -333,8 +333,14 @@ export class ShortJoyHandler {
       const messages = Array.from(messagesMap.values());
 
       if (messages.length === 0) {
+        const { getUserByChatId } = require('../db');
+        const { getFixedText } = require('../utils/send-to-user');
+        const user = getUserByChatId(this.userId);
+        const userGender = (user?.gender || 'male') as 'male' | 'female' | 'unknown';
+        const emptyText = getFixedText('joy_empty_list', userGender) || 'Ты еще ничего не написал 🤔\nНапиши, что тебя радует!';
+
         await this.sendMessage(
-          'Ты еще ничего не написал 🤔\nНапиши, что тебя радует!',
+          emptyText,
           undefined
         );
         return;

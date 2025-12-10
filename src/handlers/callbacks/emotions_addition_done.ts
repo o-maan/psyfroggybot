@@ -71,7 +71,7 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
 
     // Сохраняем использованный текст
     addUsedEmotionsSupportText(randomIndex);
-    const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍`;
+    const plushkiText = `<i>${randomSupportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал${'${:а}'} 😍`;
 
     const { scenarioSendWithRetry } = await import('../../utils/telegram-retry');
 
