@@ -1944,7 +1944,19 @@ ${weekendPromptContent}`;
       // ✅ Проверяем режимы работы пользователя (dm_enabled, channel_enabled)
       const user = getUserByChatId(chatId);
       const dmEnabled = user?.dm_enabled ?? false;
-      const channelEnabled = user?.channel_enabled ?? false;
+      let channelEnabled = user?.channel_enabled ?? false;
+
+      // 🛡️ ЗАЩИТА: канал может быть включен ТОЛЬКО у целевого пользователя бота
+      const targetUserId = this.getTargetUserId();
+      const isTargetUser = chatId === targetUserId;
+
+      if (channelEnabled && !isTargetUser) {
+        schedulerLogger.warn(
+          { chatId, targetUserId },
+          '⚠️ У пользователя включен channel_enabled, но он НЕ является целевым! Принудительно отключаем канал и используем ЛС'
+        );
+        channelEnabled = false;
+      }
 
       schedulerLogger.debug(
         {
@@ -1956,6 +1968,7 @@ ${weekendPromptContent}`;
           skipDayCheck,
           dmEnabled,
           channelEnabled,
+          isTargetUser,
         },
         'Начало отправки интерактивного сообщения'
       );
@@ -2121,9 +2134,22 @@ ${weekendPromptContent}`;
 
       // Функция отправки для использования в sendWithRetry
       const sendPhotoFunction = async () => {
-        // ✅ Определяем куда отправлять: в канал или в ЛС
-        const targetChatId = channelEnabled ? this.CHANNEL_ID : chatId;
-        const targetCaption = channelEnabled ? captionWithComment : firstPart; // В ЛС без "Переходи в комментарии"
+        // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
+        let targetChatId = chatId; // По умолчанию - ЛС
+        let targetCaption = firstPart; // По умолчанию - без "Переходи в комментарии"
+
+        if (channelEnabled && user?.channel_id) {
+          // Пользователь имеет свой канал - отправляем туда
+          targetChatId = user.channel_id;
+          targetCaption = captionWithComment; // С "Переходи в комментарии"
+          schedulerLogger.info({ chatId, channelId: user.channel_id }, '📢 Отправка в канал пользователя');
+        } else if (channelEnabled && !user?.channel_id) {
+          // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
+          schedulerLogger.warn(
+            { chatId },
+            '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем в ЛС'
+          );
+        }
 
         if (imageBuffer) {
           // Отправляем сгенерированное изображение
@@ -2285,10 +2311,10 @@ ${weekendPromptContent}`;
         channelEnabled ? 'Основной пост отправлен в канал' : 'Основной пост отправлен в ЛС'
       );
 
-      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
-      if (channelEnabled && dmEnabled) {
+      // ✅ Если оба режима включены И пост ушёл в канал (channel_id заполнен) - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled && user?.channel_id) {
         try {
-          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (оба режима включены)');
+          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
           // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
@@ -2844,10 +2870,6 @@ ${weekendPromptContent}`;
       schedulerLogger.warn('⚠️ Массовая рассылка отключена для тестового бота');
       return;
     }
-
-    // Сохраняем время начала рассылки для корректной проверки ответов
-    const now = new Date();
-    await this.saveLastDailyRunTime(now);
 
     schedulerLogger.info(
       { usersCount: this.users.size },
@@ -3786,7 +3808,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     // ✅ Проверяем режимы работы пользователя
     const user = getUserByChatId(userId);
     const dmEnabled = user?.dm_enabled ?? false;
-    const channelEnabled = user?.channel_enabled ?? false;
+    let channelEnabled = user?.channel_enabled ?? false;
+
+    // 🛡️ ЗАЩИТА: канал может быть включен ТОЛЬКО у целевого пользователя бота
+    const targetUserId = this.getTargetUserId();
+    const isTargetUser = userId === targetUserId;
+
+    if (channelEnabled && !isTargetUser) {
+      schedulerLogger.warn(
+        { userId, targetUserId },
+        '⚠️ У пользователя включен channel_enabled, но он НЕ является целевым! Принудительно отключаем канал и используем ЛС'
+      );
+      channelEnabled = false;
+    }
 
     // Если оба режима выключены - ничего не отправляем
     if (!dmEnabled && !channelEnabled) {
@@ -4071,8 +4105,20 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         imagePath = this.angryImageFiles[Math.floor(Math.random() * this.angryImageFiles.length)];
       }
 
-      // ✅ Определяем куда отправлять: в канал или в ЛС
-      const targetChatId = channelEnabled ? this.CHANNEL_ID : userId;
+      // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
+      let targetChatId = userId; // По умолчанию - ЛС
+
+      if (channelEnabled && user?.channel_id) {
+        // Пользователь имеет свой канал - отправляем туда
+        targetChatId = user.channel_id;
+        schedulerLogger.info({ userId, channelId: user.channel_id }, '📢 Отправка злого поста в канал пользователя');
+      } else if (channelEnabled && !user?.channel_id) {
+        // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
+        schedulerLogger.warn(
+          { userId },
+          '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем злой пост в ЛС'
+        );
+      }
 
       // Отправляем с повторными попытками
       const sentMessage = await this.sendWithRetry(
@@ -4099,10 +4145,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         channelEnabled ? '😠 Злой пост отправлен в канал' : '😠 Злой пост отправлен в ЛС'
       );
 
-      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
-      if (channelEnabled && dmEnabled) {
+      // ✅ Если оба режима включены И пост ушёл в канал (channel_id заполнен) - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled && user?.channel_id) {
         try {
-          schedulerLogger.info({ userId }, '📬 Отправка дополнительной копии злого поста в ЛС (оба режима включены)');
+          schedulerLogger.info({ userId }, '📬 Отправка дополнительной копии злого поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
           await this.bot.telegram.sendPhoto(
             userId,
@@ -4153,9 +4199,21 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // ✅ Проверяем режимы работы пользователя (dm_enabled, channel_enabled)
       const user = getUserByChatId(chatId);
       const dmEnabled = user?.dm_enabled ?? false;
-      const channelEnabled = user?.channel_enabled ?? false;
+      let channelEnabled = user?.channel_enabled ?? false;
 
-      schedulerLogger.debug({ chatId, isManual, isTestBot: this.isTestBot(), dmEnabled, channelEnabled }, 'Начало отправки утреннего сообщения');
+      // 🛡️ ЗАЩИТА: канал может быть включен ТОЛЬКО у целевого пользователя бота
+      const targetUserId = this.getTargetUserId();
+      const isTargetUser = chatId === targetUserId;
+
+      if (channelEnabled && !isTargetUser) {
+        schedulerLogger.warn(
+          { chatId, targetUserId },
+          '⚠️ У пользователя включен channel_enabled, но он НЕ является целевым! Принудительно отключаем канал и используем ЛС'
+        );
+        channelEnabled = false;
+      }
+
+      schedulerLogger.debug({ chatId, isManual, isTestBot: this.isTestBot(), dmEnabled, channelEnabled, isTargetUser }, 'Начало отправки утреннего сообщения');
 
       // Если оба режима выключены - ничего не отправляем
       if (!dmEnabled && !channelEnabled) {
@@ -4186,8 +4244,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       //   return;
       // }
 
+      // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
+      let targetChatId = chatId; // По умолчанию - ЛС
+
+      if (channelEnabled && user?.channel_id) {
+        // Пользователь имеет свой канал - отправляем туда
+        targetChatId = user.channel_id;
+        schedulerLogger.info({ chatId, channelId: user.channel_id }, '📢 Отправка утреннего поста в канал пользователя');
+      } else if (channelEnabled && !user?.channel_id) {
+        // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
+        schedulerLogger.warn(
+          { chatId },
+          '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем утренний пост в ЛС'
+        );
+      }
+
       // Показываем, что бот "пишет"
-      const targetChatId = channelEnabled ? this.CHANNEL_ID : chatId;
       await this.bot.telegram.sendChatAction(targetChatId, 'upload_photo');
 
       // Определяем пользователя
@@ -4357,10 +4429,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       const messageId = sentMessage.message_id;
 
-      // ✅ Если оба режима включены - дополнительно отправляем копию в ЛС
-      if (channelEnabled && dmEnabled) {
+      // ✅ Если оба режима включены И пост ушёл в канал (channel_id заполнен) - дополнительно отправляем копию в ЛС
+      if (channelEnabled && dmEnabled && user?.channel_id) {
         try {
-          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии утреннего поста в ЛС (оба режима включены)');
+          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии утреннего поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
           // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
@@ -8074,8 +8146,20 @@ ${allDayUserMessages}
 
       const imageBuffer = await readFile(fallbackImagePath);
 
-      // Определяем куда отправлять: канал или ЛС
-      const targetChatId = channelEnabled ? this.CHANNEL_ID : userId;
+      // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
+      let targetChatId = userId; // По умолчанию - ЛС
+
+      if (channelEnabled && user?.channel_id) {
+        // Пользователь имеет свой канал - отправляем туда
+        targetChatId = user.channel_id;
+        schedulerLogger.info({ userId, channelId: user.channel_id }, '📢 Отправка JOY поста в канал пользователя');
+      } else if (channelEnabled && !user?.channel_id) {
+        // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
+        schedulerLogger.warn(
+          { userId },
+          '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем JOY пост в ЛС'
+        );
+      }
 
       const channelMessage = await this.bot.telegram.sendPhoto(
         targetChatId,
@@ -8085,9 +8169,9 @@ ${allDayUserMessages}
 
       const channelMessageId = channelMessage.message_id;
 
-      // Если включены оба режима - отправляем копию в ЛС
-      if (channelEnabled && dmEnabled) {
-        schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС');
+      // Если включены оба режима И пост ушёл в канал (channel_id заполнен) - отправляем копию в ЛС
+      if (channelEnabled && dmEnabled && user?.channel_id) {
+        schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
         await this.bot.telegram.sendPhoto(
           userId,
           { source: imageBuffer },
@@ -9213,11 +9297,25 @@ ${eventsText}
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
 
-        // ✅ ИСПРАВЛЕНИЕ: отправляем ВСЕМ пользователям этой timezone
-        // Каждый пост сохраняется индивидуально в user_daily_posts (НЕ используем глобальный last_daily_run)
+        // Определяем целевого пользователя для этого бота (у которого есть канал)
+        const targetUserId = this.getTargetUserId();
+
+        // ✅ ПРАВИЛЬНАЯ ЛОГИКА: отправляем пост КАЖДОМУ пользователю
+        // НО: у целевого пользователя channel_enabled=1 (в канал), у остальных dm_enabled=1 (в ЛС)
         for (const userId of jobs.userIds) {
           try {
-            schedulerLogger.info({ userId, timezone }, '📤 Отправка вечернего поста пользователю');
+            // Проверяем флаги пользователя
+            const user = getUserByChatId(userId);
+            const isTargetUser = userId === targetUserId;
+
+            schedulerLogger.info({
+              userId,
+              timezone,
+              isTargetUser,
+              channelEnabled: user?.channel_enabled,
+              dmEnabled: user?.dm_enabled
+            }, '📤 Отправка вечернего поста пользователю');
+
             await this.sendInteractiveDailyMessage(userId, false, false);
           } catch (error) {
             schedulerLogger.error({ userId, timezone, error }, '❌ Ошибка отправки вечернего поста');

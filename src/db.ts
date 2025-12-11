@@ -207,7 +207,7 @@ export const getUserResponseStats = (chatId: number) => {
 
 export const getUserByChatId = (chatId: number) => {
   const getUser = db.query(`
-    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset, city, dm_enabled, channel_enabled
+    SELECT id, chat_id, username, name, gender, last_response_time, response_count, onboarding_state, user_request, timezone, timezone_offset, city, dm_enabled, channel_enabled, channel_id
     FROM users
     WHERE chat_id = ?
   `);
@@ -226,6 +226,7 @@ export const getUserByChatId = (chatId: number) => {
     city: string | null;
     dm_enabled: number; // 🆕 Режим ЛС (0 или 1)
     channel_enabled: number; // 🆕 Режим канала (0 или 1)
+    channel_id: number | null; // 🆕 ID канала пользователя (NULL = нет канала)
   } | undefined;
 };
 
