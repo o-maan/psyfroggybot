@@ -26,7 +26,7 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
       botLogger.info({ userId, name: 'Алекс', gender: 'male' }, '✅ Автоматически установлено имя и пол для Алекса');
 
       // Добавляем Алекса в планировщик (так как он пропускает онбординг)
-      await scheduler.addUserToTimezone(chatId, 'Europe/Moscow');
+      await scheduler.addUserToTimezone(chatId, 'Europe/Belgrade');
       botLogger.info({ userId, chatId }, '✅ Алекс добавлен в планировщик');
 
       // Для Алекса показываем старое сообщение (без онбординга)
@@ -48,7 +48,7 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
       botLogger.info({ userId, name: 'Оля', gender: 'female' }, '✅ Автоматически установлено имя и пол для Оли');
 
       // Добавляем Олю в планировщик (так как она пропускает онбординг)
-      await scheduler.addUserToTimezone(chatId, 'Europe/Belgrade');
+      await scheduler.addUserToTimezone(chatId, 'Europe/Moscow');
       botLogger.info({ userId, chatId }, '✅ Оля добавлена в планировщик');
 
       // Для Оли показываем старое сообщение (без онбординга)
