@@ -158,9 +158,9 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
             break;
 
           case 'schema_waiting_correction':
-            // ПОСЛЕДНИЙ ШАГ СХЕМЫ - отправляем финальное сообщение
-            await handler.handleSchemaCorrectionResponse(chatId, message, userId, userMessageId);
-            // Отправляем финальное сообщение
+            // ПОСЛЕДНИЙ ШАГ СХЕМЫ - НЕ вызываем handleSchemaCorrectionResponse
+            // (он отправит "Ты проделал огромную работу" с кнопкой)
+            // Просто отправляем финальное сообщение
             const finalMessage = 'Я с тобой! Надеюсь, тебе стало чуть яснее 💚';
             await sendToUser(bot, chatId, userId, finalMessage, { parse_mode: 'HTML' });
             saveMessage(chatId, finalMessage, new Date().toISOString(), 0);
