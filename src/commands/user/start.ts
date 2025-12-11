@@ -70,6 +70,11 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
 
     if (user && user.name) {
       // Пользователь уже зарегистрирован и имеет имя
+      // Добавляем в планировщик (на случай если пользователь останавливал бот и возвращается)
+      const userTimezone = user.timezone || 'Europe/Moscow';
+      await scheduler.addUserToTimezone(chatId, userTimezone);
+      botLogger.info({ userId, chatId, timezone: userTimezone }, '✅ Пользователь возвращен в планировщик');
+
       await sendToUser(
         bot,
         chatId,
