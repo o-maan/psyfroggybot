@@ -369,9 +369,35 @@ export async function getMorningMessageText(userId: number, dayOfWeek: number): 
 
 // Проверить нужно ли показать вводное сообщение (только первый раз)
 export function shouldShowMorningIntro(userId: number): boolean {
+  // 1️⃣ Проверяем флаг в morning_message_indexes
   const indexes = getMorningMessageIndexes(userId);
-  // Если флаг НЕ установлен - нужно показать вводное
-  return !indexes || !indexes.morning_intro_shown;
+  if (indexes?.morning_intro_shown) {
+    return false; // Флаг установлен - вводный уже показывали
+  }
+
+  // 2️⃣ ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: есть ли записи в user_daily_posts?
+  // Защита от случаев когда флаг сбросился (например после /reset)
+  const { db } = require('./db');
+  const existingPosts = db.query(`
+    SELECT COUNT(*) as count FROM user_daily_posts
+    WHERE user_id = ? AND post_type = 'morning'
+  `).get(userId) as { count: number } | undefined;
+
+  if (existingPosts && existingPosts.count > 0) {
+    // Есть старые утренние посты, но флаг не установлен → была ошибка/сброс
+    // Устанавливаем флаг и НЕ показываем вводный
+    const { schedulerLogger } = require('./logger');
+    schedulerLogger.warn({ userId, postsCount: existingPosts.count }, '⚠️ Найдены старые утренние посты, но флаг intro не установлен - исправляем');
+
+    // Устанавливаем флаг через setMorningIntroShown
+    const { setMorningIntroShown } = require('./db');
+    setMorningIntroShown(userId, true);
+
+    return false; // НЕ показываем вводный
+  }
+
+  // Нет постов и флаг не установлен → первый раз
+  return true;
 }
 
 // Получить вводное сообщение и установить флаг

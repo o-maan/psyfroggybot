@@ -1798,6 +1798,45 @@ export const saveMorningMessageIndexes = (
   }
 };
 
+// Установить флаг morning_intro_shown для пользователя (упрощенная версия)
+export const setMorningIntroShown = (userId: number, shown: boolean) => {
+  try {
+    // Получаем текущие индексы
+    const current = getMorningMessageIndexes(userId);
+
+    if (!current) {
+      // Если записи нет - создаем с дефолтными значениями
+      saveMorningMessageIndexes(
+        userId,
+        0, // weekdayIndex
+        0, // weekendIndex
+        0, // greetingIndex
+        false, // usedMon
+        false, // usedWed
+        false, // usedThu
+        false, // usedSun
+        0, // eveningIndex
+        shown, // morningIntroShown
+        false, // eveningIntroShown
+        0 // joyMainIndex
+      );
+    } else {
+      // Обновляем только флаг morning_intro_shown
+      const update = db.query(`
+        UPDATE morning_message_indexes
+        SET morning_intro_shown = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+      `);
+      update.run(shown ? 1 : 0, userId);
+    }
+
+    databaseLogger.debug({ userId, shown }, 'Флаг morning_intro_shown обновлен');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error({ error: error.message, userId }, 'Ошибка установки morning_intro_shown');
+  }
+};
+
 // ========================================
 // ФУНКЦИИ ДЛЯ РАБОТЫ С ПОЗИТИВНЫМИ СОБЫТИЯМИ (СПИСОК РАДОСТИ)
 // ========================================

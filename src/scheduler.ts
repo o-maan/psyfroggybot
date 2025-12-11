@@ -1966,6 +1966,22 @@ ${weekendPromptContent}`;
         return;
       }
 
+      // 🛡️ ЗАЩИТА ОТ ДУБЛЕЙ: проверяем, не отправляли ли уже сегодня (ТОЛЬКО для автоматической рассылки)
+      if (!isManualCommand) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const { db } = await import('./db');
+
+        const existing = db.query(`
+          SELECT id FROM user_daily_posts
+          WHERE user_id = ? AND post_date = ? AND post_type = 'evening'
+        `).get(chatId, today) as { id: number } | undefined;
+
+        if (existing) {
+          schedulerLogger.warn({ userId: chatId, today }, '⏭️ Вечерний пост уже отправлен сегодня, пропускаем');
+          return;
+        }
+      }
+
       // Проверка на воскресенье - показываем список радости
       if (!skipDayCheck) {
         const dayOfWeek = new Date().getDay();
@@ -2225,6 +2241,22 @@ ${weekendPromptContent}`;
           incrementEveningPostsCount(chatId);
         } catch (countError) {
           schedulerLogger.error({ error: countError, chatId }, '❌ Ошибка увеличения счетчика вечерних постов');
+        }
+
+        // 💾 Сохраняем информацию о вечернем посте в user_daily_posts
+        try {
+          const db = await import('./db');
+          const today = startTime.split('T')[0]; // YYYY-MM-DD из ISO timestamp
+
+          db.db.query(`
+            INSERT INTO user_daily_posts (user_id, post_date, post_type, channel_message_id, sent_at)
+            VALUES (?, ?, 'evening', ?, ?)
+          `).run(chatId, today, messageId, startTime);
+
+          schedulerLogger.info({ userId: chatId, postDate: today, messageId }, '✅ Вечерний пост зарегистрирован в user_daily_posts');
+        } catch (saveError) {
+          schedulerLogger.error({ error: saveError, chatId, messageId }, '❌ Ошибка сохранения в user_daily_posts');
+          // Не пробрасываем ошибку - пост уже отправлен, это не критично
         }
       };
 
@@ -3503,87 +3535,78 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     };
   }
 
-  // Получить время последней ежедневной рассылки
-  private async getLastDailyRunTime(): Promise<Date | null> {
-    try {
-      const { db } = await import('./db');
-      const row = db
-        .query(
-          `
-        SELECT value FROM system_settings WHERE key = 'last_daily_run'
-      `
-        )
-        .get() as { value: string } | undefined;
-
-      if (row && row.value) {
-        return new Date(row.value);
-      }
-      return null;
-    } catch (error) {
-      schedulerLogger.error(error as Error, 'Ошибка получения времени последней рассылки');
-      return null;
-    }
-  }
-
-  // Сохранить время последней ежедневной рассылки
-  private async saveLastDailyRunTime(time: Date): Promise<void> {
-    try {
-      const { db } = await import('./db');
-      db.query(
-        `
-        INSERT OR REPLACE INTO system_settings (key, value)
-        VALUES ('last_daily_run', ?)
-      `
-      ).run(time.toISOString());
-    } catch (error) {
-      schedulerLogger.error(error as Error, 'Ошибка сохранения времени последней рассылки');
-    }
-  }
+  // ❌ УДАЛЕНО: getLastDailyRunTime() и saveLastDailyRunTime()
+  // Теперь используем user_daily_posts для отслеживания постов каждого пользователя индивидуально
+  // Это обеспечивает полную автономию пользователей друг от друга
 
   // ✅ Новый метод: проверка ОДНОГО пользователя (вызывается для каждого пользователя отдельно)
   private async checkUserResponse(userId: number) {
     schedulerLogger.info({ userId }, `🔍 Проверка ответов пользователя ${userId}`);
 
-    // Получаем время последней рассылки для проверки
-    const lastDailyRun = await this.getLastDailyRunTime();
-
-    let hasResponded = false;
-    let sentPost = false;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayDate = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
     try {
-      const stats = getUserResponseStats(userId);
+      const { db } = await import('./db');
+
+      // 🛡️ ЗАЩИТА ОТ ДУБЛЕЙ: проверяем, не отправляли ли уже сегодня злой пост
+      const existingAngry = db.query(`
+        SELECT id FROM user_daily_posts
+        WHERE user_id = ? AND post_date = ? AND post_type = 'angry'
+      `).get(userId, today) as { id: number } | undefined;
+
+      if (existingAngry) {
+        schedulerLogger.warn({ userId, today }, '⏭️ Злой пост уже отправлен сегодня, пропускаем проверку');
+        return;
+      }
+
+      // 📅 Ищем ВЧЕРАШНИЙ вечерний пост ЭТОГО пользователя
+      const yesterdayPost = db.query(`
+        SELECT channel_message_id, sent_at FROM user_daily_posts
+        WHERE user_id = ? AND post_date = ? AND post_type = 'evening'
+      `).get(userId, yesterdayDate) as { channel_message_id: number; sent_at: string } | undefined;
+
+      if (!yesterdayPost) {
+        schedulerLogger.info({ userId, yesterdayDate }, 'Вчера не было вечернего поста для этого пользователя, пропускаем проверку');
+        return;
+      }
+
+      // 💬 Проверяем, есть ли сообщения пользователя для ЭТОГО конкретного поста
+      const userMessages = db.query(`
+        SELECT COUNT(*) as count FROM message_links
+        WHERE channel_message_id = ? AND user_id = ?
+      `).get(yesterdayPost.channel_message_id, userId) as { count: number };
+
+      const hasResponded = userMessages.count > 0;
 
       schedulerLogger.info(
         {
           userId,
-          stats,
-          lastDailyRun: lastDailyRun?.toISOString(),
-          lastResponseTime: stats?.last_response_time,
+          yesterdayDate,
+          yesterdayPostId: yesterdayPost.channel_message_id,
+          userMessagesCount: userMessages.count,
+          hasResponded,
         },
-        '📊 Данные для проверки ответа'
+        '📊 Результат проверки ответа'
       );
 
-      // Проверяем, ответил ли пользователь после вчерашней рассылки
-      hasResponded = !!(
-        stats &&
-        stats.last_response_time &&
-        lastDailyRun &&
-        new Date(stats.last_response_time) > lastDailyRun
-      );
-
+      // 😠 Если НЕ ответил - отправляем злой пост
       if (!hasResponded) {
-        schedulerLogger.info({ userId }, `Пользователь ${userId} не ответил на вчерашнее задание`);
+        schedulerLogger.info({ userId }, 'Пользователь НЕ ответил на вчерашний пост → отправляем злой пост');
 
-        // Отправляем "злой" пост
-        try {
-          await this.sendAngryPost(userId);
-          sentPost = true;
-        } catch (err) {
-          schedulerLogger.error({ error: err, userId }, 'Ошибка отправки злого поста');
-          throw err;
-        }
+        await this.sendAngryPost(userId);
+
+        // Сохраняем информацию о злом посте
+        db.query(`
+          INSERT INTO user_daily_posts (user_id, post_date, post_type, sent_at)
+          VALUES (?, ?, 'angry', ?)
+        `).run(userId, today, new Date().toISOString());
+
+        schedulerLogger.info({ userId, today }, '✅ Злой пост зарегистрирован в user_daily_posts');
       } else {
-        schedulerLogger.info({ userId }, `Пользователь ${userId} ответил на вчерашнее задание`);
+        schedulerLogger.info({ userId }, 'Пользователь ответил на вчерашний пост ✅');
       }
     } catch (err) {
       schedulerLogger.error({ error: err, userId }, 'Ошибка проверки ответа пользователя');
@@ -4140,6 +4163,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         return;
       }
 
+      // 🛡️ ЗАЩИТА ОТ ДУБЛЕЙ: проверяем, не отправляли ли уже сегодня (ТОЛЬКО для автоматической рассылки)
+      if (!isManual) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const { db } = await import('./db');
+
+        const existing = db.query(`
+          SELECT id FROM user_daily_posts
+          WHERE user_id = ? AND post_date = ? AND post_type = 'morning'
+        `).get(chatId, today) as { id: number } | undefined;
+
+        if (existing) {
+          schedulerLogger.warn({ userId: chatId, today }, '⏭️ Утренний пост уже отправлен сегодня, пропускаем');
+          return;
+        }
+      }
+
       // ✅ ИЗМЕНЕНО: разрешаем автоматическую рассылку для ВСЕХ ботов (включая тестовый)
       // Это позволит тестировать автоматическую рассылку локально
       // if (this.isTestBot() && !isManual) {
@@ -4345,6 +4384,22 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       saveMorningPost(messageId, postUserId);
 
       schedulerLogger.info({ messageId, chatId }, '💾 Утренний пост сохранен в БД');
+
+      // 💾 Сохраняем информацию об утреннем посте в user_daily_posts
+      try {
+        const db = await import('./db');
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        db.db.query(`
+          INSERT OR IGNORE INTO user_daily_posts (user_id, post_date, post_type, channel_message_id, sent_at)
+          VALUES (?, ?, 'morning', ?, ?)
+        `).run(chatId, today, messageId, new Date().toISOString());
+
+        schedulerLogger.info({ userId: chatId, postDate: today, messageId }, '✅ Утренний пост зарегистрирован в user_daily_posts');
+      } catch (saveError) {
+        schedulerLogger.error({ error: saveError, chatId, messageId }, '❌ Ошибка сохранения в user_daily_posts');
+        // Не пробрасываем ошибку - пост уже отправлен, это не критично
+      }
 
       // Получаем ID группы обсуждений
       const CHAT_ID = this.getChatId();
@@ -9115,15 +9170,29 @@ ${eventsText}
   private async createCronJobsForTimezone(timezone: string, chatIds: number[]) {
     schedulerLogger.info({ timezone, usersCount: chatIds.length }, `🕐 Создание cron jobs для ${timezone}`);
 
-    // ВАЖНО: Останавливаем старые cron jobs для этой timezone перед созданием новых
+    // 🛡️ ЗАЩИТА: Если cron jobs УЖЕ существуют и активны для этой timezone - только обновляем пользователей
     if (this.timezoneCronJobs.has(timezone)) {
-      const oldJobs = this.timezoneCronJobs.get(timezone)!;
-      oldJobs.evening?.stop();
-      oldJobs.morningCheck?.stop();
-      oldJobs.morning?.stop();
-      oldJobs.morningBatch?.stop();
-      oldJobs.eveningBatch?.stop();
-      schedulerLogger.info({ timezone }, '🛑 Остановлены старые cron jobs перед пересозданием');
+      const existingJobs = this.timezoneCronJobs.get(timezone)!;
+
+      // Проверяем, что cron jobs ещё активны (не были остановлены)
+      const allJobsActive = existingJobs.evening && existingJobs.morning && existingJobs.morningCheck;
+
+      if (allJobsActive) {
+        schedulerLogger.warn({ timezone, existingUsers: existingJobs.userIds.size, newUsers: chatIds.length }, '⏭️ Cron jobs для этой timezone уже существуют и активны, пропускаем создание');
+
+        // Обновляем только список пользователей (если добавились новые)
+        chatIds.forEach(id => existingJobs.userIds.add(id));
+        schedulerLogger.info({ timezone, totalUsers: existingJobs.userIds.size }, '✅ Обновлен список пользователей для существующих cron jobs');
+        return;
+      }
+
+      // Если cron jobs существуют но неактивны - останавливаем их перед пересозданием
+      schedulerLogger.warn({ timezone }, '⚠️ Найдены неактивные cron jobs, останавливаем перед пересозданием');
+      existingJobs.evening?.stop();
+      existingJobs.morningCheck?.stop();
+      existingJobs.morning?.stop();
+      existingJobs.morningBatch?.stop();
+      existingJobs.eveningBatch?.stop();
     }
 
     // Создаем или перезаписываем запись для этой timezone
@@ -9144,11 +9213,8 @@ ${eventsText}
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
 
-        // ✅ КРИТИЧЕСКИ ВАЖНО: сохраняем время рассылки ДО отправки поста
-        await this.saveLastDailyRunTime(new Date());
-        schedulerLogger.info({ timezone }, '✅ Сохранено время последней вечерней рассылки для проверки ответов');
-
         // ✅ ИСПРАВЛЕНИЕ: отправляем ВСЕМ пользователям этой timezone
+        // Каждый пост сохраняется индивидуально в user_daily_posts (НЕ используем глобальный last_daily_run)
         for (const userId of jobs.userIds) {
           try {
             schedulerLogger.info({ userId, timezone }, '📤 Отправка вечернего поста пользователю');
