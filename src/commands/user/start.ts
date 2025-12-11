@@ -14,9 +14,6 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
     const username = ctx.from?.username || '';
     botLogger.info({ userId, chatId }, `📱 Команда /start от пользователя ${userId}`);
 
-    // Добавляем пользователя в планировщик для рассылки
-    scheduler.addUser(chatId);
-
     // 🆕 Включаем режим личных сообщений (ЛС) для пользователя
     enableDMMode(chatId);
     botLogger.info({ userId, chatId }, '✅ Режим ЛС включен для пользователя');
@@ -27,6 +24,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
       updateUserName(chatId, 'Алекс');
       updateUserGender(chatId, 'male');
       botLogger.info({ userId, name: 'Алекс', gender: 'male' }, '✅ Автоматически установлено имя и пол для Алекса');
+
+      // Добавляем Алекса в планировщик (так как он пропускает онбординг)
+      await scheduler.addUserToTimezone(chatId, 'Europe/Moscow');
+      botLogger.info({ userId, chatId }, '✅ Алекс добавлен в планировщик');
 
       // Для Алекса показываем старое сообщение (без онбординга)
       await sendToUser(
