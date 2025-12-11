@@ -6,6 +6,10 @@ import { saveMessage } from '../../db';
 // Хранилище для отслеживания пользователей, ожидающих ввода ситуации
 const waitingForSituation = new Map<number, boolean>();
 
+// Хранилище состояний для пользователей в команде /unpack
+// Ключ: userId, Значение: текущее состояние
+const unpackStates = new Map<number, string>();
+
 /**
  * Регистрация команды /unpack - запуск логики разбора ситуации из глубокого сценария
  * Работает только в ЛС (личных сообщениях)
@@ -73,4 +77,34 @@ export function isWaitingForUnpackSituation(userId: number): boolean {
  */
 export function clearUnpackWaiting(userId: number): void {
   waitingForSituation.delete(userId);
+}
+
+/**
+ * Получить текущее состояние пользователя в /unpack
+ */
+export function getUnpackState(userId: number): string | undefined {
+  return unpackStates.get(userId);
+}
+
+/**
+ * Установить состояние пользователя в /unpack
+ */
+export function setUnpackState(userId: number, state: string): void {
+  unpackStates.set(userId, state);
+  botLogger.debug({ userId, state }, '📝 Установлено состояние /unpack');
+}
+
+/**
+ * Очистить состояние пользователя в /unpack
+ */
+export function clearUnpackState(userId: number): void {
+  unpackStates.delete(userId);
+  botLogger.debug({ userId }, '🗑️ Очищено состояние /unpack');
+}
+
+/**
+ * Проверить, находится ли пользователь в активной сессии /unpack
+ */
+export function isInUnpackSession(userId: number): boolean {
+  return unpackStates.has(userId);
 }

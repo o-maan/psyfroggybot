@@ -7,7 +7,14 @@ import { getUserTodayEvents } from '../../calendar';
 import { handleOnboardingMessage } from './onboarding';
 import { handleMeEditingMessage } from './me-editing';
 import { sendToUser } from '../../utils/send-to-user';
-import { isWaitingForUnpackSituation, clearUnpackWaiting } from '../../commands/user/unpack';
+import {
+  isWaitingForUnpackSituation,
+  clearUnpackWaiting,
+  getUnpackState,
+  setUnpackState,
+  clearUnpackState,
+  isInUnpackSession
+} from '../../commands/user/unpack';
 
 // ВРЕМЕННО ОТКЛЮЧЕНО: автоматические ответы бота в комментариях
 // Код сохранен для возможного восстановления функциональности в будущем
@@ -53,26 +60,26 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
       return;
     }
 
-    // Проверяем, не ожидает ли пользователь ввода ситуации для /unpack
+    // Проверяем, не ожидает ли пользователь ввода ситуации для /unpack (ПЕРВЫЙ ШАГ)
     if (isWaitingForUnpackSituation(userId)) {
       try {
-        // Импортируем DeepWorkHandler динамически
-        const { DeepWorkHandler } = await import('../../deep-work-handler');
+        // Импортируем UnpackWrapper динамически
+        const { UnpackWrapper } = await import('../unpack-wrapper');
 
         // Сохраняем сообщение пользователя
         saveMessage(chatId, message, new Date().toISOString(), userId);
 
-        // Создаем handler для обработки ситуации
-        const handler = new DeepWorkHandler(bot, chatId, userId);
+        // Создаем wrapper для обработки ситуации (автоматически установит состояние)
+        const handler = new UnpackWrapper(bot, chatId, userId);
 
-        // Запускаем логику разбора ситуации (вызываем analyzeUserResponse без channelMessageId)
+        // Запускаем логику разбора ситуации (вызываем analyzeUserResponse)
         // Используем chatId как channelMessageId для совместимости
         await handler.analyzeUserResponse(chatId, message, userId);
 
         // Очищаем статус ожидания
         clearUnpackWaiting(userId);
 
-        botLogger.info({ userId, chatId }, '✅ Обработана ситуация для /unpack');
+        botLogger.info({ userId, chatId }, '✅ Обработана ситуация для /unpack, LLM выбрал технику');
         return;
       } catch (error) {
         const err = error as Error;
@@ -87,6 +94,128 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
         );
         await sendToUser(bot, chatId, userId, `❌ Ошибка: ${err.message}`);
         clearUnpackWaiting(userId);
+        clearUnpackState(userId);
+        return;
+      }
+    }
+
+    // Проверяем, находится ли пользователь в активной сессии /unpack (ПОСЛЕДУЮЩИЕ ШАГИ)
+    if (isInUnpackSession(userId)) {
+      try {
+        // Импортируем DeepWorkHandler динамически
+        const { DeepWorkHandler } = await import('../../deep-work-handler');
+
+        const currentState = getUnpackState(userId);
+
+        botLogger.info(
+          {
+            userId,
+            chatId,
+            currentState,
+            textLength: message.length
+          },
+          '📨 Обработка сообщения в активной сессии /unpack'
+        );
+
+        // Сохраняем сообщение пользователя
+        const userMessageId = ctx.message.message_id;
+        saveMessage(chatId, message, new Date().toISOString(), userId, userMessageId, chatId);
+
+        // Создаем handler для обработки
+        const handler = new DeepWorkHandler(bot, chatId, userId);
+
+        // Обрабатываем в зависимости от состояния
+        switch (currentState) {
+          // ===== СХЕМА РАЗБОРА =====
+          case 'schema_waiting_trigger':
+            await handler.handleTriggerResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'schema_waiting_thoughts');
+            break;
+
+          case 'schema_waiting_thoughts':
+            await handler.handleSchemaThoughtsResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'schema_waiting_emotions');
+            break;
+
+          case 'schema_waiting_emotions':
+            // Метод сам обновит состояние на schema_waiting_emotions_clarification если нужно
+            await handler.handleSchemaEmotionsResponse(chatId, message, userId, userMessageId);
+            const newState = getUnpackState(userId);
+            if (newState === 'schema_waiting_emotions') {
+              // Если состояние не изменилось - значит эмоций достаточно, переходим к поведению
+              setUnpackState(userId, 'schema_waiting_behavior');
+            }
+            break;
+
+          case 'schema_waiting_emotions_clarification':
+            await handler.handleSchemaEmotionsClarificationResponse(chatId, message, userId, userMessageId, userMessageId);
+            setUnpackState(userId, 'schema_waiting_behavior');
+            break;
+
+          case 'schema_waiting_behavior':
+            await handler.handleSchemaBehaviorResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'schema_waiting_correction');
+            break;
+
+          case 'schema_waiting_correction':
+            // ПОСЛЕДНИЙ ШАГ СХЕМЫ - отправляем финальное сообщение
+            await handler.handleSchemaCorrectionResponse(chatId, message, userId, userMessageId);
+            // Отправляем финальное сообщение
+            const finalMessage = 'Я с тобой! Надеюсь, тебе стало чуть яснее 💚';
+            await sendToUser(bot, chatId, userId, finalMessage, { parse_mode: 'HTML' });
+            saveMessage(chatId, finalMessage, new Date().toISOString(), 0);
+            // Очищаем состояние - сессия завершена
+            clearUnpackState(userId);
+            botLogger.info({ userId, chatId }, '✅ Команда /unpack завершена (схема)');
+            break;
+
+          // ===== ФИЛЬТРЫ ВОСПРИЯТИЯ =====
+          case 'deep_waiting_thoughts':
+            await handler.handleThoughtsResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'deep_waiting_distortions');
+            break;
+
+          case 'deep_waiting_distortions':
+            await handler.handleDistortionsResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'deep_waiting_harm');
+            break;
+
+          case 'deep_waiting_harm':
+            await handler.handleHarmResponse(chatId, message, userId, userMessageId);
+            setUnpackState(userId, 'deep_waiting_rational');
+            break;
+
+          case 'deep_waiting_rational':
+            // ПОСЛЕДНИЙ ШАГ ФИЛЬТРОВ - отправляем финальное сообщение
+            // НЕ вызываем handler.handleRationalResponse, т.к. этот метод не существует
+            // Просто отправляем финальное сообщение
+            const finalMessageFilters = 'Я с тобой! Надеюсь, тебе стало чуть яснее 💚';
+            await sendToUser(bot, chatId, userId, finalMessageFilters, { parse_mode: 'HTML' });
+            saveMessage(chatId, finalMessageFilters, new Date().toISOString(), 0);
+            // Очищаем состояние - сессия завершена
+            clearUnpackState(userId);
+            botLogger.info({ userId, chatId }, '✅ Команда /unpack завершена (фильтры)');
+            break;
+
+          default:
+            botLogger.warn({ userId, currentState }, '⚠️ Неизвестное состояние /unpack');
+            break;
+        }
+
+        return;
+      } catch (error) {
+        const err = error as Error;
+        botLogger.error(
+          {
+            error: err.message,
+            stack: err.stack,
+            chatId,
+            userId,
+          },
+          'Ошибка при обработке активной сессии /unpack'
+        );
+        await sendToUser(bot, chatId, userId, `❌ Ошибка: ${err.message}`);
+        clearUnpackState(userId);
         return;
       }
     }

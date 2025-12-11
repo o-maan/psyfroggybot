@@ -3,6 +3,8 @@ import { Telegraf } from 'telegraf';
 import { botLogger } from '../../logger';
 import { DeepWorkHandler } from '../../deep-work-handler';
 import { sendToUser } from '../../utils/send-to-user';
+import { isInUnpackSession } from '../../commands/user/unpack';
+import { UnpackWrapper } from '../unpack-wrapper';
 
 // Храним экземпляры обработчиков для каждого чата/треда
 const deepWorkHandlers = new Map<string, DeepWorkHandler>();
@@ -76,9 +78,19 @@ export async function handleDeepFiltersStart(ctx: BotContext, bot: Telegraf) {
     }, 'Начало работы с фильтрами восприятия');
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
-    await handler.handleFiltersStart(channelMessageId, userId!);
+
+    // Проверяем, находится ли пользователь в сессии /unpack
+    if (isInUnpackSession(userId!)) {
+      // Используем UnpackWrapper для автоматической установки состояния
+      const handler = new UnpackWrapper(bot, chatId, userId!);
+      await handler.handleFiltersStart(chatId, userId!);
+      botLogger.info({ userId, chatId }, '🔄 Обработана кнопка фильтров в /unpack');
+    } else {
+      // Обычный глубокий сценарий (вечерний пост)
+      const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+      const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
+      await handler.handleFiltersStart(channelMessageId, userId!);
+    }
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка начала фильтров');
@@ -217,9 +229,19 @@ export async function handleSchemaStart(ctx: BotContext, bot: Telegraf) {
     }, 'Начало разбора по схеме');
 
     const chatId = ctx.callbackQuery.message?.chat?.id!;
-    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
-    const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
-    await handler.handleSchemaStart(channelMessageId, userId!);
+
+    // Проверяем, находится ли пользователь в сессии /unpack
+    if (isInUnpackSession(userId!)) {
+      // Используем UnpackWrapper для автоматической установки состояния
+      const handler = new UnpackWrapper(bot, chatId, userId!);
+      await handler.handleSchemaStart(chatId, userId!);
+      botLogger.info({ userId, chatId }, '🔄 Обработана кнопка схемы в /unpack');
+    } else {
+      // Обычный глубокий сценарий (вечерний пост)
+      const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+      const handler = getDeepWorkHandler(bot, chatId, userId!, threadId);
+      await handler.handleSchemaStart(channelMessageId, userId!);
+    }
 
   } catch (error) {
     botLogger.error({ error: (error as Error).message }, 'Ошибка начала разбора по схеме');
