@@ -2151,13 +2151,19 @@ ${weekendPromptContent}`;
           );
         }
 
+        // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
+        // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
+        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+        const genderAdaptedCaption = parseGenderTemplate(targetCaption, userGender).text;
+
         if (imageBuffer) {
           // Отправляем сгенерированное изображение
           return await this.bot.telegram.sendPhoto(
             targetChatId,
             { source: imageBuffer },
             {
-              caption: targetCaption,
+              caption: genderAdaptedCaption,
               parse_mode: 'HTML',
             }
           );
@@ -2177,7 +2183,7 @@ ${weekendPromptContent}`;
             targetChatId,
             { source: imageFile },
             {
-              caption: targetCaption,
+              caption: genderAdaptedCaption,
               parse_mode: 'HTML',
             }
           );
