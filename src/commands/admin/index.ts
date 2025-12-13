@@ -31,6 +31,7 @@ import { registerFroCommand } from './fro';
 import { registerTestJoyCommand } from './test_joy';
 import { registerEnableChannelCommand } from './enable_channel';
 import { registerDebugUsersCommand } from './debug_users';
+import { registerDeleteLenaCommand } from './delete_lena';
 
 // Функция для регистрации всех административных команд
 export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
@@ -63,4 +64,5 @@ export function registerAdminCommands(bot: Telegraf, scheduler: Scheduler) {
   registerTestJoyCommand(bot, scheduler); // 🧪 Тестирование JOY поста
   registerEnableChannelCommand(bot, scheduler); // 🔧 Включить канальную рассылку для текущего пользователя
   registerDebugUsersCommand(bot, scheduler); // 🔍 Полная диагностика пользователей (dm_enabled, channel_id, etc)
+  registerDeleteLenaCommand(bot, scheduler); // 🗑 ВРЕМЕННО: удаление Лены из БД
 }
