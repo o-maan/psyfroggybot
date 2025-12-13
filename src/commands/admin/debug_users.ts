@@ -16,11 +16,12 @@ export function registerDebugUsersCommand(bot: Telegraf, scheduler: Scheduler) {
     const chatId = ctx.chat.id;
     const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
 
-    // Проверяем, что команду выполняет админ
-    if (chatId !== adminChatId) {
-      await ctx.reply('❌ Эта команда доступна только администратору');
-      return;
-    }
+    // ⚠️ ВРЕМЕННО: команда доступна ВСЕМ (для диагностики)
+    // Позже вернуть проверку админа
+    // if (chatId !== adminChatId) {
+    //   await ctx.reply('❌ Эта команда доступна только администратору');
+    //   return;
+    // }
 
     try {
       // Получаем ВСЕХ пользователей с ПОЛНОЙ информацией
