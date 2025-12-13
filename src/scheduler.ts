@@ -2322,12 +2322,17 @@ ${weekendPromptContent}`;
         try {
           schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
+          // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption для ЛС через parseGenderTemplate
+          const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+          const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+          const dmCaption = parseGenderTemplate(firstPart, userGender).text;
+
           // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
             chatId,
             imageBuffer ? { source: imageBuffer } : { source: await readFile(this.getNextImage(chatId)) },
             {
-              caption: firstPart, // Без приглашения в комментарии
+              caption: dmCaption, // Очищенный caption без HTML-комментариев
               parse_mode: 'HTML',
             }
           );
@@ -4359,9 +4364,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для утреннего поста');
       }
 
+      // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
+      // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
+      const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+      const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+      const genderAdaptedCaption = parseGenderTemplate(captionWithComment, userGender).text;
+
       // Отправляем основной пост БЕЗ кнопок
       // ✅ Определяем финальный текст: в ЛС без "Переходи в комментарии"
-      const finalCaption = channelEnabled ? captionWithComment : captionWithComment.replace('\n\nПереходи в комментарии и продолжим 😉', '');
+      const finalCaption = channelEnabled ? genderAdaptedCaption : genderAdaptedCaption.replace('\n\nПереходи в комментарии и продолжим 😉', '');
 
       let sentMessage;
       if (imageBuffer) {
@@ -9297,9 +9308,9 @@ ${eventsText}
 
     const jobs = this.timezoneCronJobs.get(timezone)!;
 
-    // 1. Вечерний пост: 20:00
+    // 1. Вечерний пост: 18:10 (ВРЕМЕННО ДЛЯ ТЕСТА!)
     jobs.evening = cron.schedule(
-      '0 20 * * *',
+      '10 18 * * *',
       async () => {
         schedulerLogger.info({ timezone, usersCount: jobs.userIds.size }, '🌆 Вечерний пост (timezone-based)');
 
