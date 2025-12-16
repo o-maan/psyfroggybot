@@ -8428,8 +8428,9 @@ ${allDayUserMessages}
 
         // ✅ Определяем куда отправлять на основе channel_id пользователя
         let targetChatId = userId; // По умолчанию - ЛС
+        const sendingToChannel = channelEnabled && !!user?.channel_id;
 
-        if (channelEnabled && user?.channel_id) {
+        if (sendingToChannel && user?.channel_id) {
           // Пользователь имеет свой канал - отправляем туда
           targetChatId = user.channel_id;
           schedulerLogger.info({ userId, channelId: user.channel_id }, '📢 Отправка JOY поста в канал пользователя');
@@ -8441,13 +8442,21 @@ ${allDayUserMessages}
           );
         }
 
+        // ✅ Определяем текст: для ЛС убираем "Переходи в комментарии"
+        let targetPostText = postText;
+        if (!sendingToChannel) {
+          targetPostText = postText
+            .replace('\n\nПереходи в комментарии и продолжим 😉', '')
+            .replace('\n\nПереходи в комментарии и продолжим 🤗', '');
+        }
+
         // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
         // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-        let genderAdaptedPostText = postText; // fallback
+        let genderAdaptedPostText = targetPostText; // fallback
         try {
           const { parseGenderTemplate } = await import('./utils/gender-template-parser');
           const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-          genderAdaptedPostText = parseGenderTemplate(postText, userGender).text;
+          genderAdaptedPostText = parseGenderTemplate(targetPostText, userGender).text;
           schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedPostText !== postText }, 'Текст JOY поста адаптирован под пол');
         } catch (parseError) {
           schedulerLogger.error(
@@ -8495,10 +8504,14 @@ ${allDayUserMessages}
         if (channelEnabled && dmEnabled && user?.channel_id) {
           schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
           try {
+            // Для ЛС убираем "Переходи в комментарии"
+            const dmCaption = genderAdaptedPostText
+              .replace('\n\nПереходи в комментарии и продолжим 😉', '')
+              .replace('\n\nПереходи в комментарии и продолжим 🤗', '');
             await this.bot.telegram.sendPhoto(
               userId,
               { source: imageBuffer },
-              { caption: genderAdaptedPostText, parse_mode: 'HTML' }
+              { caption: dmCaption, parse_mode: 'HTML' }
             );
           } catch (dmError: any) {
             // Копия в ЛС не критична - логируем и продолжаем
