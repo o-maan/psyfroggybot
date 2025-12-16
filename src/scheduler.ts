@@ -4167,6 +4167,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
       }
 
+      // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
+      // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
+      const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+      const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+      const genderAdaptedCaption = parseGenderTemplate(finalText, userGender).text;
+
       // 🛡️ Отправляем с повторными попытками + IMAGE_INVALID detection
       const sentMessage = await this.sendWithRetry(
         async () => {
@@ -4176,7 +4182,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
               targetChatId,
               { source: imagePath },
               {
-                caption: finalText,
+                caption: genderAdaptedCaption,
                 parse_mode: 'HTML',
               }
             );
@@ -4225,7 +4231,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
                 userId,
                 { source: dmImagePath },
                 {
-                  caption: finalText,
+                  caption: genderAdaptedCaption,
                   parse_mode: 'HTML',
                 }
               );
@@ -4278,8 +4284,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       saveAngryPost(sentMessage.message_id, threadId, userId);
       schedulerLogger.info({ channelMessageId: sentMessage.message_id, threadId, userId }, 'Злой пост сохранен в БД');
 
-      // Сохраняем сообщение в историю
-      saveMessage(userId, finalText, new Date().toISOString());
+      // Сохраняем сообщение в историю (используем адаптированный текст)
+      saveMessage(userId, genderAdaptedCaption, new Date().toISOString());
     } catch (error) {
       throw error;
     }
@@ -8378,13 +8384,19 @@ ${allDayUserMessages}
           );
         }
 
+        // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
+        // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
+        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+        const genderAdaptedPostText = parseGenderTemplate(postText, userGender).text;
+
         // Отправляем фото с обработкой ошибок изображения
         let result;
         try {
           result = await this.bot.telegram.sendPhoto(
             targetChatId,
             { source: imageBuffer },
-            { caption: postText, parse_mode: 'HTML' }
+            { caption: genderAdaptedPostText, parse_mode: 'HTML' }
           );
         } catch (sendError: any) {
           // Если ошибка связана с повреждённым изображением - делаем её "сетевой"
@@ -8413,7 +8425,7 @@ ${allDayUserMessages}
             await this.bot.telegram.sendPhoto(
               userId,
               { source: imageBuffer },
-              { caption: postText, parse_mode: 'HTML' }
+              { caption: genderAdaptedPostText, parse_mode: 'HTML' }
             );
           } catch (dmError: any) {
             // Копия в ЛС не критична - логируем и продолжаем
