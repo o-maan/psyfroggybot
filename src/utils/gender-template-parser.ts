@@ -43,8 +43,13 @@ export function parseGenderTemplate(
   const hasBothGenderMarker = /<!--\s*gender:\s*both\s*-->/i.test(text);
 
   if (hasBothGenderMarker) {
-    // Удаляем маркер из текста
-    const cleanedText = text.replace(/<!--\s*gender:\s*both\s*-->/gi, '').trim();
+    // 1. Удаляем маркер из текста
+    // 2. Нормализуем переносы: 3+ переносов -> 2 (одна пустая строка максимум)
+    // 3. Убираем переносы в начале и конце
+    const cleanedText = text
+      .replace(/<!--\s*gender:\s*both\s*-->/gi, '') // удаляем маркер
+      .replace(/\n{3,}/g, '\n\n') // нормализуем переносы (не больше одной пустой строки)
+      .replace(/^\n+|\n+$/g, ''); // убираем переносы в начале и конце
 
     botLogger.debug(
       { textLength: text.length },

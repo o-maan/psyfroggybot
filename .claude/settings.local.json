@@ -29,7 +29,9 @@
       "Bash(do echo \"=== Line $line ===\")",
       "Bash(find:*)",
       "Bash(cp:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(killall:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
