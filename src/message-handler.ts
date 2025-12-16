@@ -4,6 +4,7 @@
 import { Context } from 'telegraf';
 import { trackUserMessage, trackBotMessage } from './interactive-tracker';
 import { schedulerLogger } from './logger';
+import { sendWithRetry } from './utils/telegram-retry';
 
 // Определить тип сообщения по содержимому
 function detectMessageType(text: string, options?: any): string {
@@ -163,7 +164,7 @@ export function wrapTelegramApi(bot: any) {
   const originalSendChatAction = bot.telegram.sendChatAction.bind(bot.telegram);
   const originalEditMessageText = bot.telegram.editMessageText.bind(bot.telegram);
   
-  // Функция-обертка для отслеживания сообщений
+  // Функция-обертка для отслеживания сообщений с retry защитой
   const trackSendMessage = async function(chatId: number, text: string, options?: any) {
     // Показываем индикатор набора текста
     try {
@@ -171,14 +172,22 @@ export function wrapTelegramApi(bot: any) {
     } catch (error) {
       // Не критично
     }
-    
-    const result = await originalSendMessage(chatId, text, options);
-    
+
+    // 🛡️ Оборачиваем в sendWithRetry для автоматических повторов при сетевых ошибках
+    const result = await sendWithRetry(
+      async () => await originalSendMessage(chatId, text, options),
+      {
+        chatId,
+        messageType: 'text_message',
+      },
+      { maxAttempts: 3, intervalMs: 5000 }
+    );
+
     try {
       // Определяем тип сообщения по тексту и контексту
       const messageType = detectMessageType(text, options);
       const replyToMessageId = options?.reply_parameters?.message_id;
-      
+
       // Отслеживаем сообщение бота
       await trackBotMessage(
         result.message_id,
@@ -186,25 +195,25 @@ export function wrapTelegramApi(bot: any) {
         messageType,
         replyToMessageId
       );
-      
+
       schedulerLogger.debug({
         messageId: result.message_id,
         chatId,
         messageType,
         textPreview: text.substring(0, 30)
       }, '📤 Отслежено исходящее сообщение');
-      
+
     } catch (error) {
       schedulerLogger.error({ error, messageId: result.message_id }, 'Ошибка отслеживания исходящего сообщения');
     }
-    
+
     return result;
   };
   
   // Оборачиваем sendMessage
   bot.telegram.sendMessage = trackSendMessage;
   
-  // Оборачиваем sendPhoto
+  // Оборачиваем sendPhoto с retry и IMAGE_INVALID защитой
   bot.telegram.sendPhoto = async function(chatId: number, photo: any, options?: any) {
     // Логируем отправку фото в debug режиме
     if (process.env.NODE_ENV !== 'production') {
@@ -218,16 +227,39 @@ export function wrapTelegramApi(bot: any) {
         message_thread_id: options?.message_thread_id
       }, '📤 Отправка фото');
     }
-    
+
     // Показываем индикатор загрузки фото
     try {
       await originalSendChatAction(chatId, 'upload_photo');
     } catch (error) {
       // Не критично
     }
-    
-    const result = await originalSendPhoto(chatId, photo, options);
-    
+
+    // 🛡️ Оборачиваем в sendWithRetry с IMAGE_INVALID detection
+    const result = await sendWithRetry(
+      async () => {
+        try {
+          return await originalSendPhoto(chatId, photo, options);
+        } catch (sendError: any) {
+          // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+          if (
+            sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+            sendError.message?.includes('PHOTO_INVALID') ||
+            sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+            sendError.message?.includes('Bad Request: wrong file')
+          ) {
+            throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
+          }
+          throw sendError;
+        }
+      },
+      {
+        chatId,
+        messageType: 'photo',
+      },
+      { maxAttempts: 3, intervalMs: 5000 }
+    );
+
     try {
       // Логируем результат отправки
       if (process.env.NODE_ENV !== 'production') {
@@ -238,7 +270,7 @@ export function wrapTelegramApi(bot: any) {
           caption: result.caption
         }, '✅ Фото успешно отправлено');
       }
-      
+
       // Фото обычно отправляется как основной пост
       await trackBotMessage(
         result.message_id,
@@ -247,15 +279,15 @@ export function wrapTelegramApi(bot: any) {
         undefined,
         result.message_id // используем как channelMessageId
       );
-      
+
     } catch (error) {
       schedulerLogger.error({ error, messageId: result.message_id }, 'Ошибка отслеживания фото');
     }
-    
+
     return result;
   };
   
-  // Оборачиваем sendVideo
+  // Оборачиваем sendVideo с retry и VIDEO_INVALID защитой
   bot.telegram.sendVideo = async function(chatId: number, video: any, options?: any) {
     // Показываем индикатор загрузки видео
     try {
@@ -263,11 +295,34 @@ export function wrapTelegramApi(bot: any) {
     } catch (error) {
       // Не критично
     }
-    
-    return originalSendVideo(chatId, video, options);
+
+    // 🛡️ Оборачиваем в sendWithRetry с VIDEO_INVALID detection
+    return await sendWithRetry(
+      async () => {
+        try {
+          return await originalSendVideo(chatId, video, options);
+        } catch (sendError: any) {
+          // Детектируем ошибки валидации видео и конвертируем их в ETELEGRAM для retry
+          if (
+            sendError.message?.includes('VIDEO_PROCESS_FAILED') ||
+            sendError.message?.includes('VIDEO_INVALID') ||
+            sendError.message?.includes('VIDEO_FILE_INVALID') ||
+            sendError.message?.includes('Bad Request: wrong file')
+          ) {
+            throw new Error(`ETELEGRAM: VIDEO_INVALID - ${sendError.message}`);
+          }
+          throw sendError;
+        }
+      },
+      {
+        chatId,
+        messageType: 'video',
+      },
+      { maxAttempts: 3, intervalMs: 5000 }
+    );
   };
   
-  // Оборачиваем sendDocument
+  // Оборачиваем sendDocument с retry защитой
   bot.telegram.sendDocument = async function(chatId: number, document: any, options?: any) {
     // Показываем индикатор загрузки документа
     try {
@@ -275,11 +330,19 @@ export function wrapTelegramApi(bot: any) {
     } catch (error) {
       // Не критично
     }
-    
-    return originalSendDocument(chatId, document, options);
+
+    // 🛡️ Оборачиваем в sendWithRetry
+    return await sendWithRetry(
+      async () => await originalSendDocument(chatId, document, options),
+      {
+        chatId,
+        messageType: 'document',
+      },
+      { maxAttempts: 3, intervalMs: 5000 }
+    );
   };
   
-  // Оборачиваем sendMediaGroup
+  // Оборачиваем sendMediaGroup с retry защитой
   bot.telegram.sendMediaGroup = async function(chatId: number, media: any, options?: any) {
     // Показываем индикатор загрузки фото
     try {
@@ -287,8 +350,33 @@ export function wrapTelegramApi(bot: any) {
     } catch (error) {
       // Не критично
     }
-    
-    return originalSendMediaGroup(chatId, media, options);
+
+    // 🛡️ Оборачиваем в sendWithRetry с MEDIA_INVALID detection
+    return await sendWithRetry(
+      async () => {
+        try {
+          return await originalSendMediaGroup(chatId, media, options);
+        } catch (sendError: any) {
+          // Детектируем ошибки валидации медиа и конвертируем их в ETELEGRAM для retry
+          if (
+            sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+            sendError.message?.includes('VIDEO_PROCESS_FAILED') ||
+            sendError.message?.includes('PHOTO_INVALID') ||
+            sendError.message?.includes('VIDEO_INVALID') ||
+            sendError.message?.includes('MEDIA_INVALID') ||
+            sendError.message?.includes('Bad Request: wrong file')
+          ) {
+            throw new Error(`ETELEGRAM: MEDIA_INVALID - ${sendError.message}`);
+          }
+          throw sendError;
+        }
+      },
+      {
+        chatId,
+        messageType: 'media_group',
+      },
+      { maxAttempts: 3, intervalMs: 5000 }
+    );
   };
   
   // Оборачиваем editMessageText

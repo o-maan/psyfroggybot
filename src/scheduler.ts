@@ -2158,15 +2158,32 @@ ${weekendPromptContent}`;
         const genderAdaptedCaption = parseGenderTemplate(targetCaption, userGender).text;
 
         if (imageBuffer) {
-          // Отправляем сгенерированное изображение
-          return await this.bot.telegram.sendPhoto(
-            targetChatId,
-            { source: imageBuffer },
-            {
-              caption: genderAdaptedCaption,
-              parse_mode: 'HTML',
+          // Отправляем сгенерированное изображение с IMAGE_INVALID detection
+          try {
+            return await this.bot.telegram.sendPhoto(
+              targetChatId,
+              { source: imageBuffer },
+              {
+                caption: genderAdaptedCaption,
+                parse_mode: 'HTML',
+              }
+            );
+          } catch (sendError: any) {
+            // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+            if (
+              sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+              sendError.message?.includes('PHOTO_INVALID') ||
+              sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+              sendError.message?.includes('Bad Request: wrong file')
+            ) {
+              schedulerLogger.warn(
+                { error: sendError.message },
+                '⚠️ Сгенерированное изображение невалидно для вечернего поста'
+              );
+              throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
             }
-          );
+            throw sendError;
+          }
         } else {
           // Fallback: используем картинки для вечерних постов
           let imagePath: string;
@@ -2179,14 +2196,33 @@ ${weekendPromptContent}`;
           }
 
           const imageFile = await readFile(imagePath);
-          return await this.bot.telegram.sendPhoto(
-            targetChatId,
-            { source: imageFile },
-            {
-              caption: genderAdaptedCaption,
-              parse_mode: 'HTML',
+
+          // Отправляем fallback изображение с IMAGE_INVALID detection
+          try {
+            return await this.bot.telegram.sendPhoto(
+              targetChatId,
+              { source: imageFile },
+              {
+                caption: genderAdaptedCaption,
+                parse_mode: 'HTML',
+              }
+            );
+          } catch (sendError: any) {
+            // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+            if (
+              sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+              sendError.message?.includes('PHOTO_INVALID') ||
+              sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+              sendError.message?.includes('Bad Request: wrong file')
+            ) {
+              schedulerLogger.warn(
+                { error: sendError.message, imagePath },
+                '⚠️ Fallback изображение невалидно для вечернего поста'
+              );
+              throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
             }
-          );
+            throw sendError;
+          }
         }
       };
 
@@ -4131,17 +4167,32 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         );
       }
 
-      // Отправляем с повторными попытками
+      // 🛡️ Отправляем с повторными попытками + IMAGE_INVALID detection
       const sentMessage = await this.sendWithRetry(
         async () => {
-          return await this.bot.telegram.sendPhoto(
-            targetChatId,
-            { source: imagePath },
-            {
-              caption: finalText,
-              parse_mode: 'HTML',
+          let result;
+          try {
+            result = await this.bot.telegram.sendPhoto(
+              targetChatId,
+              { source: imagePath },
+              {
+                caption: finalText,
+                parse_mode: 'HTML',
+              }
+            );
+          } catch (sendError: any) {
+            // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+            if (
+              sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+              sendError.message?.includes('PHOTO_INVALID') ||
+              sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+              sendError.message?.includes('Bad Request: wrong file')
+            ) {
+              throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
             }
-          );
+            throw sendError;
+          }
+          return result;
         },
         {
           chatId: userId,
@@ -4161,18 +4212,48 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         try {
           schedulerLogger.info({ userId }, '📬 Отправка дополнительной копии злого поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
-          await this.bot.telegram.sendPhoto(
-            userId,
-            { source: imagePath },
-            {
-              caption: finalText,
-              parse_mode: 'HTML',
-            }
-          );
+          // 🛡️ Защищённая отправка копии в ЛС с fallback на другое изображение
+          let dmImagePath = imagePath;
+          let sendSuccess = false;
+          let attempts = 0;
+          const maxDmAttempts = 3;
 
-          schedulerLogger.info({ userId }, '✅ Копия злого поста успешно отправлена в ЛС');
+          while (!sendSuccess && attempts < maxDmAttempts) {
+            attempts++;
+            try {
+              await this.bot.telegram.sendPhoto(
+                userId,
+                { source: dmImagePath },
+                {
+                  caption: finalText,
+                  parse_mode: 'HTML',
+                }
+              );
+              sendSuccess = true;
+              schedulerLogger.info({ userId, attempts }, '✅ Копия злого поста успешно отправлена в ЛС');
+            } catch (dmSendError: any) {
+              // Если это IMAGE_INVALID - пробуем другое изображение
+              if (
+                (dmSendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+                  dmSendError.message?.includes('PHOTO_INVALID') ||
+                  dmSendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+                  dmSendError.message?.includes('Bad Request: wrong file')) &&
+                attempts < maxDmAttempts
+              ) {
+                schedulerLogger.warn(
+                  { userId, attempt: attempts, error: dmSendError.message },
+                  '⚠️ Изображение невалидно для копии в ЛС, пробуем другое'
+                );
+                dmImagePath = this.angryImageFiles[Math.floor(Math.random() * this.angryImageFiles.length)];
+              } else {
+                // Для других ошибок или если исчерпали попытки
+                throw dmSendError;
+              }
+            }
+          }
         } catch (dmError) {
           schedulerLogger.error({ error: dmError, userId }, '❌ Ошибка отправки копии злого поста в ЛС');
+          // Не пробрасываем ошибку - основной пост уже отправлен
         }
       }
 
@@ -4376,14 +4457,44 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       let sentMessage;
       if (imageBuffer) {
-        sentMessage = await this.bot.telegram.sendPhoto(
-          targetChatId,
-          { source: imageBuffer },
-          {
-            caption: finalCaption,
-            parse_mode: 'HTML',
+        // 🛡️ Создаем функцию отправки с IMAGE_INVALID detection
+        const sendMorningPhotoFunction = async () => {
+          let result;
+          try {
+            result = await this.bot.telegram.sendPhoto(
+              targetChatId,
+              { source: imageBuffer },
+              {
+                caption: finalCaption,
+                parse_mode: 'HTML',
+              }
+            );
+          } catch (sendError: any) {
+            // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+            if (
+              sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+              sendError.message?.includes('PHOTO_INVALID') ||
+              sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+              sendError.message?.includes('Bad Request: wrong file')
+            ) {
+              throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
+            }
+            throw sendError;
           }
+          return result;
+        };
+
+        // 🛡️ Оборачиваем в sendWithRetry (3 попытки с 5 сек интервалом)
+        sentMessage = await sendWithRetry(
+          sendMorningPhotoFunction,
+          {
+            chatId: userId,
+            messageType: 'morning_post',
+            userId,
+          },
+          { maxAttempts: 3, intervalMs: 5000 }
         );
+
         schedulerLogger.info(
           {
             chatId,
@@ -4423,14 +4534,44 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           }
         }
 
-        sentMessage = await this.bot.telegram.sendPhoto(
-          targetChatId,
-          { source: imagePath },
-          {
-            caption: finalCaption,
-            parse_mode: 'HTML',
+        // 🛡️ Создаем функцию отправки с IMAGE_INVALID detection
+        const sendMorningPhotoFallbackFunction = async () => {
+          let result;
+          try {
+            result = await this.bot.telegram.sendPhoto(
+              targetChatId,
+              { source: imagePath },
+              {
+                caption: finalCaption,
+                parse_mode: 'HTML',
+              }
+            );
+          } catch (sendError: any) {
+            // Детектируем ошибки валидации изображения и конвертируем их в ETELEGRAM для retry
+            if (
+              sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+              sendError.message?.includes('PHOTO_INVALID') ||
+              sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+              sendError.message?.includes('Bad Request: wrong file')
+            ) {
+              throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
+            }
+            throw sendError;
           }
+          return result;
+        };
+
+        // 🛡️ Оборачиваем в sendWithRetry (3 попытки с 5 сек интервалом)
+        sentMessage = await sendWithRetry(
+          sendMorningPhotoFallbackFunction,
+          {
+            chatId: userId,
+            messageType: 'morning_post_fallback',
+            userId,
+          },
+          { maxAttempts: 3, intervalMs: 5000 }
         );
+
         schedulerLogger.info(
           {
             chatId,
@@ -4451,10 +4592,34 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
         try {
           schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии утреннего поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
+          // 🛡️ Защищённое чтение изображения для копии в ЛС
+          let dmImageSource: Buffer | string;
+          if (imageBuffer) {
+            dmImageSource = imageBuffer;
+          } else {
+            try {
+              dmImageSource = await readFile(this.getNextMorningImage());
+            } catch (readError) {
+              // Fallback: случайная утренняя картинка
+              schedulerLogger.warn({ error: readError }, '⚠️ Не удалось прочитать изображение для копии в ЛС, используем fallback');
+              const allMorningImages: string[] = [];
+              for (let cat = 1; cat <= 3; cat++) {
+                const images = this.morningImageFiles.get(cat) || [];
+                allMorningImages.push(...images);
+              }
+              if (allMorningImages.length > 0) {
+                const randomImage = allMorningImages[Math.floor(Math.random() * allMorningImages.length)];
+                dmImageSource = await readFile(randomImage);
+              } else {
+                throw new Error('Нет доступных утренних картинок для копии в ЛС');
+              }
+            }
+          }
+
           // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
             chatId,
-            imageBuffer ? { source: imageBuffer } : { source: await readFile(this.getNextMorningImage()) },
+            { source: dmImageSource },
             {
               caption: finalCaption.replace('\n\nПереходи в комментарии и продолжим 😉', ''), // Удаляем приглашение в комментарии
               parse_mode: 'HTML',
@@ -4464,6 +4629,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
           schedulerLogger.info({ chatId }, '✅ Копия утреннего поста успешно отправлена в ЛС');
         } catch (dmError) {
           schedulerLogger.error({ error: dmError, chatId }, '❌ Ошибка отправки копии утреннего поста в ЛС');
+          // Не пробрасываем ошибку - основной пост уже отправлен
         }
       }
 
@@ -8132,15 +8298,6 @@ ${allDayUserMessages}
       schedulerLogger.info({ userId }, '✅ Тексты для комментариев готовы, отправляем пост в канал');
 
       // 5. ОТПРАВЛЯЕМ ПОСТ В КАНАЛ (только после подготовки всех текстов!)
-      let fallbackImagePath: string;
-      try {
-        fallbackImagePath = this.getNextImage(userId);
-      } catch (imageError) {
-        // Fallback при ошибке: случайная картинка из вечерних
-        schedulerLogger.error({ error: imageError }, '❌ Ошибка выбора картинки для Joy, используем fallback');
-        fallbackImagePath = this.imageFiles[Math.floor(Math.random() * this.imageFiles.length)];
-      }
-
       // Текст зависит от сценария (вводный или основной)
       let postText: string;
       if (isFirstTime) {
@@ -8161,40 +8318,130 @@ ${allDayUserMessages}
         postText = `${mainPostText}\n\nПереходи в комментарии и продолжим 😉`;
       }
 
-      const imageBuffer = await readFile(fallbackImagePath);
+      // Функция отправки JOY поста с защитой от повреждённых изображений
+      const sendJoyPhotoFunction = async () => {
+        // Пытаемся получить изображение с fallback
+        let imagePath: string = '';
+        let imageBuffer: Buffer = Buffer.from([]);
 
-      // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
-      let targetChatId = userId; // По умолчанию - ЛС
+        try {
+          imagePath = this.getNextImage(userId);
+          imageBuffer = await readFile(imagePath);
+          schedulerLogger.info({ userId, imagePath }, '🖼️ Выбрано изображение для JOY поста');
+        } catch (imageError) {
+          // Fallback: пытаемся несколько случайных картинок
+          schedulerLogger.error(
+            { error: imageError },
+            '❌ Ошибка выбора/чтения картинки для Joy, пробуем fallback'
+          );
 
-      if (channelEnabled && user?.channel_id) {
-        // Пользователь имеет свой канал - отправляем туда
-        targetChatId = user.channel_id;
-        schedulerLogger.info({ userId, channelId: user.channel_id }, '📢 Отправка JOY поста в канал пользователя');
-      } else if (channelEnabled && !user?.channel_id) {
-        // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
-        schedulerLogger.warn(
-          { userId },
-          '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем JOY пост в ЛС'
-        );
-      }
+          let fallbackSuccess = false;
+          let attempts = 0;
+          const maxFallbackAttempts = 5;
 
-      const channelMessage = await this.bot.telegram.sendPhoto(
-        targetChatId,
-        { source: imageBuffer },
-        { caption: postText, parse_mode: 'HTML' }
+          while (!fallbackSuccess && attempts < maxFallbackAttempts) {
+            attempts++;
+            try {
+              const randomIndex = Math.floor(Math.random() * this.imageFiles.length);
+              imagePath = this.imageFiles[randomIndex];
+              imageBuffer = await readFile(imagePath);
+              fallbackSuccess = true;
+              schedulerLogger.info(
+                { userId, fallbackImagePath: imagePath, attempt: attempts },
+                '🖼️ Использован fallback для JOY поста'
+              );
+            } catch (fallbackError) {
+              schedulerLogger.warn(
+                { error: fallbackError, attempt: attempts, maxAttempts: maxFallbackAttempts },
+                '⚠️ Fallback изображение тоже повреждено, пробуем следующее'
+              );
+
+              if (attempts >= maxFallbackAttempts) {
+                throw new Error(`Не удалось найти рабочее изображение после ${maxFallbackAttempts} попыток`);
+              }
+            }
+          }
+        }
+
+        // ✅ Определяем куда отправлять на основе channel_id пользователя
+        let targetChatId = userId; // По умолчанию - ЛС
+
+        if (channelEnabled && user?.channel_id) {
+          // Пользователь имеет свой канал - отправляем туда
+          targetChatId = user.channel_id;
+          schedulerLogger.info({ userId, channelId: user.channel_id }, '📢 Отправка JOY поста в канал пользователя');
+        } else if (channelEnabled && !user?.channel_id) {
+          // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
+          schedulerLogger.warn(
+            { userId },
+            '⚠️ У пользователя включен channel_enabled, но НЕ указан channel_id! Отправляем JOY пост в ЛС'
+          );
+        }
+
+        // Отправляем фото с обработкой ошибок изображения
+        let result;
+        try {
+          result = await this.bot.telegram.sendPhoto(
+            targetChatId,
+            { source: imageBuffer },
+            { caption: postText, parse_mode: 'HTML' }
+          );
+        } catch (sendError: any) {
+          // Если ошибка связана с повреждённым изображением - делаем её "сетевой"
+          // чтобы sendWithRetry повторил попытку с ДРУГИМ изображением
+          if (
+            sendError.message?.includes('IMAGE_PROCESS_FAILED') ||
+            sendError.message?.includes('PHOTO_INVALID') ||
+            sendError.message?.includes('PHOTO_SAVE_FILE_INVALID') ||
+            sendError.message?.includes('Bad Request: wrong file')
+          ) {
+            schedulerLogger.warn(
+              { error: sendError.message, imagePath },
+              '⚠️ Изображение невалидно для Telegram, пробуем другое'
+            );
+            // Выбрасываем ошибку как "сетевую" чтобы retry сработал
+            throw new Error(`ETELEGRAM: IMAGE_INVALID - ${sendError.message}`);
+          }
+          // Остальные ошибки пробрасываем как есть
+          throw sendError;
+        }
+
+        // Если включены оба режима И пост ушёл в канал (channel_id заполнен) - отправляем копию в ЛС
+        if (channelEnabled && dmEnabled && user?.channel_id) {
+          schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
+          try {
+            await this.bot.telegram.sendPhoto(
+              userId,
+              { source: imageBuffer },
+              { caption: postText, parse_mode: 'HTML' }
+            );
+          } catch (dmError: any) {
+            // Копия в ЛС не критична - логируем и продолжаем
+            schedulerLogger.warn(
+              { error: dmError.message, userId },
+              '⚠️ Не удалось отправить копию JOY поста в ЛС'
+            );
+          }
+        }
+
+        return result;
+      };
+
+      // Отправляем с механизмом повторных попыток
+      const channelMessage = await sendWithRetry(
+        sendJoyPhotoFunction,
+        {
+          chatId: userId,
+          messageType: 'joy_post',
+          userId,
+        },
+        {
+          maxAttempts: 3,
+          intervalMs: 5000,
+        }
       );
 
       const channelMessageId = channelMessage.message_id;
-
-      // Если включены оба режима И пост ушёл в канал (channel_id заполнен) - отправляем копию в ЛС
-      if (channelEnabled && dmEnabled && user?.channel_id) {
-        schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
-        await this.bot.telegram.sendPhoto(
-          userId,
-          { source: imageBuffer },
-          { caption: postText, parse_mode: 'HTML' }
-        );
-      }
 
       // 6. Обновляем callback_data с реальным channelMessageId
       if (isFirstTime) {
