@@ -139,5 +139,8 @@ export function extractCleanText(text: string): string {
   // Заменяем шаблоны на мужской вариант
   cleanText = cleanText.replace(/\$\{([^:}]*):([^}]+)\}/g, '$1');
 
+  // Нормализуем переносы: 3+ переносов -> 2 (одна пустая строка максимум)
+  cleanText = cleanText.replace(/\n{3,}/g, '\n\n');
+
   return cleanText.trim();
 }

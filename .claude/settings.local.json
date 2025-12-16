@@ -31,7 +31,8 @@
       "Bash(cp:*)",
       "Bash(awk:*)",
       "Bash(killall:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
