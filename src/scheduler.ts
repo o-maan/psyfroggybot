@@ -2153,9 +2153,25 @@ ${weekendPromptContent}`;
 
         // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
         // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
-        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-        const genderAdaptedCaption = parseGenderTemplate(targetCaption, userGender).text;
+        let genderAdaptedCaption = targetCaption; // fallback
+        try {
+          const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+          const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+          genderAdaptedCaption = parseGenderTemplate(targetCaption, userGender).text;
+          schedulerLogger.debug({ userId: postUserId, userGender, hadTemplate: genderAdaptedCaption !== targetCaption }, 'Текст вечернего поста адаптирован под пол');
+        } catch (parseError) {
+          schedulerLogger.error(
+            { error: parseError, userId: postUserId, captionLength: targetCaption.length },
+            '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал в вечернем посте! Используем оригинальный текст'
+          );
+          const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          if (adminChatId) {
+            await this.bot.telegram.sendMessage(
+              adminChatId,
+              `❌ КРИТИЧЕСКАЯ ОШИБКА в вечернем посте для пользователя ${postUserId}:\nparseGenderTemplate упал!\n\nОшибка: ${(parseError as Error).message}\n\nТекст отправлен БЕЗ адаптации рода!`
+            ).catch(() => {/* игнорируем */});
+          }
+        }
 
         if (imageBuffer) {
           // Отправляем сгенерированное изображение с IMAGE_INVALID detection
@@ -2359,9 +2375,17 @@ ${weekendPromptContent}`;
           schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (пост ушёл в канал, дублируем в ЛС)');
 
           // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption для ЛС через parseGenderTemplate
-          const { parseGenderTemplate } = await import('./utils/gender-template-parser');
-          const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-          const dmCaption = parseGenderTemplate(firstPart, userGender).text;
+          let dmCaption = firstPart; // fallback
+          try {
+            const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+            const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+            dmCaption = parseGenderTemplate(firstPart, userGender).text;
+          } catch (parseError) {
+            schedulerLogger.error(
+              { error: parseError, userId: postUserId },
+              '❌ parseGenderTemplate упал в копии вечернего поста для ЛС'
+            );
+          }
 
           // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
@@ -4169,9 +4193,25 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
       // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-      const { parseGenderTemplate } = await import('./utils/gender-template-parser');
-      const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-      const genderAdaptedCaption = parseGenderTemplate(finalText, userGender).text;
+      let genderAdaptedCaption = finalText; // fallback
+      try {
+        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+        genderAdaptedCaption = parseGenderTemplate(finalText, userGender).text;
+        schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedCaption !== finalText }, 'Текст злого поста адаптирован под пол');
+      } catch (parseError) {
+        schedulerLogger.error(
+          { error: parseError, userId, textLength: finalText.length },
+          '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал в злом посте!'
+        );
+        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+        if (adminChatId) {
+          await this.bot.telegram.sendMessage(
+            adminChatId,
+            `❌ КРИТИЧЕСКАЯ ОШИБКА в злом посте для пользователя ${userId}:\nparseGenderTemplate упал!\n\nОшибка: ${(parseError as Error).message}`
+          ).catch(() => {/* игнорируем */});
+        }
+      }
 
       // 🛡️ Отправляем с повторными попытками + IMAGE_INVALID detection
       const sentMessage = await this.sendWithRetry(
@@ -4453,9 +4493,26 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
       // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-      const { parseGenderTemplate } = await import('./utils/gender-template-parser');
-      const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-      const genderAdaptedCaption = parseGenderTemplate(captionWithComment, userGender).text;
+      let genderAdaptedCaption = captionWithComment; // fallback
+      try {
+        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+        genderAdaptedCaption = parseGenderTemplate(captionWithComment, userGender).text;
+        schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedCaption !== captionWithComment }, 'Текст утреннего поста адаптирован под пол');
+      } catch (parseError) {
+        schedulerLogger.error(
+          { error: parseError, userId, captionLength: captionWithComment.length },
+          '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал! Используем оригинальный текст'
+        );
+        // Уведомляем админа
+        const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+        if (adminChatId) {
+          await this.bot.telegram.sendMessage(
+            adminChatId,
+            `❌ КРИТИЧЕСКАЯ ОШИБКА в утреннем посте для пользователя ${userId}:\nparseGenderTemplate упал!\n\nОшибка: ${(parseError as Error).message}\n\nТекст отправлен БЕЗ адаптации рода!`
+          ).catch(() => {/* игнорируем ошибку отправки админу */});
+        }
+      }
 
       // Отправляем основной пост БЕЗ кнопок
       // ✅ Определяем финальный текст: в ЛС без "Переходи в комментарии"
@@ -8386,9 +8443,25 @@ ${allDayUserMessages}
 
         // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
         // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-        const { parseGenderTemplate } = await import('./utils/gender-template-parser');
-        const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-        const genderAdaptedPostText = parseGenderTemplate(postText, userGender).text;
+        let genderAdaptedPostText = postText; // fallback
+        try {
+          const { parseGenderTemplate } = await import('./utils/gender-template-parser');
+          const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+          genderAdaptedPostText = parseGenderTemplate(postText, userGender).text;
+          schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedPostText !== postText }, 'Текст JOY поста адаптирован под пол');
+        } catch (parseError) {
+          schedulerLogger.error(
+            { error: parseError, userId, textLength: postText.length },
+            '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал в JOY посте!'
+          );
+          const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+          if (adminChatId) {
+            await this.bot.telegram.sendMessage(
+              adminChatId,
+              `❌ КРИТИЧЕСКАЯ ОШИБКА в JOY посте для пользователя ${userId}:\nparseGenderTemplate упал!\n\nОшибка: ${(parseError as Error).message}`
+            ).catch(() => {/* игнорируем */});
+          }
+        }
 
         // Отправляем фото с обработкой ошибок изображения
         let result;
