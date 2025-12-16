@@ -28,9 +28,15 @@ export async function handleEmotionsTable(ctx: BotContext) {
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
     const sendOptions: any = {};
-    if (threadId) {
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
     
@@ -52,16 +58,24 @@ export async function handleEmotionsTable(ctx: BotContext) {
       const chatId = ctx.callbackQuery.message?.chat?.id!;
       const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
+      // ✅ Определяем режим: ЛС или комментарии (повторно, т.к. в catch блоке)
+      // Переопределяем channelMessageId т.к. он недоступен из try блока
+      const channelMessageIdFallback = parseInt(ctx.match![1]);
+      const { getInteractivePost: getInteractivePostFallback } = await import('../../db');
+      const postFallback = getInteractivePostFallback(channelMessageIdFallback);
+      const isDmModeFallback = postFallback?.is_dm_mode ?? false;
+
       const fallbackText = 'Вот основные эмоции - грусть, радость, злость, страх, вина, стыд\n' +
                           'Попробуй описать ими или постарайся нащупать оттенки\n\n' +
                           '<i>P.S. Таблица эмоций не загрузилась, попробуй чуть позже</i>';
 
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
+      // В режиме канала используем reply_to_message_id, в ЛС - нет
       const sendOptions: any = {
         parse_mode: 'HTML'
       };
 
-      if (threadId) {
+      if (!isDmModeFallback && threadId) {
         sendOptions.reply_to_message_id = threadId;
       }
       

@@ -2096,9 +2096,11 @@ ${weekendPromptContent}`;
       const tempMessageId = Date.now(); // Временный ID на основе timestamp
 
       const { saveInteractivePost } = await import('./db');
+      // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
+      const isDmMode = !channelEnabled || !user?.channel_id;
       try {
-        saveInteractivePost(tempMessageId, postUserId, messageDataWithSupport, relaxationType);
-        schedulerLogger.info({ tempMessageId, chatId }, '💾 Пост предварительно сохранен в БД с временным ID');
+        saveInteractivePost(tempMessageId, postUserId, messageDataWithSupport, relaxationType, isDmMode);
+        schedulerLogger.info({ tempMessageId, chatId, isDmMode }, '💾 Пост предварительно сохранен в БД с временным ID');
       } catch (dbError) {
         schedulerLogger.error({ error: dbError, chatId }, '❌ Критическая ошибка: не удалось сохранить пост в БД');
         // Если не удалось сохранить в БД - НЕ отправляем в Telegram
@@ -2261,7 +2263,7 @@ ${weekendPromptContent}`;
           // Создаем fallback запись с правильным ID
           try {
             const { saveInteractivePost } = await import('./db');
-            saveInteractivePost(messageId, postUserId, messageDataWithSupport, relaxationType);
+            saveInteractivePost(messageId, postUserId, messageDataWithSupport, relaxationType, isDmMode);
             // Удаляем временную запись
             const db = await import('./db');
             const deleteQuery = db.db.query('DELETE FROM interactive_posts WHERE channel_message_id = ?');
@@ -2286,15 +2288,29 @@ ${weekendPromptContent}`;
 
         // Получаем ID группы обсуждений
         const CHAT_ID = this.getChatId();
-        if (CHAT_ID) {
-          // Отправляем выбор сценария асинхронно после появления пересланного сообщения
+
+        // ✅ Отправляем выбор сценария: в ЛС напрямую, в канале - через комментарии
+        if (isDmMode) {
+          // Режим ЛС: отправляем сразу в ЛС
           this.sendFirstTaskAsync(
             messageId,
             scenarioChoiceText,
             scenarioChoiceKeyboard,
             'scenario_choice',
             chatId,
-            CHAT_ID
+            chatId, // В ЛС режиме CHAT_ID = chatId пользователя
+            true // isDmMode = true
+          );
+        } else if (CHAT_ID) {
+          // Режим канала: ждем пересланное сообщение и отправляем в комментарии
+          this.sendFirstTaskAsync(
+            messageId,
+            scenarioChoiceText,
+            scenarioChoiceKeyboard,
+            'scenario_choice',
+            chatId,
+            CHAT_ID,
+            false // isDmMode = false
           );
         }
 
@@ -2458,9 +2474,48 @@ ${weekendPromptContent}`;
     firstTaskKeyboard: any,
     skipButtonText: string,
     originalChatId: number,
-    CHAT_ID: number
+    CHAT_ID: number,
+    isDmMode: boolean = false // Если true - отправляем в ЛС напрямую, без ожидания forwardedMessageId
   ) {
     try {
+      // ✅ РЕЖИМ ЛС: отправляем сразу в ЛС пользователя без ожидания
+      if (isDmMode) {
+        schedulerLogger.info(
+          { channelMessageId, originalChatId, isDmMode },
+          '📬 Режим ЛС: отправляем первое задание напрямую в ЛС'
+        );
+
+        const messageOptions: any = {
+          parse_mode: 'HTML',
+          reply_markup: firstTaskKeyboard,
+          disable_notification: true,
+        };
+
+        const firstTaskMessage = await this.sendWithRetry(
+          () => sendToUser(this.bot, originalChatId, originalChatId, firstTaskFullText, messageOptions),
+          {
+            chatId: originalChatId,
+            messageType: 'first_task_dm',
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            firstTaskId: firstTaskMessage.message_id,
+            channelMessageId,
+            originalChatId,
+            isDmMode,
+          },
+          '✅ Первое задание отправлено в ЛС'
+        );
+
+        return;
+      }
+
+      // ✅ РЕЖИМ КАНАЛА: ждем пересланное сообщение и отправляем в комментарии
       // Периодически проверяем наличие пересланного сообщения
       let forwardedMessageId: number | null = null;
       let attempts = 0;
@@ -4321,8 +4376,10 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Сохраняем злой пост
-      saveAngryPost(sentMessage.message_id, threadId, userId);
-      schedulerLogger.info({ channelMessageId: sentMessage.message_id, threadId, userId }, 'Злой пост сохранен в БД');
+      // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
+      const isDmMode = !channelEnabled || !user?.channel_id;
+      saveAngryPost(sentMessage.message_id, threadId, userId, isDmMode);
+      schedulerLogger.info({ channelMessageId: sentMessage.message_id, threadId, userId, isDmMode }, 'Злой пост сохранен в БД');
 
       // Сохраняем сообщение в историю (используем адаптированный текст)
       saveMessage(userId, genderAdaptedCaption, new Date().toISOString());
@@ -4699,9 +4756,11 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Сохраняем пост в БД как утренний (с типом morning)
       const { saveMorningPost } = await import('./db');
       const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
-      saveMorningPost(messageId, postUserId);
+      // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
+      const isDmMode = !channelEnabled || !user?.channel_id;
+      saveMorningPost(messageId, postUserId, isDmMode);
 
-      schedulerLogger.info({ messageId, chatId }, '💾 Утренний пост сохранен в БД');
+      schedulerLogger.info({ messageId, chatId, isDmMode }, '💾 Утренний пост сохранен в БД');
 
       // 💾 Сохраняем информацию об утреннем посте в user_daily_posts
       try {
@@ -4721,15 +4780,29 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Получаем ID группы обсуждений
       const CHAT_ID = this.getChatId();
-      if (CHAT_ID) {
-        // Отправляем первое сообщение в комментарии асинхронно
+
+      // ✅ Отправляем первое сообщение: в ЛС напрямую, в канале - через комментарии
+      if (isDmMode) {
+        // Режим ЛС: отправляем сразу в ЛС
         this.sendFirstTaskAsync(
           messageId,
           'Когда будешь готов поделиться - просто напиши!\nЯ не смогу ответить на твои вопросы, но всегда готов выслушать. Иногда это именно то, что нужно 🤗',
           undefined,
           'morning_initial',
           chatId,
-          CHAT_ID
+          chatId, // В ЛС режиме CHAT_ID = chatId пользователя
+          true // isDmMode = true
+        );
+      } else if (CHAT_ID) {
+        // Режим канала: ждем пересланное сообщение и отправляем в комментарии
+        this.sendFirstTaskAsync(
+          messageId,
+          'Когда будешь готов поделиться - просто напиши!\nЯ не смогу ответить на твои вопросы, но всегда готов выслушать. Иногда это именно то, что нужно 🤗',
+          undefined,
+          'morning_initial',
+          chatId,
+          CHAT_ID,
+          false // isDmMode = false
         );
       }
 
@@ -4764,11 +4837,19 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     const { getLastNMessages } = await import('./db');
     const { checkRudeMessage } = await import('./utils/rude-filter');
 
+    // ✅ Определяем режим: ЛС или комментарии для утренних постов
+    // В режиме ЛС не используем messageThreadId для reply_to_message_id
+    const isDmMode = (morningPost as any)?.is_dm_mode ?? false;
+    // effectiveThreadId будет undefined в режиме ЛС, messageThreadId в режиме канала
+    const effectiveThreadId = isDmMode ? undefined : messageThreadId;
+
     schedulerLogger.info(
       {
         userId,
         currentStep: morningPost.current_step,
         messageText: messageText.substring(0, 50),
+        isDmMode,
+        effectiveThreadId,
       },
       '🌅 Обработка ответа на утренний пост'
     );
@@ -4857,8 +4938,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       };
 
       // Используем messageThreadId для отправки в комментарии
-      if (messageThreadId) {
-        sendOptions.reply_to_message_id = messageThreadId;
+      if (effectiveThreadId) {
+        sendOptions.reply_to_message_id = effectiveThreadId;
       }
 
       const sentMessage = await this.sendWithRetry(
@@ -4919,8 +5000,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       };
 
       // Используем messageThreadId для отправки в комментарии
-      if (messageThreadId) {
-        sendOptions.reply_to_message_id = messageThreadId;
+      if (effectiveThreadId) {
+        sendOptions.reply_to_message_id = effectiveThreadId;
       }
 
       const sentMessage = await this.sendWithRetry(
@@ -5002,8 +5083,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       };
 
       // Используем messageThreadId для отправки в комментарии
-      if (messageThreadId) {
-        sendOptions.reply_to_message_id = messageThreadId;
+      if (effectiveThreadId) {
+        sendOptions.reply_to_message_id = effectiveThreadId;
       }
 
       const sentMessage = await this.sendWithRetry(
@@ -5032,8 +5113,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       const finalText = 'Спасибо что делишься! Я всегда рад тебя слушать 🤗';
 
       const completedOptions: any = {};
-      if (messageThreadId) {
-        completedOptions.reply_to_message_id = messageThreadId;
+      if (effectiveThreadId) {
+        completedOptions.reply_to_message_id = effectiveThreadId;
       }
 
       await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, finalText, completedOptions), {
@@ -5053,11 +5134,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
     messageText: string,
     replyToChatId: number,
     messageId: number,
-    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string },
+    morningPost: { id: number; channel_message_id: number; user_id: number; created_at: string; current_step: string; is_dm_mode?: boolean },
     messageThreadId?: number
   ) {
     const { updateMorningPostStep } = await import('./db');
     const { getMorningPostUserMessages, getMorningPostMessagesAfterLastFinal } = await import('./db');
+
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = morningPost?.is_dm_mode ?? false;
+    const effectiveThreadId = isDmMode ? undefined : messageThreadId;
 
     // Получаем ВСЕ сообщения за день (для контекста)
     const allDayMessages = getMorningPostUserMessages(userId, morningPost.channel_message_id);
@@ -5155,8 +5240,8 @@ ${allDayUserMessages}
     const fullMessage = `${cleanedFinalResponse}\n\nЕсли захочешь еще чем-то поделиться - я рядом 🤗`;
 
     const step3Options: any = {};
-    if (messageThreadId) {
-      step3Options.reply_to_message_id = messageThreadId;
+    if (effectiveThreadId) {
+      step3Options.reply_to_message_id = effectiveThreadId;
     }
 
     await this.sendWithRetry(() => sendToUser(this.bot, replyToChatId, userId, fullMessage, step3Options), {
@@ -6008,11 +6093,19 @@ ${allDayUserMessages}
       return false;
     }
 
+    // ✅ Определяем режим: ЛС или комментарии
+    // В режиме ЛС не используем messageThreadId для reply_to_message_id
+    const isDmMode = activePost?.is_dm_mode ?? false;
+    // effectiveThreadId будет undefined в режиме ЛС, messageThreadId в режиме канала
+    const effectiveThreadId = isDmMode ? undefined : messageThreadId;
+
     schedulerLogger.info(
       {
         userId,
         step: session.currentStep,
         messageText: messageText.substring(0, 50),
+        isDmMode,
+        effectiveThreadId,
       },
       'Обработка интерактивного ответа пользователя'
     );
@@ -6149,14 +6242,15 @@ ${allDayUserMessages}
         };
 
         // Отправляем второе сообщение с кнопкой
-        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
+        // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через effectiveThreadId)
+        // В режиме ЛС effectiveThreadId будет undefined
         const secondTaskSendOptions: any = {
           parse_mode: 'HTML',
           reply_markup: emotionsTableKeyboard,
         };
 
-        if (messageThreadId) {
-          secondTaskSendOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          secondTaskSendOptions.reply_to_message_id = effectiveThreadId;
         }
 
         const secondTaskMessage = await this.sendWithRetry(
@@ -6235,8 +6329,8 @@ ${allDayUserMessages}
           },
         };
 
-        if (messageThreadId) {
-          sendOptionsWithButton.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          sendOptionsWithButton.reply_to_message_id = effectiveThreadId;
         }
 
         await this.sendWithRetry(
@@ -6312,8 +6406,8 @@ ${allDayUserMessages}
             },
           };
 
-          if (messageThreadId) {
-            sendOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            sendOptions.reply_to_message_id = effectiveThreadId;
           }
 
           try {
@@ -6440,8 +6534,8 @@ ${allDayUserMessages}
         };
 
         // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
-        if (messageThreadId) {
-          deepVideoOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          deepVideoOptions.reply_to_message_id = effectiveThreadId;
         }
 
         const task3Message = await this.sendWithRetry(
@@ -6586,8 +6680,8 @@ ${allDayUserMessages}
             thumbnail: { source: thumbnailBuffer },
           };
 
-          if (messageThreadId) {
-            deepVideoOptions2.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            deepVideoOptions2.reply_to_message_id = effectiveThreadId;
           }
 
           const task3Message = await this.sendWithRetry(
@@ -6796,8 +6890,8 @@ ${allDayUserMessages}
         };
 
         // Используем messageThreadId для отправки в комментарии
-        if (messageThreadId) {
-          sendOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          sendOptions.reply_to_message_id = effectiveThreadId;
         }
 
         try {
@@ -6862,8 +6956,8 @@ ${allDayUserMessages}
                 };
 
                 // Используем messageThreadId для отправки в комментарии
-                if (messageThreadId) {
-                  reminderSendOptions.reply_to_message_id = messageThreadId;
+                if (effectiveThreadId) {
+                  reminderSendOptions.reply_to_message_id = effectiveThreadId;
                 }
 
                 const reminderMessage = await this.sendWithRetry(
@@ -6951,8 +7045,8 @@ ${allDayUserMessages}
             },
           };
 
-          if (messageThreadId) {
-            sendOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            sendOptions.reply_to_message_id = effectiveThreadId;
           }
 
           try {
@@ -7003,8 +7097,8 @@ ${allDayUserMessages}
           },
         };
 
-        if (messageThreadId) {
-          sendOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          sendOptions.reply_to_message_id = effectiveThreadId;
         }
 
         try {
@@ -7092,8 +7186,8 @@ ${allDayUserMessages}
             },
           };
 
-          if (messageThreadId) {
-            sendOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            sendOptions.reply_to_message_id = effectiveThreadId;
           }
 
           try {
@@ -7176,8 +7270,8 @@ ${allDayUserMessages}
             },
           };
 
-          if (messageThreadId) {
-            sendOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            sendOptions.reply_to_message_id = effectiveThreadId;
           }
 
           try {
@@ -7247,8 +7341,8 @@ ${allDayUserMessages}
           reply_markup: confirmationKeyboard,
         };
 
-        if (messageThreadId) {
-          emotionsConfirmOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          emotionsConfirmOptions.reply_to_message_id = effectiveThreadId;
         }
 
         try {
@@ -7302,8 +7396,8 @@ ${allDayUserMessages}
           parse_mode: 'HTML',
         };
 
-        if (messageThreadId) {
-          sendOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          sendOptions.reply_to_message_id = effectiveThreadId;
         }
 
         try {
@@ -7338,8 +7432,8 @@ ${allDayUserMessages}
               parse_mode: 'HTML',
             };
 
-            if (messageThreadId) {
-              fallbackOptions.reply_to_message_id = messageThreadId;
+            if (effectiveThreadId) {
+              fallbackOptions.reply_to_message_id = effectiveThreadId;
             }
 
             const fallbackMessage = await this.sendWithRetry(
@@ -7423,8 +7517,8 @@ ${allDayUserMessages}
             },
           };
 
-          if (messageThreadId) {
-            sendOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            sendOptions.reply_to_message_id = effectiveThreadId;
           }
 
           try {
@@ -7563,8 +7657,8 @@ ${allDayUserMessages}
         };
 
         // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
-        if (messageThreadId) {
-          finalOptions.reply_to_message_id = messageThreadId;
+        if (effectiveThreadId) {
+          finalOptions.reply_to_message_id = effectiveThreadId;
         }
 
         schedulerLogger.info(
@@ -7595,8 +7689,8 @@ ${allDayUserMessages}
           };
 
           // Используем messageThreadId для отправки в комментарии БЕЗ визуального реплая
-          if (messageThreadId) {
-            videoOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            videoOptions.reply_to_message_id = effectiveThreadId;
           }
 
           const task3Message = await this.sendWithRetry(
@@ -7674,8 +7768,8 @@ ${allDayUserMessages}
               thumbnail: { source: fallbackThumbnail },
             };
 
-            if (messageThreadId) {
-              fallbackVideoOptions.reply_to_message_id = messageThreadId;
+            if (effectiveThreadId) {
+              fallbackVideoOptions.reply_to_message_id = effectiveThreadId;
             }
 
             await this.sendWithRetry(
@@ -7802,8 +7896,8 @@ ${allDayUserMessages}
             thumbnail: { source: thumbnailBuffer },
           };
 
-          if (messageThreadId) {
-            practiceVideoOptions.reply_to_message_id = messageThreadId;
+          if (effectiveThreadId) {
+            practiceVideoOptions.reply_to_message_id = effectiveThreadId;
           }
 
           const practiceResult = await this.sendWithRetry(
@@ -7852,8 +7946,8 @@ ${allDayUserMessages}
           // Отправляем напоминание только один раз
           try {
             const reminderOptions: any = {};
-            if (messageThreadId) {
-              reminderOptions.reply_to_message_id = messageThreadId;
+            if (effectiveThreadId) {
+              reminderOptions.reply_to_message_id = effectiveThreadId;
             }
 
             await this.sendWithRetry(

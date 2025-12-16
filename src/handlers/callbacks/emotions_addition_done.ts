@@ -75,6 +75,11 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
 
     const { scenarioSendWithRetry } = await import('../../utils/telegram-retry');
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     const sendOptions: any = {
       parse_mode: 'HTML',
       reply_markup: {
@@ -82,7 +87,8 @@ export async function handleEmotionsAdditionDone(ctx: Context, bot: Telegraf) {
       },
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

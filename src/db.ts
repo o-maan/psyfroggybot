@@ -537,17 +537,19 @@ export const clearUserTokens = (chatId: number) => {
 };
 
 // Сохранить интерактивный пост
+// isDmMode = true означает что пост в ЛС (диалог там же), false = пост в канале (диалог в комментариях)
 export const saveInteractivePost = (
   channelMessageId: number,
   userId: number,
   messageData: any,
-  relaxationType: string
+  relaxationType: string,
+  isDmMode: boolean = false
 ) => {
   const insert = db.query(`
-    INSERT INTO interactive_posts (channel_message_id, user_id, message_data, relaxation_type)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO interactive_posts (channel_message_id, user_id, message_data, relaxation_type, is_dm_mode)
+    VALUES (?, ?, ?, ?, ?)
   `);
-  insert.run(channelMessageId, userId, JSON.stringify(messageData), relaxationType);
+  insert.run(channelMessageId, userId, JSON.stringify(messageData), relaxationType, isDmMode ? 1 : 0);
 };
 
 // Получить интерактивный пост по ID сообщения в канале
@@ -1019,13 +1021,14 @@ export const deleteFrogImage = (fileId: string) => {
 // ============= ФУНКЦИИ ДЛЯ РАБОТЫ СО ЗЛЫМИ ПОСТАМИ =============
 
 // Сохранить злой пост
-export const saveAngryPost = (channelMessageId: number, threadId: number | null, userId: number) => {
+// isDmMode = true означает что пост в ЛС (диалог там же), false = пост в канале (диалог в комментариях)
+export const saveAngryPost = (channelMessageId: number, threadId: number | null, userId: number, isDmMode: boolean = false) => {
   const insert = db.query(`
-    INSERT INTO angry_posts (channel_message_id, thread_id, user_id)
-    VALUES (?, ?, ?)
+    INSERT INTO angry_posts (channel_message_id, thread_id, user_id, is_dm_mode)
+    VALUES (?, ?, ?, ?)
   `);
-  insert.run(channelMessageId, threadId, userId);
-  databaseLogger.info({ channelMessageId, threadId, userId }, 'Сохранен злой пост');
+  insert.run(channelMessageId, threadId, userId, isDmMode ? 1 : 0);
+  databaseLogger.info({ channelMessageId, threadId, userId, isDmMode }, 'Сохранен злой пост');
 };
 
 // Проверить, является ли пост злым
@@ -1401,12 +1404,13 @@ export const getAngryPost = (channelMessageId: number) => {
 };
 
 // Сохранить утренний пост
-export const saveMorningPost = (channelMessageId: number, userId: number) => {
+// isDmMode = true означает что пост в ЛС (диалог там же), false = пост в канале (диалог в комментариях)
+export const saveMorningPost = (channelMessageId: number, userId: number, isDmMode: boolean = false) => {
   const insert = db.query(`
-    INSERT INTO morning_posts (channel_message_id, user_id, current_step)
-    VALUES (?, ?, 'waiting_user_message')
+    INSERT INTO morning_posts (channel_message_id, user_id, current_step, is_dm_mode)
+    VALUES (?, ?, 'waiting_user_message', ?)
   `);
-  insert.run(channelMessageId, userId);
+  insert.run(channelMessageId, userId, isDmMode ? 1 : 0);
 };
 
 // Получить утренний пост по ID сообщения в канале
@@ -1421,6 +1425,7 @@ export const getMorningPost = (channelMessageId: number) => {
     user_id: number;
     created_at: string;
     current_step: string;
+    is_dm_mode?: boolean;
   } | undefined;
 };
 
@@ -1440,6 +1445,7 @@ export const getMorningPostByThreadId = async (threadId: number) => {
       user_id: number;
       created_at: string;
       current_step: string;
+      is_dm_mode?: boolean;
     };
   }
 
@@ -1454,6 +1460,7 @@ export const getMorningPostByThreadId = async (threadId: number) => {
         user_id: number;
         created_at: string;
         current_step: string;
+        is_dm_mode?: boolean;
       };
     }
   }

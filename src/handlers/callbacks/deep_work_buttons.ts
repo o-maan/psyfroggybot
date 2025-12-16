@@ -348,6 +348,9 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
       };
     }
     
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Отправляем сообщение напрямую через Telegram API
     // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через threadId)
     const sendOptions: any = {
@@ -355,8 +358,8 @@ export async function handleSkipNegSchema(ctx: BotContext, bot: Telegraf) {
       ...messageOptions
     };
 
-    // Используем threadId из handler для отправки в комментарии
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

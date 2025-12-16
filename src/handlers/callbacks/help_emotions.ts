@@ -34,12 +34,18 @@ export async function handleHelpEmotions(ctx: BotContext) {
     const chatId = ctx.callbackQuery.message?.chat?.id!;
     const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Отправляем через telegram API с reply_to_message_id для работы в комментариях
     const sendOptions: any = {
       caption: captionText,
       parse_mode: 'HTML'
     };
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
     
@@ -61,6 +67,13 @@ export async function handleHelpEmotions(ctx: BotContext) {
       const chatId = ctx.callbackQuery.message?.chat?.id!;
       const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
 
+      // ✅ Определяем режим: ЛС или комментарии (повторно, т.к. в catch блоке)
+      // Переопределяем channelMessageId т.к. он недоступен из try блока
+      const channelMessageIdFallback = parseInt(ctx.match![1]);
+      const { getInteractivePost: getInteractivePostFallback } = await import('../../db');
+      const postFallback = getInteractivePostFallback(channelMessageIdFallback);
+      const isDmModeFallback = postFallback?.is_dm_mode ?? false;
+
       const fallbackText = '💡 <b>Если пока сложно - начнем с 10 эмоций:</b>\n' +
                           '<i>радость, страх, злость, грусть, интерес, удивление, отвращение, тревога, стыд, вина</i>\n\n' +
                           '<i>P.S. Таблица эмоций не загрузилась, попробуй чуть позже</i>';
@@ -69,7 +82,8 @@ export async function handleHelpEmotions(ctx: BotContext) {
         parse_mode: 'HTML'
       };
 
-      if (threadId) {
+      // В режиме канала используем reply_to_message_id, в ЛС - нет
+      if (!isDmModeFallback && threadId) {
         sendOptions.reply_to_message_id = threadId;
       }
       

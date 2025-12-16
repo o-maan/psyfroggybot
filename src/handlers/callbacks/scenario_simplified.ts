@@ -30,9 +30,12 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
     const { getInteractivePost, saveInteractivePost } = await import('../../db');
     let post = getInteractivePost(channelMessageId);
     
+    // Определяем threadId заранее для fallback логики
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
     if (!post) {
       botLogger.warn({ channelMessageId, userId }, 'Пост не найден в БД, создаем fallback запись');
-      
+
       // Fallback: создаем минимальную запись в БД
       try {
         // Используем минимальные данные для упрощенного сценария
@@ -42,9 +45,11 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
           positive_part: { additional_text: null },
           feels_and_emotions: { additional_text: null }
         };
-        
-        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing');
-        botLogger.info({ channelMessageId }, '💾 Fallback запись создана');
+
+        // Определяем isDmMode: если нет threadId - скорее всего это ЛС
+        const fallbackIsDmMode = !threadId;
+        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing', fallbackIsDmMode);
+        botLogger.info({ channelMessageId, fallbackIsDmMode }, '💾 Fallback запись создана');
         
         // Получаем созданную запись
         post = getInteractivePost(channelMessageId);
@@ -76,18 +81,25 @@ export async function handleScenarioSimplified(ctx: BotContext, bot: Telegraf) {
       ],
     };
 
-    // Отправляем первое задание
-    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
 
+    // Отправляем первое задание (threadId уже определён выше для fallback логики)
     const sendOptions: any = {
       parse_mode: 'HTML',
       reply_markup: firstTaskKeyboard,
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id для привязки к треду
+    // В режиме ЛС - отправляем напрямую без привязки
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 
+    botLogger.debug({ isDmMode, threadId, chatId }, 'Режим отправки первого задания');
+
+    // В режиме ЛС chatId уже правильный (это ЛС пользователя)
+    // В режиме канала chatId - это группа комментариев
     const firstTaskMessage = await scenarioSendWithRetry(
       bot,
       chatId!,

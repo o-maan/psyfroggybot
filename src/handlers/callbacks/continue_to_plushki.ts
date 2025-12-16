@@ -91,13 +91,17 @@ export async function handleContinueToPlushki(ctx: BotContext, bot: Telegraf) {
       inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
     };
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
     try {
       const sendOptions: any = {
         parse_mode: 'HTML',
         reply_markup: plushkiKeyboard,
       };
 
-      if (threadId) {
+      // В режиме канала используем reply_to_message_id, в ЛС - нет
+      if (!isDmMode && threadId) {
         sendOptions.reply_to_message_id = threadId;
       }
 

@@ -41,12 +41,18 @@ export async function handleDayRating(ctx: BotContext, bot: Telegraf) {
     // Добавляем "Жду тебя завтра" к словам поддержки
     const fullText = supportText + '\nЖду тебя завтра';
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Отправляем слова поддержки
     const sendOptions: any = {
       parse_mode: 'HTML'
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

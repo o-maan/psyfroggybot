@@ -48,13 +48,18 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
       ],
     };
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     try {
       // Читаем видео файл
       const PRACTICE_VIDEO_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-optimized.mp4');
       const PRACTICE_VIDEO_THUMBNAIL_PATH = path.join(process.cwd(), 'assets', 'videos', 'breathing-practice-thumbnail.jpg');
       const practiceVideo = await readFile(PRACTICE_VIDEO_PATH);
       const thumbnailBuffer = await readFile(PRACTICE_VIDEO_THUMBNAIL_PATH);
-      
+
       // Отправляем видео с практикой
       const videoOptions: any = {
         caption: finalMessage,
@@ -63,7 +68,8 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
         thumbnail: { source: thumbnailBuffer },
       };
 
-      if (threadId) {
+      // В режиме канала используем reply_to_message_id, в ЛС - нет
+      if (!isDmMode && threadId) {
         videoOptions.reply_to_message_id = threadId;
       }
 
@@ -143,7 +149,8 @@ export async function handleSkipPositiveEmotions(ctx: BotContext, bot: Telegraf)
         reply_markup: practiceKeyboard,
       };
 
-      if (threadId) {
+      // В режиме канала используем reply_to_message_id, в ЛС - нет
+      if (!isDmMode && threadId) {
         fallbackSendOptions.reply_to_message_id = threadId;
       }
 

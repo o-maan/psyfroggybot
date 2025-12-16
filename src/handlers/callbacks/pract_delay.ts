@@ -24,6 +24,11 @@ export async function handlePractDelay(ctx: BotContext) {
       '⏰ Устанавливаем напоминание о практике'
     );
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const { getInteractivePost } = await import('../../db');
+    const post = getInteractivePost(channelMessageId);
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Отправляем сообщение о том, что ждем
     const waitMessage = isTestBot ? '⏳ Жду тебя через 1 минуту (тестовый режим)' : '⏳ Жду тебя через час';
 
@@ -31,7 +36,8 @@ export async function handlePractDelay(ctx: BotContext) {
       parse_mode: 'HTML'
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 
@@ -58,7 +64,8 @@ export async function handlePractDelay(ctx: BotContext) {
           reply_markup: practiceKeyboard,
         };
 
-        if (threadId) {
+        // В режиме канала используем reply_to_message_id, в ЛС - нет
+        if (!isDmMode && threadId) {
           reminderSendOptions.reply_to_message_id = threadId;
         }
 

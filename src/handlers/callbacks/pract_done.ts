@@ -34,7 +34,7 @@ export async function handlePractDone(ctx: BotContext, bot: Telegraf, scheduler:
       // Fallback: отправляем минимальное поздравление и оценку дня
       try {
         const fallbackText = 'Отлично! 🌟\n\n<b>Оцени свой день</b>';
-        
+
         const ratingKeyboard = {
           inline_keyboard: [[
             { text: '😩', callback_data: `day_rating_${channelMessageId}_1` },
@@ -44,12 +44,14 @@ export async function handlePractDone(ctx: BotContext, bot: Telegraf, scheduler:
             { text: '🤩', callback_data: `day_rating_${channelMessageId}_5` }
           ]]
         };
-        
+
+        // ✅ В fallback режиме не знаем isDmMode, поэтому пробуем без reply_to_message_id
         const fallbackSendOptions: any = {
           parse_mode: 'HTML',
           reply_markup: ratingKeyboard
         };
 
+        // Fallback: если есть threadId - пробуем использовать (в ЛС threadId будет undefined)
         if (threadId) {
           fallbackSendOptions.reply_to_message_id = threadId;
         }
@@ -100,12 +102,16 @@ export async function handlePractDone(ctx: BotContext, bot: Telegraf, scheduler:
       ]]
     };
     
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
     const sendOptions: any = {
       parse_mode: 'HTML',
       reply_markup: ratingKeyboard
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

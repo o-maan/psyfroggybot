@@ -33,10 +33,13 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
     // Получаем данные поста из БД
     const { getInteractivePost, saveInteractivePost } = await import('../../db');
     let post = getInteractivePost(channelMessageId);
-    
+
+    // Определяем threadId заранее для fallback логики
+    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+
     if (!post) {
       botLogger.warn({ channelMessageId, userId }, 'Пост не найден в БД, создаем fallback запись');
-      
+
       // Fallback: создаем минимальную запись в БД
       try {
         // Используем дефолтные данные для глубокого сценария
@@ -46,10 +49,12 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
           positive_part: { additional_text: null },
           feels_and_emotions: { additional_text: null }
         };
-        
-        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing');
-        botLogger.info({ channelMessageId }, '💾 Fallback запись создана');
-        
+
+        // Определяем isDmMode: если нет threadId - скорее всего это ЛС
+        const fallbackIsDmMode = !threadId;
+        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing', fallbackIsDmMode);
+        botLogger.info({ channelMessageId, fallbackIsDmMode }, '💾 Fallback запись создана');
+
         // Получаем созданную запись
         post = getInteractivePost(channelMessageId);
       } catch (fallbackError) {
@@ -62,14 +67,18 @@ export async function handleScenarioDeep(ctx: BotContext, bot: Telegraf) {
     // Первый этап - отправляем текст без кнопок
     const firstTaskText = 'Вот это настрой! 🔥\n\n1. <b>Что тебя волнует?</b>\nПеречисли неприятные ситуации, мысли и события, которые тебя беспокоят';
 
-    // Отправляем первое сообщение БЕЗ кнопок
-    const threadId = 'message_thread_id' in ctx.callbackQuery.message! ? ctx.callbackQuery.message.message_thread_id : undefined;
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
+    // Отправляем первое сообщение БЕЗ кнопок (threadId уже определён выше)
 
     const sendOptions: any = {
       parse_mode: 'HTML',
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id для привязки к треду
+    // В режиме ЛС - отправляем напрямую без привязки
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

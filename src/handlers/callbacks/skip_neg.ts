@@ -41,26 +41,36 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
     const { getInteractivePost, updateTaskStatus, updateInteractivePostState, escapeHTML, saveInteractivePost } = await import('../../db');
     let post = getInteractivePost(channelMessageId);
 
+    // ✅ Определяем режим: ЛС или комментарии
+    // Если post нет - определяем по threadId (если нет threadId - это ЛС)
+    let isDmMode = post?.is_dm_mode ?? !threadId;
+
     if (!post) {
       botLogger.warn({ channelMessageId }, 'Пост не найден в БД, используем fallback');
-      
+
       // Fallback: создаем минимальную запись если её нет
       try {
         const defaultMessageData = {
           positive_part: { additional_text: null }, // Без дополнительного текста для плюшек
           feels_and_emotions: { additional_text: null }
         };
-        
-        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing');
+
+        // isDmMode уже определён выше через !threadId для fallback
+        saveInteractivePost(channelMessageId, userId!, defaultMessageData, 'breathing', isDmMode);
         post = getInteractivePost(channelMessageId);
-        
+        // Обновляем isDmMode после загрузки поста
+        if (post) {
+          isDmMode = post.is_dm_mode ?? isDmMode;
+        }
+
         if (!post) {
           // Если всё равно не удалось - отправляем минимальный вариант напрямую
           const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
           const fallbackOptions: any = {
             parse_mode: 'HTML',
           };
-          if (threadId) {
+          // В режиме канала используем reply_to_message_id, в ЛС - нет
+          if (!isDmMode && threadId) {
             fallbackOptions.reply_to_message_id = threadId;
           }
           await scenarioSendWithRetry(
@@ -81,7 +91,8 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
         const fallbackOptions2: any = {
           parse_mode: 'HTML',
         };
-        if (threadId) {
+        // В режиме канала используем reply_to_message_id, в ЛС - нет
+        if (!isDmMode && threadId) {
           fallbackOptions2.reply_to_message_id = threadId;
         }
         await scenarioSendWithRetry(
@@ -127,7 +138,8 @@ export async function handleSkipNeg(ctx: BotContext, bot: Telegraf) {
       },
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       plushkiOptions.reply_to_message_id = threadId;
     }
 

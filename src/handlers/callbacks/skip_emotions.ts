@@ -44,6 +44,9 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
     const supportText = scheduler.getRandomSupportText();
     const plushkiText = `<i>${supportText}</i>\n\n2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал${'${:а}'} 😍`;
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
     const sendOptions: any = {
       parse_mode: 'HTML',
       reply_markup: {
@@ -51,7 +54,8 @@ export async function handleSkipEmotions(ctx: BotContext, scheduler: Scheduler) 
       },
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 

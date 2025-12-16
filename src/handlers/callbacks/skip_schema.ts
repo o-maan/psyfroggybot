@@ -25,14 +25,16 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
 
     if (!post) {
       botLogger.warn({ channelMessageId }, 'Пост не найден для skip_schema, используем fallback');
-      
+
       // Fallback: отправляем минимальные плюшки
+      // В fallback режиме не знаем isDmMode, но если threadId есть - это скорее всего канал
       try {
         const fallbackText = '2. <b>Плюшки для лягушки</b> (ситуация+эмоция)';
         const fallbackSendOptions: any = {
           parse_mode: 'HTML'
         };
 
+        // Fallback: если есть threadId - пробуем использовать (в ЛС threadId будет undefined)
         if (threadId) {
           fallbackSendOptions.reply_to_message_id = threadId;
         }
@@ -66,6 +68,9 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
       'Данные для плюшек'
     );
 
+    // ✅ Определяем режим: ЛС или комментарии
+    const isDmMode = post?.is_dm_mode ?? false;
+
     // Отправляем слова поддержки + плюшки
     const supportText = scheduler.getRandomSupportText();
     const responseText = `<i>${supportText}</i>\n\n${scheduler.buildSecondPart(messageData)}`;
@@ -74,7 +79,8 @@ export async function handleSkipSchema(ctx: BotContext, scheduler: Scheduler) {
       parse_mode: 'HTML'
     };
 
-    if (threadId) {
+    // В режиме канала используем reply_to_message_id, в ЛС - нет
+    if (!isDmMode && threadId) {
       sendOptions.reply_to_message_id = threadId;
     }
 
