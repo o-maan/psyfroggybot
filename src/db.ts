@@ -587,11 +587,14 @@ export const setTrophyStatus = (channelMessageId: number, set: boolean = true) =
 };
 
 // Получить все незавершенные посты пользователя
+// ⚠️ ВАЖНО: Фильтруем channel_message_id < 10000000000 чтобы исключить
+// некорректные записи с timestamp вместо реального message_id
 export const getUserIncompletePosts = (userId: number) => {
   const get = db.query(`
     SELECT * FROM interactive_posts
     WHERE user_id = ?
     AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
+    AND channel_message_id < 10000000000
     ORDER BY created_at DESC
   `);
   const rows = get.all(userId) as any[];
@@ -599,6 +602,39 @@ export const getUserIncompletePosts = (userId: number) => {
     if (row.message_data) {
       row.message_data = JSON.parse(row.message_data);
     }
+    return row;
+  });
+};
+
+// Получить незавершенные посты пользователя с фильтрацией по режиму DM
+// ⚠️ ВАЖНО: Фильтруем channel_message_id < 10000000000 чтобы исключить
+// некорректные записи с timestamp вместо реального message_id
+// (timestamp > 1.7 триллиона, реальные Telegram ID обычно < 1 миллиарда)
+// ⚠️ ВАЖНО: Сортируем по приоритету состояния:
+// 1. Посты в активном состоянии (waiting_negative, waiting_positive и т.д.) - первые
+// 2. Потом по last_interaction_at DESC
+// Это гарантирует, что активный диалог будет найден первым
+export const getUserIncompletePostsByMode = (userId: number, isDmMode: boolean) => {
+  const get = db.query(`
+    SELECT *,
+      CASE
+        WHEN current_state IN ('waiting_negative', 'waiting_positive', 'waiting_task3', 'waiting_emotions_clarification', 'waiting_positive_emotions_clarification') THEN 0
+        ELSE 1
+      END as state_priority
+    FROM interactive_posts
+    WHERE user_id = ?
+    AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
+    AND is_dm_mode = ?
+    AND channel_message_id < 10000000000
+    ORDER BY state_priority ASC, last_interaction_at DESC, created_at DESC
+  `);
+  const rows = get.all(userId, isDmMode ? 1 : 0) as any[];
+  return rows.map(row => {
+    if (row.message_data) {
+      row.message_data = JSON.parse(row.message_data);
+    }
+    // Удаляем служебное поле state_priority
+    delete row.state_priority;
     return row;
   });
 };

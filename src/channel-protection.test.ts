@@ -10,11 +10,12 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { db } from './db';
 
 describe('Защита канала целевого пользователя', () => {
-  const targetUserId = 5153477378; // Алекс (целевой в основном боте)
-  const otherUserId = 476561547; // Другой пользователь
+  // ⚠️ ВАЖНО: Используем ФЕЙКОВЫЕ ID чтобы не затронуть реальных пользователей!
+  const targetUserId = 9999999901; // Фейковый целевой пользователь
+  const otherUserId = 9999999902; // Фейковый другой пользователь
 
   beforeEach(() => {
-    // Очищаем тестовые данные
+    // Очищаем только ТЕСТОВЫЕ данные (фейковые ID)
     db.query('DELETE FROM users WHERE chat_id IN (?, ?)').run(targetUserId, otherUserId);
 
     // Создаем целевого пользователя с channel_enabled=1

@@ -24,7 +24,8 @@ export async function trackUserMessage(
   messageId: number,
   messageText: string,
   replyToMessageId?: number,
-  messageThreadId?: number
+  messageThreadId?: number,
+  chatType?: 'private' | 'group' | 'supergroup' | 'channel'
 ): Promise<DialogContext | null> {
   schedulerLogger.info({
     userId,
@@ -125,8 +126,13 @@ export async function trackUserMessage(
 
   // 3. FALLBACK: Если нет ни реплая, ни треда - ищем по последнему активному посту
   if (!context) {
-    const { getUserIncompletePosts } = await import('./db');
-    const incompletePosts = getUserIncompletePosts(userId);
+    const { getUserIncompletePosts, getUserIncompletePostsByMode } = await import('./db');
+
+    // В режиме DM (private чат) ищем только DM посты, в канале - все посты
+    const isDmMode = chatType === 'private';
+    const incompletePosts = isDmMode
+      ? getUserIncompletePostsByMode(userId, true)
+      : getUserIncompletePosts(userId);
 
     if (incompletePosts.length > 0) {
       const lastPost = incompletePosts[0];
@@ -141,7 +147,8 @@ export async function trackUserMessage(
 
       schedulerLogger.info({
         channelMessageId: lastPost.channel_message_id,
-        currentState: lastPost.current_state
+        currentState: lastPost.current_state,
+        isDmMode
       }, '✅ Найден контекст диалога по последнему незавершенному посту (fallback)');
     }
   }

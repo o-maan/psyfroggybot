@@ -32,7 +32,12 @@
       "Bash(awk:*)",
       "Bash(killall:*)",
       "Bash(cat:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(git stash:*)",
+      "Bash(pkill:*)",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []

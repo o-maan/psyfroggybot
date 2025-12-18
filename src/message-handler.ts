@@ -138,9 +138,10 @@ export async function trackIncomingMessage(ctx: Context, next: () => Promise<voi
           messageId,
           messageContent,
           replyToMessageId,
-          messageThreadId
+          messageThreadId,
+          ctx.chat?.type
         );
-        
+
         // Сохраняем контекст для использования в следующих обработчиках
         (ctx as any).dialogContext = context;
         (ctx as any).messageContentType = messageType;

@@ -2251,13 +2251,37 @@ ${weekendPromptContent}`;
         // Обновляем временный ID на реальный после успешной отправки
         try {
           const db = await import('./db');
+
+          // Сначала проверяем, существует ли запись с tempMessageId
+          const checkQuery = db.db.query('SELECT channel_message_id FROM interactive_posts WHERE channel_message_id = ?');
+          const existingRecord = checkQuery.get(tempMessageId);
+
+          if (!existingRecord) {
+            schedulerLogger.error(
+              { tempMessageId, messageId, chatId },
+              '❌ КРИТИЧНО: Запись с tempMessageId НЕ найдена в БД! UPDATE невозможен'
+            );
+          }
+
           const updateQuery = db.db.query(`
             UPDATE interactive_posts
             SET channel_message_id = ?
             WHERE channel_message_id = ?
           `);
-          updateQuery.run(messageId, tempMessageId);
-          schedulerLogger.info({ tempMessageId, messageId, chatId }, '✅ ID поста обновлен на реальный после отправки');
+          const updateResult = updateQuery.run(messageId, tempMessageId);
+
+          // Проверяем, была ли обновлена хоть одна запись
+          if (updateResult.changes === 0) {
+            schedulerLogger.error(
+              { tempMessageId, messageId, chatId, existingRecord: !!existingRecord },
+              '❌ UPDATE не обновил ни одной записи! Возможно запись уже была обновлена или удалена'
+            );
+          } else {
+            schedulerLogger.info(
+              { tempMessageId, messageId, chatId, rowsUpdated: updateResult.changes },
+              '✅ ID поста обновлен на реальный после отправки'
+            );
+          }
         } catch (updateError) {
           schedulerLogger.error({ error: updateError, tempMessageId, messageId }, '❌ Ошибка обновления ID поста');
           // Создаем fallback запись с правильным ID
@@ -5766,7 +5790,8 @@ ${allDayUserMessages}
       messageText,
       replyToChatId,
       messageId,
-      messageThreadId
+      messageThreadId,
+      chatType
     );
 
     if (handledByOldSystem) {
@@ -5783,10 +5808,14 @@ ${allDayUserMessages}
     messageText: string,
     replyToChatId: number,
     messageId: number,
-    messageThreadId?: number
+    messageThreadId?: number,
+    chatType?: 'private' | 'group' | 'supergroup' | 'channel'
   ) {
+    // Определяем режим DM: либо chatType === 'private', либо нет messageThreadId при личном чате
+    const isDmModeDetected = chatType === 'private';
+
     schedulerLogger.info(
-      { userId, messageText: messageText.substring(0, 30), replyToChatId, messageThreadId },
+      { userId, messageText: messageText.substring(0, 30), replyToChatId, messageThreadId, chatType, isDmModeDetected },
       '🔵 handleInteractiveUserResponse ВЫЗВАН'
     );
 
@@ -5997,20 +6026,36 @@ ${allDayUserMessages}
 
     // Если не нашли по threadId, ищем незавершенные посты пользователя
     if (!activePost) {
-      const incompletePosts = getUserIncompletePosts(userId);
+      // В режиме DM (личные сообщения) ищем только DM посты
+      // В режиме канала ищем все посты (для обратной совместимости)
+      const { getUserIncompletePostsByMode } = await import('./db');
+
+      let incompletePosts;
+      if (isDmModeDetected) {
+        // В личке ищем только DM посты
+        incompletePosts = getUserIncompletePostsByMode(userId, true);
+        schedulerLogger.debug(
+          { userId, isDmModeDetected, dmPostsCount: incompletePosts.length },
+          '🔍 Поиск только DM постов для личного чата'
+        );
+      } else {
+        // В комментариях ищем все посты (старое поведение)
+        incompletePosts = getUserIncompletePosts(userId);
+      }
 
       schedulerLogger.info(
         {
           userId,
           incompletePostsCount: incompletePosts.length,
           messageThreadId,
+          isDmModeDetected,
         },
         'Проверка незавершенных постов пользователя'
       );
 
       if (incompletePosts.length === 0) {
         // Нет активных постов
-        schedulerLogger.debug({ userId }, 'Нет активных интерактивных постов');
+        schedulerLogger.debug({ userId, isDmModeDetected }, 'Нет активных интерактивных постов');
         return false;
       }
 

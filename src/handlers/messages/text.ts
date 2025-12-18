@@ -326,22 +326,20 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
         return;
       }
 
-      // ПОТОМ проверяем интерактивные посты (только НЕ в личных чатах и только если не Joy)
-      if (ctx.chat.type !== 'private') {
-        // ⚡ НОВАЯ СИСТЕМА: handleInteractiveUserResponseV2 находит ВСЕ посты и обрабатывает параллельно
-        const isInteractive = await scheduler.handleInteractiveUserResponseV2(
-          userId,
-          message,
-          replyToChatId,
-          ctx.message.message_id,
-          messageThreadId,
-          ctx.chat.type
-        );
+      // ПОТОМ проверяем интерактивные посты (работает и в ЛС, и в комментариях)
+      // ⚡ НОВАЯ СИСТЕМА: handleInteractiveUserResponseV2 находит ВСЕ посты и обрабатывает параллельно
+      const isInteractive = await scheduler.handleInteractiveUserResponseV2(
+        userId,
+        message,
+        replyToChatId,
+        ctx.message.message_id,
+        messageThreadId,
+        ctx.chat.type
+      );
 
-        if (isInteractive) {
-          // Сообщение обработано в интерактивном режиме
-          return;
-        }
+      if (isInteractive) {
+        // Сообщение обработано в интерактивном режиме
+        return;
       }
 
       // Получаем последние 7 сообщений пользователя в хронологическом порядке
