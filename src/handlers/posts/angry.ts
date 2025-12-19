@@ -24,10 +24,22 @@ export class AngryPostHandler implements PostHandler {
         userId: context.userId,
         messageThreadId: context.messageThreadId,
         messageText: context.messageText.substring(0, 50),
+        chatType: context.chatType,
       },
       '😠 AngryPostHandler: обнаружен комментарий к злому посту'
     );
 
+    // ✅ НОВОЕ: В DM режиме на злой пост НЕ отвечаем ничего
+    const isDmMode = context.chatType === 'private';
+    if (isDmMode) {
+      schedulerLogger.info(
+        { userId: context.userId },
+        '🏠 AngryPostHandler: DM режим - пропускаем ответ на злой пост'
+      );
+      return;
+    }
+
+    // СУЩЕСТВУЮЩАЯ ЛОГИКА для канала - БЕЗ ИЗМЕНЕНИЙ
     const messageThreadId = context.messageThreadId;
     if (!messageThreadId) {
       schedulerLogger.warn({ userId: context.userId }, 'Нет messageThreadId для злого поста');

@@ -2686,42 +2686,53 @@ ${weekendPromptContent}`;
     skipGenderAdaptation: boolean = false
   ) {
     try {
+      // ✅ НОВОЕ: Проверка на DM режим - если CHAT_ID === userId, то это личка
+      const isDmMode = CHAT_ID === userId;
+
       // Периодически проверяем наличие пересланного сообщения
       let forwardedMessageId: number | null = null;
       let attempts = 0;
       const maxAttempts = 60; // Максимум 60 попыток (5 минут)
       const checkInterval = 5000; // Проверяем каждые 5 секунд
 
-      schedulerLogger.info(
-        {
-          channelMessageId,
-          CHAT_ID,
-          messageType,
-          checkInterval: `${checkInterval / 1000}s`,
-        },
-        '🔍 Начинаем периодическую проверку пересланного сообщения для Joy'
-      );
-
-      while (!forwardedMessageId && attempts < maxAttempts) {
-        attempts++;
-
-        // Проверяем сразу, потом ждем
-        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
-
-        if (forwardedMessageId) {
-          break;
-        }
-
-        schedulerLogger.debug(
+      // В DM режиме не нужно ждать forwardedMessageId - его не будет
+      if (isDmMode) {
+        schedulerLogger.info(
+          { channelMessageId, userId, messageType },
+          '🏠 JOY DM режим: пропускаем ожидание forwardedMessageId'
+        );
+      } else {
+        schedulerLogger.info(
           {
-            attempt: attempts,
-            maxAttempts,
             channelMessageId,
+            CHAT_ID,
+            messageType,
+            checkInterval: `${checkInterval / 1000}s`,
           },
-          `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+          '🔍 Начинаем периодическую проверку пересланного сообщения для Joy'
         );
 
-        await new Promise(resolve => setTimeout(resolve, checkInterval));
+        while (!forwardedMessageId && attempts < maxAttempts) {
+          attempts++;
+
+          // Проверяем сразу, потом ждем
+          forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+
+          if (forwardedMessageId) {
+            break;
+          }
+
+          schedulerLogger.debug(
+            {
+              attempt: attempts,
+              maxAttempts,
+              channelMessageId,
+            },
+            `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+          );
+
+          await new Promise(resolve => setTimeout(resolve, checkInterval));
+        }
       }
 
       // Подготавливаем опции сообщения
@@ -2731,7 +2742,32 @@ ${weekendPromptContent}`;
         disable_notification: true,
       };
 
-      if (forwardedMessageId) {
+      if (isDmMode) {
+        // ✅ DM режим - отправляем напрямую в личку без reply_to
+        const joyMessage = await sendWithRetry(
+          () => sendToUser(this.bot, CHAT_ID, skipGenderAdaptation ? null : userId, messageText, messageOptions),
+          {
+            chatId: userId,
+            messageType: messageType,
+            userId,
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            joyMessageId: joyMessage.message_id,
+            channelMessageId,
+            chat_id: CHAT_ID,
+            isDmMode: true,
+          },
+          '✅ Сообщение Joy отправлено в ЛС (DM режим)'
+        );
+      } else if (forwardedMessageId) {
         // Обновляем сессию с forwardedMessageId
         const joySession = this.joySessions.get(userId);
         if (joySession) {
@@ -2829,41 +2865,52 @@ ${weekendPromptContent}`;
     skipGenderAdaptationForEvents: boolean = true // по умолчанию НЕ адаптируем список событий
   ) {
     try {
+      // ✅ НОВОЕ: Проверка на DM режим - если CHAT_ID === userId, то это личка
+      const isDmMode = CHAT_ID === userId;
+
       // Периодически проверяем наличие пересланного сообщения
       let forwardedMessageId: number | null = null;
       let attempts = 0;
       const maxAttempts = 60; // Максимум 60 попыток (5 минут)
       const checkInterval = 5000; // Проверяем каждые 5 секунд
 
-      schedulerLogger.info(
-        {
-          channelMessageId,
-          CHAT_ID,
-          checkInterval: `${checkInterval / 1000}s`,
-        },
-        '🔍 Начинаем периодическую проверку пересланного сообщения для Joy (основной сценарий)'
-      );
-
-      while (!forwardedMessageId && attempts < maxAttempts) {
-        attempts++;
-
-        // Проверяем сразу, потом ждем
-        forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
-
-        if (forwardedMessageId) {
-          break;
-        }
-
-        schedulerLogger.debug(
+      // В DM режиме не нужно ждать forwardedMessageId - его не будет
+      if (isDmMode) {
+        schedulerLogger.info(
+          { channelMessageId, userId },
+          '🏠 JOY DM режим: пропускаем ожидание forwardedMessageId (основной сценарий)'
+        );
+      } else {
+        schedulerLogger.info(
           {
-            attempt: attempts,
-            maxAttempts,
             channelMessageId,
+            CHAT_ID,
+            checkInterval: `${checkInterval / 1000}s`,
           },
-          `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+          '🔍 Начинаем периодическую проверку пересланного сообщения для Joy (основной сценарий)'
         );
 
-        await new Promise(resolve => setTimeout(resolve, checkInterval));
+        while (!forwardedMessageId && attempts < maxAttempts) {
+          attempts++;
+
+          // Проверяем сразу, потом ждем
+          forwardedMessageId = this.forwardedMessages.get(channelMessageId) || null;
+
+          if (forwardedMessageId) {
+            break;
+          }
+
+          schedulerLogger.debug(
+            {
+              attempt: attempts,
+              maxAttempts,
+              channelMessageId,
+            },
+            `⏳ Попытка ${attempts}/${maxAttempts}: пересланное сообщение еще не найдено`
+          );
+
+          await new Promise(resolve => setTimeout(resolve, checkInterval));
+        }
       }
 
       // Подготавливаем опции сообщений
@@ -2878,7 +2925,56 @@ ${weekendPromptContent}`;
         disable_notification: true,
       };
 
-      if (forwardedMessageId) {
+      if (isDmMode) {
+        // ✅ DM режим - отправляем напрямую в личку без reply_to
+        // Отправляем список событий (БЕЗ адаптации пола - содержит то, что сам пользователь написал)
+        const eventsMsg = await sendWithRetry(
+          () => sendToUser(this.bot, CHAT_ID, skipGenderAdaptationForEvents ? null : userId, eventsMessage, eventsOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_events_list',
+            userId,
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            eventsMessageId: eventsMsg.message_id,
+            channelMessageId,
+            isDmMode: true,
+          },
+          '✅ Список событий Joy отправлен в ЛС (DM режим)'
+        );
+
+        // Отправляем промпт с кнопками
+        const promptMsg = await sendWithRetry(
+          () => sendToUser(this.bot, CHAT_ID, userId, promptText, promptOptions),
+          {
+            chatId: userId,
+            messageType: 'joy_prompt',
+            userId,
+          },
+          {
+            maxAttempts: 10,
+            intervalMs: 5000,
+          }
+        );
+
+        schedulerLogger.info(
+          {
+            success: true,
+            promptMessageId: promptMsg.message_id,
+            channelMessageId,
+            isDmMode: true,
+          },
+          '✅ Промпт Joy отправлен в ЛС (DM режим)'
+        );
+      } else if (forwardedMessageId) {
         // Обновляем сессию с forwardedMessageId
         const joySession = this.joySessions.get(userId);
         if (joySession) {
@@ -5572,44 +5668,56 @@ ${allDayUserMessages}
       return false;
     }
 
-    // Если forwardedMessageId ещё не установлен (ждём Telegram), проверяем в forwardedMessages
-    if (!joySession.forwardedMessageId) {
-      const forwardedId = this.forwardedMessages.get(joySession.channelMessageId);
-      if (forwardedId && messageThreadId === forwardedId) {
-        // Нашли! Обновляем сессию
-        joySession.forwardedMessageId = forwardedId;
-        this.joySessions.set(userId, joySession);
-        schedulerLogger.info(
-          { userId, forwardedId, channelMessageId: joySession.channelMessageId },
-          '✅ Обновлен forwardedMessageId в joy-сессии из forwardedMessages'
-        );
-      } else {
-        // forwardedMessageId ещё не готов, но это может быть joy-сессия
-        // Проверяем по messageThreadId в обратном маппинге
-        if (messageThreadId) {
-          const channelId = this.forwardedMessages.get(messageThreadId);
-          if (channelId === joySession.channelMessageId) {
-            // Это точно наша joy-сессия!
-            joySession.forwardedMessageId = messageThreadId;
-            this.joySessions.set(userId, joySession);
-            schedulerLogger.info(
-              { userId, messageThreadId, channelMessageId: joySession.channelMessageId },
-              '✅ Установлен forwardedMessageId в joy-сессии через обратный маппинг'
-            );
+    // ✅ НОВОЕ: Проверка на DM режим - если chatId === userId, то это личка
+    const isDmMode = joySession.chatId === userId;
+
+    if (isDmMode) {
+      // В DM режиме не нужна проверка messageThreadId
+      schedulerLogger.info(
+        { userId, chatId: joySession.chatId, channelMessageId: joySession.channelMessageId },
+        '🏠 JOY: Обнаружен DM режим, пропускаем проверку messageThreadId'
+      );
+    } else {
+      // СУЩЕСТВУЮЩАЯ ЛОГИКА для канала/комментариев - БЕЗ ИЗМЕНЕНИЙ
+      // Если forwardedMessageId ещё не установлен (ждём Telegram), проверяем в forwardedMessages
+      if (!joySession.forwardedMessageId) {
+        const forwardedId = this.forwardedMessages.get(joySession.channelMessageId);
+        if (forwardedId && messageThreadId === forwardedId) {
+          // Нашли! Обновляем сессию
+          joySession.forwardedMessageId = forwardedId;
+          this.joySessions.set(userId, joySession);
+          schedulerLogger.info(
+            { userId, forwardedId, channelMessageId: joySession.channelMessageId },
+            '✅ Обновлен forwardedMessageId в joy-сессии из forwardedMessages'
+          );
+        } else {
+          // forwardedMessageId ещё не готов, но это может быть joy-сессия
+          // Проверяем по messageThreadId в обратном маппинге
+          if (messageThreadId) {
+            const channelId = this.forwardedMessages.get(messageThreadId);
+            if (channelId === joySession.channelMessageId) {
+              // Это точно наша joy-сессия!
+              joySession.forwardedMessageId = messageThreadId;
+              this.joySessions.set(userId, joySession);
+              schedulerLogger.info(
+                { userId, messageThreadId, channelMessageId: joySession.channelMessageId },
+                '✅ Установлен forwardedMessageId в joy-сессии через обратный маппинг'
+              );
+            } else {
+              // Это не joy-сессия
+              return false;
+            }
           } else {
-            // Это не joy-сессия
+            // Нет messageThreadId - не можем определить
             return false;
           }
-        } else {
-          // Нет messageThreadId - не можем определить
+        }
+      } else {
+        // forwardedMessageId установлен, проверяем совпадение
+        if (!messageThreadId || messageThreadId !== joySession.forwardedMessageId) {
+          // Это не joy-сессия
           return false;
         }
-      }
-    } else {
-      // forwardedMessageId установлен, проверяем совпадение
-      if (!messageThreadId || messageThreadId !== joySession.forwardedMessageId) {
-        // Это не joy-сессия
-        return false;
       }
     }
 
@@ -5620,8 +5728,9 @@ ${allDayUserMessages}
         forwardedMessageId: joySession.forwardedMessageId,
         channelMessageId: joySession.channelMessageId,
         messageText: messageText.substring(0, 50),
+        isDmMode,
       },
-      '🤩 Обнаружено сообщение в joy-сессии'
+      `🤩 Обнаружено сообщение в joy-сессии${isDmMode ? ' (DM режим)' : ''}`
     );
 
     try {
