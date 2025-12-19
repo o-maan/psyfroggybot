@@ -88,14 +88,103 @@ export class PostHandlerRegistry {
   }
 
   /**
+   * Поиск активных постов в режиме DM (личные сообщения)
+   * Ищем по is_dm_mode = 1, без привязки к messageThreadId
+   */
+  private async findDmActivePosts(userId: number): Promise<Map<string, PostData>> {
+    try {
+      // SQL запрос для DM постов - ищем по is_dm_mode = 1
+      const query = db.query(`
+        SELECT
+          'morning' as post_type,
+          channel_message_id,
+          user_id,
+          current_step as state,
+          created_at,
+          last_button_message_id as metadata_1,
+          NULL as metadata_2
+        FROM morning_posts
+        WHERE user_id = ?
+          AND is_dm_mode = 1
+
+        UNION ALL
+
+        SELECT
+          'angry' as post_type,
+          channel_message_id,
+          user_id,
+          NULL as state,
+          created_at,
+          NULL as metadata_1,
+          NULL as metadata_2
+        FROM angry_posts
+        WHERE user_id = ?
+          AND is_dm_mode = 1
+
+        ORDER BY created_at DESC
+      `);
+
+      const rows = query.all(userId, userId) as any[];
+
+      schedulerLogger.debug(
+        { userId, isDmMode: true, foundPosts: rows.length },
+        `🔍 [DM] Найдено активных постов: ${rows.length}`
+      );
+
+      // Группируем результаты по типу
+      const posts = new Map<string, PostData>();
+
+      for (const row of rows) {
+        const metadata: Record<string, any> = {};
+
+        if (row.post_type === 'morning' && row.metadata_1) {
+          metadata.lastButtonMessageId = row.metadata_1;
+        }
+
+        posts.set(row.post_type, {
+          type: row.post_type,
+          channelMessageId: row.channel_message_id,
+          userId: row.user_id,
+          currentState: row.state,
+          createdAt: row.created_at,
+          metadata,
+        });
+      }
+
+      return posts;
+    } catch (error) {
+      schedulerLogger.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          userId,
+          isDmMode: true,
+        },
+        '❌ Критическая ошибка поиска DM постов'
+      );
+      return new Map();
+    }
+  }
+
+  /**
    * ОПТИМИЗИРОВАННЫЙ поиск ВСЕХ активных постов пользователя
    * ОДИН SQL запрос вместо 3-7 отдельных!
+   *
+   * В режиме DM (chatType === 'private') ищем по is_dm_mode = 1
+   * В режиме канала/комментариев - по messageThreadId (существующая логика)
    */
   private async findAllActivePosts(
     userId: number,
-    messageThreadId?: number
+    messageThreadId?: number,
+    chatType?: 'private' | 'group' | 'supergroup' | 'channel'
   ): Promise<Map<string, PostData>> {
     try {
+      // ✅ НОВОЕ: В режиме DM (private) ищем посты по is_dm_mode = 1
+      if (chatType === 'private') {
+        return await this.findDmActivePosts(userId);
+      }
+
+      // СУЩЕСТВУЮЩАЯ ЛОГИКА для канала/комментариев - БЕЗ ИЗМЕНЕНИЙ
       // ЕДИНЫЙ UNION запрос для ВСЕХ типов постов
       const query = db.query(`
         SELECT
@@ -244,7 +333,8 @@ export class PostHandlerRegistry {
     );
 
     // ⚡ ОДИН SQL запрос получает ВСЕ активные посты пользователя
-    const activePosts = await this.findAllActivePosts(context.userId, context.messageThreadId);
+    // В режиме DM передаём chatType для поиска по is_dm_mode
+    const activePosts = await this.findAllActivePosts(context.userId, context.messageThreadId, context.chatType);
 
     if (activePosts.size === 0) {
       schedulerLogger.debug({ userId: context.userId }, 'Нет активных постов для пользователя');
