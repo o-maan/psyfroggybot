@@ -37,7 +37,8 @@
       "Bash(ls:*)",
       "Bash(git stash:*)",
       "Bash(pkill:*)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(timeout 15 bun:*)"
     ],
     "deny": [],
     "ask": []
