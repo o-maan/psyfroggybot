@@ -8165,13 +8165,20 @@ ${allDayUserMessages}
       );
 
       // Получаем все незавершенные посты с учетом нового поля current_state
+      // Фильтруем по u.channel_id (канал пользователя из таблицы users), НЕ по ip.channel_id
+      // Если channel_id = NULL, это DM пост - фильтруем по is_dm_mode
       const query = db.db.query(`
-        SELECT DISTINCT ip.*, u.chat_id as user_chat_id
+        SELECT DISTINCT ip.*, u.chat_id as user_chat_id, u.channel_id as user_channel_id
         FROM interactive_posts ip
         JOIN users u ON ip.user_id = u.chat_id
         WHERE (ip.task1_completed = 0 OR ip.task2_completed = 0 OR ip.task3_completed = 0)
         AND ip.created_at > datetime('now', '-7 days')
-        AND ip.channel_id = ?
+        AND (
+          (u.channel_id = ? AND ip.is_dm_mode = 0)
+          OR (ip.is_dm_mode = 1 AND u.chat_id IN (
+            SELECT chat_id FROM users WHERE dm_enabled = 1
+          ))
+        )
         ORDER BY ip.created_at DESC
       `);
 
