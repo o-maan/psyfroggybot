@@ -97,6 +97,10 @@ export class PostHandlerRegistry {
   private async findDmActivePosts(userId: number): Promise<Map<string, PostData>> {
     try {
       // SQL запрос для DM постов - ищем по is_dm_mode = 1
+      // ⚠️ ВАЖНО: angry посты НЕ ищем в DM режиме!
+      // Злой пост в ЛС - это просто информационное сообщение без логики ответов.
+      // Если пользователь отвечает в ЛС после злого поста - это должно идти
+      // в вечернюю логику (fallback), а не блокироваться AngryPostHandler.
       const query = db.query(`
         SELECT
           'morning' as post_type,
@@ -125,24 +129,10 @@ export class PostHandlerRegistry {
           AND is_dm_mode = 1
           AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
 
-        UNION ALL
-
-        SELECT
-          'angry' as post_type,
-          channel_message_id,
-          user_id,
-          NULL as state,
-          created_at,
-          NULL as metadata_1,
-          NULL as metadata_2
-        FROM angry_posts
-        WHERE user_id = ?
-          AND is_dm_mode = 1
-
         ORDER BY created_at DESC
       `);
 
-      const rows = query.all(userId, userId, userId) as any[];
+      const rows = query.all(userId, userId) as any[];
 
       schedulerLogger.debug(
         { userId, isDmMode: true, foundPosts: rows.length },
