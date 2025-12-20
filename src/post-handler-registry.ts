@@ -90,6 +90,9 @@ export class PostHandlerRegistry {
   /**
    * Поиск активных постов в режиме DM (личные сообщения)
    * Ищем по is_dm_mode = 1, без привязки к messageThreadId
+   *
+   * ⚠️ ВАЖНО: При добавлении нового типа поста -
+   * обязательно добавь его И СЮДА, И в findAllActivePosts!
    */
   private async findDmActivePosts(userId: number): Promise<Map<string, PostData>> {
     try {
@@ -110,6 +113,21 @@ export class PostHandlerRegistry {
         UNION ALL
 
         SELECT
+          'evening' as post_type,
+          channel_message_id,
+          user_id,
+          current_state as state,
+          created_at,
+          message_data as metadata_1,
+          NULL as metadata_2
+        FROM interactive_posts
+        WHERE user_id = ?
+          AND is_dm_mode = 1
+          AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
+
+        UNION ALL
+
+        SELECT
           'angry' as post_type,
           channel_message_id,
           user_id,
@@ -124,7 +142,7 @@ export class PostHandlerRegistry {
         ORDER BY created_at DESC
       `);
 
-      const rows = query.all(userId, userId) as any[];
+      const rows = query.all(userId, userId, userId) as any[];
 
       schedulerLogger.debug(
         { userId, isDmMode: true, foundPosts: rows.length },
@@ -137,8 +155,18 @@ export class PostHandlerRegistry {
       for (const row of rows) {
         const metadata: Record<string, any> = {};
 
+        // Парсим metadata в зависимости от типа (аналогично findAllActivePosts)
         if (row.post_type === 'morning' && row.metadata_1) {
           metadata.lastButtonMessageId = row.metadata_1;
+        } else if (row.post_type === 'evening' && row.metadata_1) {
+          try {
+            metadata.messageData = JSON.parse(row.metadata_1);
+          } catch (e) {
+            schedulerLogger.warn(
+              { error: e, postType: row.post_type, channelMessageId: row.channel_message_id },
+              'Ошибка парсинга metadata'
+            );
+          }
         }
 
         posts.set(row.post_type, {
