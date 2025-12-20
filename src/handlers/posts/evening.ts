@@ -37,7 +37,8 @@ export class EveningPostHandler implements PostHandler {
       context.messageText,
       context.chatId,
       context.messageId,
-      context.messageThreadId
+      context.messageThreadId,
+      context.chatType
     );
   }
 }

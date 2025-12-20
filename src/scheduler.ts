@@ -249,8 +249,7 @@ export class Scheduler {
     // Регистрируем обработчики в порядке приоритета
     this.postHandlerRegistry.register(new MorningPostHandler(this.bot, this));
     this.postHandlerRegistry.register(new AngryPostHandler(this.bot, this));
-    // TODO: EveningPostHandler временно отключен - нужно вынести вечернюю логику в отдельный метод
-    // this.postHandlerRegistry.register(new EveningPostHandler(this.bot, this));
+    this.postHandlerRegistry.register(new EveningPostHandler(this.bot, this));
     // 👆 Хочешь добавить новый тип? Создай handler и добавь здесь одну строку!
 
     schedulerLogger.info(
