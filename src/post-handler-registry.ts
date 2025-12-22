@@ -395,6 +395,16 @@ export class PostHandlerRegistry {
           { handlerType: handler.type, postId: post.channelMessageId },
           `✅ Пост успешно обработан через ${handler.type} handler`
         );
+
+        // ⚠️ В режиме DM обрабатываем только ОДИН пост (первый найденный по приоритету)
+        // Handlers отсортированы по priority: morning(100) > angry(95) > evening(90)
+        if (context.chatType === 'private') {
+          schedulerLogger.info(
+            { userId: context.userId, handlerType: handler.type },
+            '🏠 [DM] Обработан один пост, остальные пропускаем'
+          );
+          break;
+        }
       } catch (error) {
         // ⚠️ КРИТИЧЕСКИ ВАЖНО: Ошибка в одном handler НЕ останавливает другие!
         schedulerLogger.error(
