@@ -140,9 +140,16 @@ export class PostHandlerRegistry {
       );
 
       // Группируем результаты по типу
+      // ⚠️ ВАЖНО: Берём только ПЕРВЫЙ (самый новый) пост каждого типа!
+      // SQL уже отсортирован по created_at DESC, поэтому первый = самый новый
       const posts = new Map<string, PostData>();
 
       for (const row of rows) {
+        // Если пост этого типа уже есть - пропускаем (берём только самый новый)
+        if (posts.has(row.post_type)) {
+          continue;
+        }
+
         const metadata: Record<string, any> = {};
 
         // Парсим metadata в зависимости от типа (аналогично findAllActivePosts)

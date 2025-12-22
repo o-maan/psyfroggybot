@@ -47,6 +47,13 @@ export async function handleMorningRespond(ctx: BotContext) {
     // Показываем всплывашку "Froggy пишет..."
     await ctx.answerCbQuery('Froggy пишет...');
 
+    // Удаляем сообщение с кнопкой
+    try {
+      await ctx.deleteMessage();
+    } catch (error) {
+      botLogger.warn({ error, messageId: ctx.callbackQuery.message?.message_id }, 'Не удалось удалить сообщение с кнопкой');
+    }
+
     botLogger.info(
       {
         action: 'morning_respond',
