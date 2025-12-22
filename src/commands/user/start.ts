@@ -42,10 +42,10 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
 
     // Проверяем, если это Оля (ID: 476561547), автоматически устанавливаем имя и пол
     if (userId === 476561547) {
-      addUser(chatId, username, 'Оля', 'female');
-      updateUserName(chatId, 'Оля');
+      addUser(chatId, username, 'Чудо ✨', 'female');
+      updateUserName(chatId, 'Чудо ✨');
       updateUserGender(chatId, 'female');
-      botLogger.info({ userId, name: 'Оля', gender: 'female' }, '✅ Автоматически установлено имя и пол для Оли');
+      botLogger.info({ userId, name: 'Чудо ✨', gender: 'female' }, '✅ Автоматически установлено имя и пол для Оли');
 
       // Добавляем Олю в планировщик (так как она пропускает онбординг)
       await scheduler.addUserToTimezone(chatId, 'Europe/Moscow');
@@ -56,7 +56,7 @@ export function registerStartCommand(bot: Telegraf, scheduler: Scheduler) {
         bot,
         chatId,
         userId,
-        'Привет, Оля! Я бот-лягушка 🐸\n\n' +
+        'Привет, Чудо ✨! Я бот-лягушка 🐸\n\n' +
           'Рада снова тебя видеть! Продолжаем работать вместе 💚'
       );
       return;
