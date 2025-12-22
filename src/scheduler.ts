@@ -2082,8 +2082,8 @@ ${weekendPromptContent}`;
       const { getDefaultSupportWords } = await import('./utils/support-words');
       const supportWords = getDefaultSupportWords();
 
-      // Определяем пользователя для поста из env, с учетом режима бота
-      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+      // Используем переданный chatId вместо getTestUserId/getMainUserId
+      const postUserId = chatId;
 
       // Добавляем слова поддержки в message_data
       const messageDataWithSupport = {
@@ -4874,7 +4874,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // Сохраняем пост в БД как утренний (с типом morning)
       const { saveMorningPost } = await import('./db');
-      const postUserId = this.isTestBot() ? this.getTestUserId() : this.getMainUserId();
+      // Используем переданный chatId вместо getTestUserId/getMainUserId
+      const postUserId = chatId;
       // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
       const isDmMode = !channelEnabled || !user?.channel_id;
       saveMorningPost(messageId, postUserId, isDmMode);

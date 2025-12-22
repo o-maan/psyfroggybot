@@ -392,10 +392,11 @@ export async function handleJoySundaySkip(ctx: BotContext, bot: Telegraf, schedu
       };
 
       // Сохраняем пост в БД
-      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+      const isDmMode = !messageThreadId; // Если нет threadId - это ЛС
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing', isDmMode);
 
       botLogger.info(
-        { userId, channelMessageId, messageThreadId },
+        { userId, channelMessageId, messageThreadId, isDmMode },
         '💾 Создана запись interactive_post для перехода JOY (sunday skip) → вечерняя логика'
       );
     } else {
@@ -506,10 +507,11 @@ export async function handleJoyContinue(ctx: BotContext, bot: Telegraf, schedule
       };
 
       // Сохраняем пост в БД
-      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+      const isDmMode = !messageThreadId; // Если нет threadId - это ЛС
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing', isDmMode);
 
       botLogger.info(
-        { userId, channelMessageId, messageThreadId },
+        { userId, channelMessageId, messageThreadId, isDmMode },
         '💾 Создана запись interactive_post для перехода JOY → вечерняя логика'
       );
     } else {
@@ -1127,10 +1129,11 @@ export async function handleJoyLater(ctx: BotContext, bot: Telegraf, scheduler: 
       };
 
       // Сохраняем пост в БД
-      saveInteractivePost(channelMessageId, userId, messageData, 'breathing');
+      const isDmMode = !messageThreadId; // Если нет threadId - это ЛС
+      saveInteractivePost(channelMessageId, userId, messageData, 'breathing', isDmMode);
 
       botLogger.info(
-        { userId, channelMessageId, messageThreadId },
+        { userId, channelMessageId, messageThreadId, isDmMode },
         '💾 Создана запись interactive_post для перехода JOY (later) → вечерняя логика'
       );
     } else {
