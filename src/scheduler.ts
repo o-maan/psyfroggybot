@@ -6286,6 +6286,16 @@ ${allDayUserMessages}
       'Обработка интерактивного ответа пользователя'
     );
 
+    // ⚠️ ВАЖНО: Если состояние = scenario_choice, бот ждёт нажатия кнопки (глубокий/упрощённый)
+    // Текстовые сообщения в этом состоянии игнорируем
+    if (session.currentStep === 'scenario_choice') {
+      schedulerLogger.info(
+        { userId, channelMessageId, messageText: messageText.substring(0, 50) },
+        '⏳ Состояние scenario_choice - игнорируем текст, ждём нажатия кнопки'
+      );
+      return true; // Сообщение "обработано" - не передаём дальше
+    }
+
     // Проверяем на грубый/бессмысленный ответ
     try {
       const { checkRudeMessage, resetKeyboardSpamCounter } = await import('./utils/rude-filter');
