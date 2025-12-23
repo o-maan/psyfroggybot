@@ -2,6 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { botLogger } from '../../logger';
 import { sendToUser } from '../../utils/send-to-user';
 import { saveMessage } from '../../db';
+import type { Scheduler } from '../../scheduler';
 
 // Хранилище для отслеживания пользователей, ожидающих ввода ситуации
 const waitingForSituation = new Map<number, boolean>();
@@ -14,7 +15,7 @@ const unpackStates = new Map<number, string>();
  * Регистрация команды /unpack - запуск логики разбора ситуации из глубокого сценария
  * Работает только в ЛС (личных сообщениях)
  */
-export function registerUnpackCommand(bot: Telegraf) {
+export function registerUnpackCommand(bot: Telegraf, scheduler: Scheduler) {
   bot.command('unpack', async ctx => {
     const chatId = ctx.chat.id;
     const userId = ctx.from?.id || 0;
@@ -44,6 +45,9 @@ export function registerUnpackCommand(bot: Telegraf) {
 
       // Помечаем пользователя как ожидающего ввода ситуации
       waitingForSituation.set(userId, true);
+
+      // ⏰ Устанавливаем таймер автозавершения (20 минут)
+      scheduler.setCommandTimeout(userId, chatId);
 
       // Сохраняем сообщение бота в БД
       saveMessage(chatId, message, new Date().toISOString(), 0);

@@ -212,6 +212,10 @@ export class Scheduler {
     }
   > = new Map(); // sessionKey -> removal session
 
+  // ⏰ Таймеры для автоматического завершения команд (20 минут)
+  // Ключ: userId, Значение: NodeJS.Timeout
+  private commandTimeouts: Map<number, NodeJS.Timeout> = new Map();
+
   // ⚡ НОВАЯ СИСТЕМА: Реестр обработчиков постов (оптимизированная многопоточная обработка)
   private postHandlerRegistry: PostHandlerRegistry;
 
@@ -2097,6 +2101,12 @@ ${weekendPromptContent}`;
       const { saveInteractivePost } = await import('./db');
       // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
       const isDmMode = !channelEnabled || !user?.channel_id;
+
+      // ⚡ При создании нового поста в ЛС - очищаем сессии команд
+      if (isDmMode) {
+        await this.clearAllCommandSessions(postUserId, chatId);
+      }
+
       try {
         saveInteractivePost(tempMessageId, postUserId, messageDataWithSupport, relaxationType, isDmMode);
         schedulerLogger.info({ tempMessageId, chatId, isDmMode }, '💾 Пост предварительно сохранен в БД с временным ID');
@@ -4497,6 +4507,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Сохраняем злой пост
       // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
       const isDmMode = !channelEnabled || !user?.channel_id;
+
+      // ⚡ При создании нового поста в ЛС - очищаем сессии команд
+      if (isDmMode) {
+        await this.clearAllCommandSessions(userId, userId);
+      }
+
       saveAngryPost(sentMessage.message_id, threadId, userId, isDmMode);
       schedulerLogger.info({ channelMessageId: sentMessage.message_id, threadId, userId, isDmMode }, 'Злой пост сохранен в БД');
 
@@ -4878,6 +4894,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       const postUserId = chatId;
       // isDmMode = true если пост идет в ЛС (без комментариев), false если в канал
       const isDmMode = !channelEnabled || !user?.channel_id;
+
+      // ⚡ При создании нового поста в ЛС - очищаем сессии команд
+      if (isDmMode) {
+        await this.clearAllCommandSessions(postUserId, chatId);
+      }
+
       saveMorningPost(messageId, postUserId, isDmMode);
 
       schedulerLogger.info({ messageId, chatId, isDmMode }, '💾 Утренний пост сохранен в БД');
@@ -9526,6 +9548,11 @@ ${eventsText}
         isIntro: false, // Это основная логика, не вводная
       });
 
+      // ⏰ Устанавливаем таймер автозавершения (20 минут) — ТОЛЬКО в ЛС
+      if (!messageThreadId && chatId > 0) {
+        this.setCommandTimeout(userId, chatId);
+      }
+
       schedulerLogger.info(
         { userId, chatId, sourcesCount: sources.length, shortJoyId },
         '📋 SHORT JOY ОСНОВНАЯ: список отправлен с кнопками (БЕЗ поста)'
@@ -9627,6 +9654,11 @@ ${eventsText}
         messageThreadId,
         isIntro: true,
       });
+
+      // ⏰ Устанавливаем таймер автозавершения (20 минут) — ТОЛЬКО в ЛС
+      if (!messageThreadId && chatId > 0) {
+        this.setCommandTimeout(userId, chatId);
+      }
 
       schedulerLogger.info(
         { userId, chatId, channelMessageId, sessionKey },
@@ -10026,6 +10058,204 @@ ${eventsText}
       await this.createCronJobsForTimezone(timezone, [chatId]);
       schedulerLogger.info({ chatId, timezone }, '🆕 Создана новая timezone группа');
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ⏰ СИСТЕМА ПРИОРИТЕТА КОМАНД И ПОСТОВ В ЛС
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Очистка сессий КОМАНД (/joy, /unpack, /me редактирование)
+   * НЕ трогает посты — только команды!
+   * Вызывается при создании нового поста (ТОЛЬКО в режиме ЛС)
+   */
+  public async clearAllCommandSessions(userId: number, chatId: number): Promise<void> {
+    schedulerLogger.info({ userId }, '🧹 Очистка сессий команд (новый пост)');
+
+    // 1. SHORT JOY сессии (/joy)
+    const shortJoySession = this.shortJoySessions.get(userId);
+    if (shortJoySession) {
+      const sessionKey = `short_joy_${userId}_${shortJoySession.shortJoyId}`;
+      this.shortJoyPendingMessages.delete(sessionKey);
+      this.shortJoyLastButtonMessageId.delete(sessionKey);
+      this.shortJoyListMessageId.delete(sessionKey);
+      this.shortJoyAddingSessions.delete(sessionKey);
+      this.shortJoyListShown.delete(sessionKey);
+      this.shortJoyRemovalSessions?.delete(sessionKey);
+      this.shortJoySessions.delete(userId);
+      schedulerLogger.debug({ userId }, '  ✓ SHORT JOY очищен');
+    }
+
+    // 2. JOY сессии (воскресные) — тоже очищаем, т.к. новый пост имеет приоритет
+    const joySession = this.joySessions.get(userId);
+    if (joySession) {
+      const sessionKey = `${userId}_${joySession.channelMessageId}`;
+      this.joyPendingMessages.delete(sessionKey);
+      this.joyLastButtonMessageId.delete(sessionKey);
+      this.joyListMessageId.delete(sessionKey);
+      this.joyAddingSessions.delete(sessionKey);
+      this.joyListShown.delete(sessionKey);
+      this.joyRemovalSessions?.delete(sessionKey);
+      this.joySessions.delete(userId);
+      schedulerLogger.debug({ userId }, '  ✓ JOY очищен');
+    }
+
+    // 3. Unpack сессии (/unpack)
+    const { clearUnpackWaiting, clearUnpackState } = await import('./commands/user/unpack');
+    clearUnpackWaiting(userId);
+    clearUnpackState(userId);
+    schedulerLogger.debug({ userId }, '  ✓ Unpack сессия очищена');
+
+    // 4. Me редактирование (БД) — сбрасываем onboarding_state если в режиме editing_*
+    const { getUserByChatId, updateOnboardingState } = await import('./db');
+    const user = getUserByChatId(userId);
+    if (user?.onboarding_state?.startsWith('editing_')) {
+      updateOnboardingState(userId, 'completed');
+      schedulerLogger.debug({ userId, oldState: user.onboarding_state }, '  ✓ Me редактирование очищено');
+    }
+
+    // 5. Очищаем таймер команды (если был)
+    this.clearCommandTimeout(userId);
+  }
+
+  /**
+   * Установить таймер автозавершения команды (20 минут)
+   */
+  public setCommandTimeout(userId: number, chatId: number): void {
+    // Очищаем старый таймер если был
+    this.clearCommandTimeout(userId);
+
+    const TIMEOUT_MS = 20 * 60 * 1000; // 20 минут
+
+    const timeout = setTimeout(async () => {
+      await this.handleCommandTimeout(userId, chatId);
+    }, TIMEOUT_MS);
+
+    this.commandTimeouts.set(userId, timeout);
+    schedulerLogger.debug({ userId, timeoutMs: TIMEOUT_MS }, '⏰ Установлен таймер команды (20 минут)');
+  }
+
+  /**
+   * Очистить таймер команды
+   */
+  public clearCommandTimeout(userId: number): void {
+    const timeout = this.commandTimeouts.get(userId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.commandTimeouts.delete(userId);
+      schedulerLogger.debug({ userId }, '⏰ Таймер команды очищен');
+    }
+  }
+
+  /**
+   * Обработка истечения таймера команды (20 минут)
+   * Очищает сессию команды и возвращает к основному посту
+   */
+  private async handleCommandTimeout(userId: number, chatId: number): Promise<void> {
+    schedulerLogger.info({ userId }, '⏰ Таймер команды истёк (20 минут)');
+
+    // Проверяем, есть ли активная команда
+    const hasShortJoy = this.shortJoySessions.has(userId);
+    const hasJoy = this.joySessions.has(userId);
+    const { isInUnpackSession } = await import('./commands/user/unpack');
+    const hasUnpack = isInUnpackSession(userId);
+
+    // Проверяем /me редактирование
+    const { getUserByChatId } = await import('./db');
+    const user = getUserByChatId(userId);
+    const hasMeEditing = user?.onboarding_state?.startsWith('editing_');
+
+    if (!hasShortJoy && !hasJoy && !hasUnpack && !hasMeEditing) {
+      schedulerLogger.debug({ userId }, '⏰ Нет активной команды, таймер игнорируется');
+      return;
+    }
+
+    // Очищаем сессию команды
+    await this.clearAllCommandSessions(userId, chatId);
+
+    // Определяем режим (дневной/вечерний) и отправляем сообщение
+    await this.returnToMainLogic(userId, chatId);
+  }
+
+  /**
+   * Вернуть пользователя к основной логике (пост)
+   * Определяет дневной/вечерний режим и отправляет соответствующее сообщение
+   * ⚠️ ПУБЛИЧНЫЙ метод - вызывается из callback handlers
+   */
+  public async returnToMainLogic(userId: number, chatId: number): Promise<void> {
+    const { findUserActiveDmPosts } = await import('./db');
+    const { sendToUser } = await import('./utils/send-to-user');
+
+    // Ищем активные посты пользователя в ЛС
+    const activePosts = findUserActiveDmPosts(userId);
+
+    if (!activePosts || activePosts.length === 0) {
+      schedulerLogger.debug({ userId }, '⏰ Нет активных постов для возврата');
+      return;
+    }
+
+    // Берём ПЕРВЫЙ (самый свежий) пост
+    const activePost = activePosts[0];
+
+    // Определяем тип поста и режим
+    if (activePost.type === 'morning') {
+      // Утренний пост (дневной режим)
+      await sendToUser(
+        this.bot,
+        chatId,
+        userId,
+        'Ты можешь продолжить делиться со мной событиями за день 🤗'
+      );
+      schedulerLogger.info({ userId, postType: 'morning' }, '✅ Возврат к утреннему посту');
+    } else if (activePost.type === 'evening') {
+      // Вечерний пост
+      // ⚠️ СНАЧАЛА проверяем: завершён ли вечерний пост?
+      // Завершён = current_state === 'finished' (после нажатия "Сделал" на практике)
+      const isFinished = activePost.current_state === 'finished';
+
+      if (isFinished) {
+        // Пост уже завершён — не отправляем сообщение возврата
+        schedulerLogger.debug({ userId, postType: 'evening', state: 'finished' }, '⏭️ Вечерний пост уже завершён, не возвращаем');
+        return;
+      }
+
+      // Пост НЕ завершён — определяем последнее незавершённое задание
+      const lastTask = this.getLastIncompleteTask(activePost);
+
+      let message = 'Давай завершим задания 📝';
+      if (lastTask) {
+        message += `\n\n${lastTask}`;
+      }
+
+      await sendToUser(
+        this.bot,
+        chatId,
+        userId,
+        message,
+        { parse_mode: 'HTML' }
+      );
+      schedulerLogger.info({ userId, postType: 'evening', hasLastTask: !!lastTask }, '✅ Возврат к вечернему посту');
+    }
+  }
+
+  /**
+   * Получить последнее невыполненное задание из поста
+   */
+  private getLastIncompleteTask(post: any): string | null {
+    // Анализируем current_state поста
+    const state = post.current_state || post.current_step;
+
+    // Маппинг состояний на задания
+    const taskMap: Record<string, string> = {
+      'waiting_negative': '<b>Выгрузи неприятные переживания:</b>\nЧто сегодня было неприятного? Какие ситуации вызвали негативные эмоции?',
+      'waiting_emotions': '<b>Опиши свои эмоции:</b>\nКакие чувства ты испытываешь прямо сейчас?',
+      'waiting_positive': '<b>Плюшки для лягушки:</b>\nЧто сегодня порадовало? Какие приятные моменты были?',
+      'waiting_practice': '<b>Практика расслабления:</b>\nДавай сделаем небольшую практику для завершения дня',
+      'waiting_user_message': '<b>Поделись своими мыслями:</b>\nЧто у тебя на душе?',
+      'waiting_button_click': 'Нажми кнопку "Ответь мне" когда будешь готов продолжить',
+    };
+
+    return taskMap[state] || null;
   }
 
   destroy() {

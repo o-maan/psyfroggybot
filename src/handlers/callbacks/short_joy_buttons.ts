@@ -291,6 +291,15 @@ export async function handleShortJoyFinish(ctx: BotContext, bot: Telegraf, sched
     scheduler.shortJoyListShown.delete(sessionKey);
     scheduler['shortJoySessions'].delete(userId);
 
+    // ⏰ Очищаем таймер команды
+    scheduler.clearCommandTimeout(userId);
+
+    // 🔄 Возвращаем к основной логике (только в ЛС)
+    const isPrivateChat = ctx.chat?.type === 'private';
+    if (isPrivateChat) {
+      await scheduler.returnToMainLogic(userId, chatId);
+    }
+
     botLogger.info({ userId, chatId, channelMessageId }, '✅ SHORT JOY завершен, сессия очищена');
   } catch (error) {
     botLogger.error({ error }, 'Ошибка в handleShortJoyFinish');

@@ -2293,3 +2293,54 @@ export const updateOnboardingState = (chatId: number, state: string | null): voi
     );
   }
 };
+
+// ============= ФУНКЦИИ ДЛЯ СИСТЕМЫ ПРИОРИТЕТА КОМАНД =============
+
+/**
+ * Найти активные DM посты пользователя
+ * Возвращает массив постов с типом и состоянием, отсортированный по дате (самые свежие первыми)
+ * @param userId - User ID пользователя
+ */
+export function findUserActiveDmPosts(userId: number): Array<{
+  type: 'morning' | 'evening';
+  channel_message_id: number;
+  current_state: string;
+  created_at: string;
+}> {
+  try {
+    const query = db.query(`
+      SELECT
+        'morning' as type,
+        channel_message_id,
+        current_step as current_state,
+        created_at
+      FROM morning_posts
+      WHERE user_id = ?
+        AND is_dm_mode = 1
+        AND current_step NOT IN ('completed')
+
+      UNION ALL
+
+      SELECT
+        'evening' as type,
+        channel_message_id,
+        current_state,
+        created_at
+      FROM interactive_posts
+      WHERE user_id = ?
+        AND is_dm_mode = 1
+        AND current_state NOT IN ('finished')
+
+      ORDER BY created_at DESC
+    `);
+
+    return query.all(userId, userId) as any[];
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, userId },
+      '❌ Ошибка поиска активных DM постов'
+    );
+    return [];
+  }
+}

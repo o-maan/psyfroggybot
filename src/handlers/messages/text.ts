@@ -166,6 +166,12 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
             saveMessage(chatId, finalMessage, new Date().toISOString(), 0);
             // Очищаем состояние - сессия завершена
             clearUnpackState(userId);
+            // ⏰ Очищаем таймер команды
+            scheduler.clearCommandTimeout(userId);
+            // 🔄 Возвращаем к основной логике (только в ЛС)
+            if (ctx.chat?.type === 'private') {
+              await scheduler.returnToMainLogic(userId, chatId);
+            }
             botLogger.info({ userId, chatId }, '✅ Команда /unpack завершена (схема)');
             break;
 
@@ -194,6 +200,12 @@ export function registerTextMessageHandler(bot: Telegraf, scheduler: Scheduler) 
             saveMessage(chatId, finalMessageFilters, new Date().toISOString(), 0);
             // Очищаем состояние - сессия завершена
             clearUnpackState(userId);
+            // ⏰ Очищаем таймер команды
+            scheduler.clearCommandTimeout(userId);
+            // 🔄 Возвращаем к основной логике (только в ЛС)
+            if (ctx.chat?.type === 'private') {
+              await scheduler.returnToMainLogic(userId, chatId);
+            }
             botLogger.info({ userId, chatId }, '✅ Команда /unpack завершена (фильтры)');
             break;
 

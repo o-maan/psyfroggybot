@@ -23,6 +23,6 @@ export function registerUserCommands(bot: Telegraf, scheduler: Scheduler, calend
   registerHelpCommand(bot);
   registerMeCommand(bot);
   registerPsytasksCommand(bot); // 🆕 Задания от психолога
-  registerUnpackCommand(bot); // 🆕 Разобрать ситуацию
+  registerUnpackCommand(bot, scheduler); // 🆕 Разобрать ситуацию
   registerResetCommand(bot); // 🆕 Сброс данных ЛС
 }

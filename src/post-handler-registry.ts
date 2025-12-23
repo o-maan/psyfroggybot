@@ -377,7 +377,65 @@ export class PostHandlerRegistry {
 
     let handledAny = false;
 
-    // Обрабатываем каждый пост через соответствующий handler
+    // ⚡ В режиме DM - обрабатываем ТОЛЬКО самый новый пост (по created_at)
+    // SQL уже вернул посты отсортированные по created_at DESC
+    if (context.chatType === 'private') {
+      // Находим самый новый пост (первый в Map, т.к. SQL отсортирован по created_at DESC)
+      // Map сохраняет порядок вставки, а мы вставляем в порядке SQL результата
+      const newestPost = activePosts.values().next().value as PostData | undefined;
+
+      if (newestPost) {
+        // Находим handler для этого типа поста
+        const handler = this.handlers.find(h => h.type === newestPost.type);
+
+        if (handler) {
+          try {
+            schedulerLogger.info(
+              {
+                handlerType: handler.type,
+                postId: newestPost.channelMessageId,
+                userId: context.userId,
+                currentState: newestPost.currentState,
+                createdAt: newestPost.createdAt,
+              },
+              `🔄 [DM] Обработка САМОГО НОВОГО поста через ${handler.type} handler...`
+            );
+
+            await handler.handle(context, newestPost);
+            handledAny = true;
+
+            schedulerLogger.info(
+              { handlerType: handler.type, postId: newestPost.channelMessageId },
+              `✅ [DM] Пост успешно обработан через ${handler.type} handler`
+            );
+          } catch (error) {
+            schedulerLogger.error(
+              {
+                error: (error as Error).message,
+                stack: (error as Error).stack,
+                handlerType: handler.type,
+                postId: newestPost.channelMessageId,
+                userId: context.userId,
+              },
+              `❌ Ошибка обработки ${handler.type} поста`
+            );
+          }
+        } else {
+          schedulerLogger.warn(
+            { postType: newestPost.type, userId: context.userId },
+            '⚠️ [DM] Не найден handler для типа поста'
+          );
+        }
+      }
+
+      if (handledAny) {
+        schedulerLogger.info({ userId: context.userId }, '🎉 [DM] Пост успешно обработан');
+      }
+
+      return handledAny;
+    }
+
+    // В режиме канала/комментариев - обрабатываем ВСЕ посты по приоритету
     for (const handler of this.handlers) {
       const post = activePosts.get(handler.type);
       if (!post) {
@@ -402,16 +460,6 @@ export class PostHandlerRegistry {
           { handlerType: handler.type, postId: post.channelMessageId },
           `✅ Пост успешно обработан через ${handler.type} handler`
         );
-
-        // ⚠️ В режиме DM обрабатываем только ОДИН пост (первый найденный по приоритету)
-        // Handlers отсортированы по priority: morning(100) > angry(95) > evening(90)
-        if (context.chatType === 'private') {
-          schedulerLogger.info(
-            { userId: context.userId, handlerType: handler.type },
-            '🏠 [DM] Обработан один пост, остальные пропускаем'
-          );
-          break;
-        }
       } catch (error) {
         // ⚠️ КРИТИЧЕСКИ ВАЖНО: Ошибка в одном handler НЕ останавливает другие!
         schedulerLogger.error(
