@@ -113,6 +113,7 @@ export class PostHandlerRegistry {
         FROM morning_posts
         WHERE user_id = ?
           AND is_dm_mode = 1
+          AND current_step NOT IN ('completed')
 
         UNION ALL
 
@@ -127,7 +128,7 @@ export class PostHandlerRegistry {
         FROM interactive_posts
         WHERE user_id = ?
           AND is_dm_mode = 1
-          AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
+          AND current_state NOT IN ('finished')
 
         ORDER BY created_at DESC
       `);

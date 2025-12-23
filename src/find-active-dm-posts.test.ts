@@ -192,4 +192,55 @@ describe('findUserActiveDmPosts() - поиск активных DM постов'
 
     expect(posts).toEqual([]);
   });
+
+  it('КРИТИЧНО: вечерний scenario_choice пост должен быть первым когда он новее утреннего', () => {
+    const userId = 200;
+
+    // Утренний пост (старый, 08:00)
+    db.exec(`
+      INSERT INTO morning_posts (channel_message_id, user_id, created_at, current_step, is_dm_mode)
+      VALUES (3001, ${userId}, '2024-01-15 08:00:00', 'waiting_events', 1)
+    `);
+
+    // Вечерний пост (новый, 22:00) со статусом scenario_choice
+    db.exec(`
+      INSERT INTO interactive_posts (channel_message_id, user_id, created_at, current_state, is_dm_mode)
+      VALUES (3002, ${userId}, '2024-01-15 22:00:00', 'scenario_choice', 1)
+    `);
+
+    const posts = findUserActiveDmPosts(userId);
+
+    // Должно быть 2 поста
+    expect(posts.length).toBe(2);
+
+    // ПЕРВЫМ должен быть вечерний (он новее!)
+    expect(posts[0].type).toBe('evening');
+    expect(posts[0].current_state).toBe('scenario_choice');
+
+    // Вторым - утренний
+    expect(posts[1].type).toBe('morning');
+  });
+
+  it('КРИТИЧНО: НЕ должен возвращать завершённый утренний пост (completed)', () => {
+    const userId = 201;
+
+    // Утренний пост ЗАВЕРШЁН
+    db.exec(`
+      INSERT INTO morning_posts (channel_message_id, user_id, created_at, current_step, is_dm_mode)
+      VALUES (3003, ${userId}, '2024-01-15 08:00:00', 'completed', 1)
+    `);
+
+    // Вечерний пост scenario_choice
+    db.exec(`
+      INSERT INTO interactive_posts (channel_message_id, user_id, created_at, current_state, is_dm_mode)
+      VALUES (3004, ${userId}, '2024-01-15 22:00:00', 'scenario_choice', 1)
+    `);
+
+    const posts = findUserActiveDmPosts(userId);
+
+    // Должен быть ТОЛЬКО вечерний (утренний completed - исключён)
+    expect(posts.length).toBe(1);
+    expect(posts[0].type).toBe('evening');
+    expect(posts[0].current_state).toBe('scenario_choice');
+  });
 });
