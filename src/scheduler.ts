@@ -8256,7 +8256,19 @@ ${allDayUserMessages}
         try {
           // Парсим message_data
           if (post.message_data && typeof post.message_data === 'string') {
-            post.message_data = JSON.parse(post.message_data);
+            try {
+              post.message_data = JSON.parse(post.message_data);
+            } catch (parseError) {
+              schedulerLogger.warn(
+                {
+                  error: parseError,
+                  channelMessageId: post.channel_message_id,
+                  messageDataPreview: post.message_data.substring(0, 100),
+                },
+                '⚠️ Ошибка парсинга message_data, пропускаем пост'
+              );
+              continue;
+            }
           }
 
           const userId = post.user_id;
