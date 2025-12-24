@@ -39,7 +39,8 @@
       "Bash(pkill:*)",
       "Bash(git diff:*)",
       "Bash(timeout 15 bun:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(timeout 60 bun test:*)"
     ],
     "deny": [],
     "ask": []

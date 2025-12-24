@@ -613,14 +613,15 @@ export const getUserIncompletePosts = (userId: number) => {
 // некорректные записи с timestamp вместо реального message_id
 // (timestamp > 1.7 триллиона, реальные Telegram ID обычно < 1 миллиарда)
 // ⚠️ ВАЖНО: Сортируем по приоритету состояния:
-// 1. Посты в активном состоянии (waiting_negative, waiting_positive и т.д.) - первые
-// 2. Потом по last_interaction_at DESC
-// Это гарантирует, что активный диалог будет найден первым
+// 1. Посты в активном состоянии (scenario_choice, waiting_negative, waiting_positive и т.д.) - первые
+// 2. Потом по created_at DESC (новые посты первыми!)
+// 3. Потом по last_interaction_at DESC
+// Это гарантирует, что НОВЫЙ пост будет найден первым при равном приоритете состояния
 export const getUserIncompletePostsByMode = (userId: number, isDmMode: boolean) => {
   const get = db.query(`
     SELECT *,
       CASE
-        WHEN current_state IN ('waiting_negative', 'waiting_positive', 'waiting_task3', 'waiting_emotions_clarification', 'waiting_positive_emotions_clarification') THEN 0
+        WHEN current_state IN ('scenario_choice', 'waiting_negative', 'waiting_positive', 'waiting_task3', 'waiting_emotions_clarification', 'waiting_positive_emotions_clarification') THEN 0
         ELSE 1
       END as state_priority
     FROM interactive_posts
@@ -628,7 +629,7 @@ export const getUserIncompletePostsByMode = (userId: number, isDmMode: boolean) 
     AND (task1_completed = 0 OR task2_completed = 0 OR task3_completed = 0)
     AND is_dm_mode = ?
     AND channel_message_id < 10000000000
-    ORDER BY state_priority ASC, last_interaction_at DESC, created_at DESC
+    ORDER BY state_priority ASC, created_at DESC, last_interaction_at DESC
   `);
   const rows = get.all(userId, isDmMode ? 1 : 0) as any[];
   return rows.map(row => {
