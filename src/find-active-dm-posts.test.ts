@@ -56,7 +56,7 @@ describe('findUserActiveDmPosts() - поиск активных DM постов'
       FROM interactive_posts
       WHERE user_id = ?
         AND is_dm_mode = 1
-        AND current_state NOT IN ('finished')
+        AND (current_state IS NULL OR current_state NOT IN ('finished'))
 
       ORDER BY created_at DESC
     `);
@@ -242,5 +242,22 @@ describe('findUserActiveDmPosts() - поиск активных DM постов'
     expect(posts.length).toBe(1);
     expect(posts[0].type).toBe('evening');
     expect(posts[0].current_state).toBe('scenario_choice');
+  });
+
+  it('КРИТИЧНО: должен находить вечерний пост с current_state = NULL (новый пост)', () => {
+    const userId = 202;
+
+    // Вставляем вечерний пост БЕЗ current_state (NULL) - как старые посты до фикса
+    db.exec(`
+      INSERT INTO interactive_posts (channel_message_id, user_id, created_at, is_dm_mode)
+      VALUES (3005, ${userId}, '2024-01-15 22:00:00', 1)
+    `);
+
+    const posts = findUserActiveDmPosts(userId);
+
+    // Пост с NULL current_state ДОЛЖЕН находиться!
+    expect(posts.length).toBe(1);
+    expect(posts[0].type).toBe('evening');
+    expect(posts[0].current_state).toBe(null);
   });
 });

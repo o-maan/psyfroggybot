@@ -128,7 +128,7 @@ export class PostHandlerRegistry {
         FROM interactive_posts
         WHERE user_id = ?
           AND is_dm_mode = 1
-          AND current_state NOT IN ('finished')
+          AND (current_state IS NULL OR current_state NOT IN ('finished'))
 
         ORDER BY created_at DESC
       `);

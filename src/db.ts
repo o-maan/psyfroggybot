@@ -538,18 +538,20 @@ export const clearUserTokens = (chatId: number) => {
 
 // Сохранить интерактивный пост
 // isDmMode = true означает что пост в ЛС (диалог там же), false = пост в канале (диалог в комментариях)
+// currentState = начальное состояние поста (по умолчанию 'scenario_choice' - ждём выбора сценария)
 export const saveInteractivePost = (
   channelMessageId: number,
   userId: number,
   messageData: any,
   relaxationType: string,
-  isDmMode: boolean = false
+  isDmMode: boolean = false,
+  currentState: string = 'scenario_choice'
 ) => {
   const insert = db.query(`
-    INSERT INTO interactive_posts (channel_message_id, user_id, message_data, relaxation_type, is_dm_mode)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO interactive_posts (channel_message_id, user_id, message_data, relaxation_type, is_dm_mode, current_state)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  insert.run(channelMessageId, userId, JSON.stringify(messageData), relaxationType, isDmMode ? 1 : 0);
+  insert.run(channelMessageId, userId, JSON.stringify(messageData), relaxationType, isDmMode ? 1 : 0, currentState);
 };
 
 // Получить интерактивный пост по ID сообщения в канале
@@ -2329,7 +2331,7 @@ export function findUserActiveDmPosts(userId: number): Array<{
       FROM interactive_posts
       WHERE user_id = ?
         AND is_dm_mode = 1
-        AND current_state NOT IN ('finished')
+        AND (current_state IS NULL OR current_state NOT IN ('finished'))
 
       ORDER BY created_at DESC
     `);

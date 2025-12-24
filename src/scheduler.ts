@@ -94,6 +94,7 @@ export class Scheduler {
       messageData: any;
       relaxationType: 'body' | 'breathing';
       currentStep:
+        | 'scenario_choice'
         | 'waiting_negative'
         | 'waiting_emotions_clarification'
         | 'waiting_emotions_addition'
@@ -131,6 +132,7 @@ export class Scheduler {
       reminderTimeout?: NodeJS.Timeout; // Таймер для напоминания "Если ты все описал - нажми кнопку Готово"
       reminderSent?: boolean; // Флаг что напоминание уже отправлено (отправляем только 1 раз)
       reminderMessageId?: number; // ID сообщения с напоминанием для удаления
+      scenarioChoiceHintSent?: boolean; // Флаг что подсказка о выборе сценария уже отправлена
     }
   > = new Map();
 
@@ -5499,6 +5501,10 @@ ${allDayUserMessages}
       if (post.bot_schema_message_id && !post.user_schema_message_id) {
         // Если схема отправлена, но пользователь не ответил - ждем ответа на схему
         return 'waiting_schema';
+      } else if (!post.bot_task1_message_id) {
+        // ⚠️ ВАЖНО: Если бот ещё НЕ отправил первое задание - значит пост на этапе выбора сценария
+        // (пользователь ещё не нажал кнопку "Упрощенный" или "Глубокая работа")
+        return 'scenario_choice';
       } else {
         // Иначе ждем ответа на негатив
         return 'waiting_negative';
@@ -6287,12 +6293,27 @@ ${allDayUserMessages}
     );
 
     // ⚠️ ВАЖНО: Если состояние = scenario_choice, бот ждёт нажатия кнопки (глубокий/упрощённый)
-    // Текстовые сообщения в этом состоянии игнорируем
+    // Первый текст → подсказка "нажми на кнопку", последующие → молчим
     if (session.currentStep === 'scenario_choice') {
-      schedulerLogger.info(
-        { userId, channelMessageId, messageText: messageText.substring(0, 50) },
-        '⏳ Состояние scenario_choice - игнорируем текст, ждём нажатия кнопки'
-      );
+      if (!session.scenarioChoiceHintSent) {
+        // Первый текст - отправляем подсказку
+        try {
+          await sendToUser(this.bot, replyToChatId, userId, 'Чтобы выбрать сценарий - нажми на кнопку выше ☝🏻');
+          session.scenarioChoiceHintSent = true;
+          schedulerLogger.info(
+            { userId, channelMessageId },
+            '💡 Отправлена подсказка о выборе сценария'
+          );
+        } catch (hintError) {
+          schedulerLogger.error({ error: hintError, userId }, 'Ошибка отправки подсказки о сценарии');
+        }
+      } else {
+        // Последующие тексты - молчим
+        schedulerLogger.info(
+          { userId, channelMessageId, messageText: messageText.substring(0, 50) },
+          '🔇 scenario_choice - молчим, подсказка уже отправлена'
+        );
+      }
       return true; // Сообщение "обработано" - не передаём дальше
     }
 
