@@ -5,6 +5,17 @@ import { Context } from 'telegraf';
 import { trackUserMessage, trackBotMessage } from './interactive-tracker';
 import { schedulerLogger } from './logger';
 import { sendWithRetry } from './utils/telegram-retry';
+import { getUserByChatId } from './db';
+import { parseGenderTemplate } from './utils/gender-template-parser';
+
+// Автоматическая адаптация caption под пол пользователя
+function adaptCaptionForGender(caption: string | undefined, chatId: number): string | undefined {
+  if (!caption || !caption.includes('${')) return caption;
+
+  const user = getUserByChatId(chatId);
+  const gender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
+  return parseGenderTemplate(caption, gender).text;
+}
 
 // Определить тип сообщения по содержимому
 function detectMessageType(text: string, options?: any): string {
@@ -236,6 +247,11 @@ export function wrapTelegramApi(bot: any) {
       // Не критично
     }
 
+    // ✅ Автоматическая gender-адаптация caption
+    if (options?.caption) {
+      options = { ...options, caption: adaptCaptionForGender(options.caption, chatId) };
+    }
+
     // 🛡️ Оборачиваем в sendWithRetry с IMAGE_INVALID detection
     const result = await sendWithRetry(
       async () => {
@@ -297,6 +313,11 @@ export function wrapTelegramApi(bot: any) {
       // Не критично
     }
 
+    // ✅ Автоматическая gender-адаптация caption
+    if (options?.caption) {
+      options = { ...options, caption: adaptCaptionForGender(options.caption, chatId) };
+    }
+
     // 🛡️ Оборачиваем в sendWithRetry с VIDEO_INVALID detection
     return await sendWithRetry(
       async () => {
@@ -350,6 +371,16 @@ export function wrapTelegramApi(bot: any) {
       await originalSendChatAction(chatId, 'upload_photo');
     } catch (error) {
       // Не критично
+    }
+
+    // ✅ Автоматическая gender-адаптация caption в каждом элементе media
+    if (Array.isArray(media)) {
+      media = media.map(item => {
+        if (item.caption) {
+          return { ...item, caption: adaptCaptionForGender(item.caption, chatId) };
+        }
+        return item;
+      });
     }
 
     // 🛡️ Оборачиваем в sendWithRetry с MEDIA_INVALID detection
