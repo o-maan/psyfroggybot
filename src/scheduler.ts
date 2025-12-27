@@ -5071,7 +5071,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Отправляем сообщение с кнопкой "Ответь мне"
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const user = getUserByChatId(userId);
-      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const baseText = 'Дописал${:а}? Можешь дополнить и тыкай на кнопку 🐸';
       const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
@@ -5133,7 +5133,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Пользователь продолжает писать, повторяем сообщение с кнопкой
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const user = getUserByChatId(userId);
-      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const baseText = 'Дописал${:а}? Можешь дополнить и тыкай на кнопку 🐸';
       const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
       const keyboard = {
         inline_keyboard: [[{ text: 'Ответь мне', callback_data: `morning_respond_${morningPost.channel_message_id}` }]],
@@ -5215,7 +5215,7 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       // Отправляем кнопку "Ответь мне"
       // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
       const user = getUserByChatId(userId);
-      const baseText = 'Дописал? Можешь дополнить и тыкай на кнопку 🐸';
+      const baseText = 'Дописал${:а}? Можешь дополнить и тыкай на кнопку 🐸';
       const responseText = adaptTextForGender(baseText, (user?.gender as 'male' | 'female' | 'unknown') || null);
 
       const sendOptions: any = {
@@ -7087,7 +7087,7 @@ ${allDayUserMessages}
 
         // Отправляем новое сообщение "Все описал?" с кнопкой
         // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-        const confirmationText = 'Все описал? 📝';
+        const confirmationText = 'Все описал${:а}? 📝';
         const confirmationKeyboard = {
           inline_keyboard: [[{ text: 'Да ☑️', callback_data: `confirm_negative_${channelMessageId}` }]],
         };
@@ -7153,7 +7153,7 @@ ${allDayUserMessages}
 
                 // Отправляем напоминание
                 // Это СИСТЕМНОЕ сообщение - отправляем БЕЗ reply (просто в тред через messageThreadId)
-                const reminderText = 'Если ты все описал - нажми кнопку "Готово"';
+                const reminderText = 'Если ты все описал${:а} - нажми кнопку "Готово"';
                 const reminderKeyboard = {
                   inline_keyboard: [[{ text: 'Готово ☑️', callback_data: `confirm_negative_${channelMessageId!}` }]],
                 };

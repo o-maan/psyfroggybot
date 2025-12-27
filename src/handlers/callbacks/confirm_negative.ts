@@ -479,7 +479,7 @@ async function sendPlushkiMessage(
 ) {
   const { updateInteractivePostState } = await import('../../db');
 
-  const plushkiText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал 😍';
+  const plushkiText = '2. <b>Плюшки для лягушки</b>\n\nВспомни и напиши все приятное за день\nТут тоже опиши эмоции, которые ты испытал${:а} 😍';
 
   const plushkiKeyboard = {
     inline_keyboard: [[{ text: 'Таблица эмоций', callback_data: `emotions_table_${channelMessageId}` }]],
