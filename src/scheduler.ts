@@ -2079,10 +2079,8 @@ ${weekendPromptContent}`;
         schedulerLogger.info({ chatId, fallbackImagePath }, '🖼️ Использован fallback для вечернего поста');
       }
 
-      // Добавляем текст "Переходи в комментарии и продолжим 😉" (ТОЛЬКО если НЕ вводное)
-      const captionWithComment = isIntroPost
-        ? firstPart // Вводное - текст как есть
-        : firstPart + '\n\nПереходи в комментарии и продолжим 😉'; // Обычный пост
+      // Базовый текст БЕЗ "Переходи в комментарии" - фраза добавляется только при отправке в канал
+      const baseCaption = firstPart;
 
       // Используем дефолтные слова поддержки для первой отправки (генерация будет асинхронно)
       const { getDefaultSupportWords } = await import('./utils/support-words');
@@ -2138,7 +2136,7 @@ ${weekendPromptContent}`;
         chatId,
         tempMessageId,
         messageDataWithSupport,
-        captionWithComment,
+        baseCaption, // Базовый текст без "Переходи в комментарии"
         postUserId,
         relaxationType,
         generatedImageBuffer: imageBuffer,
@@ -2149,12 +2147,13 @@ ${weekendPromptContent}`;
       const sendPhotoFunction = async () => {
         // ✅ НОВАЯ ЛОГИКА: Определяем куда отправлять на основе channel_id пользователя
         let targetChatId = chatId; // По умолчанию - ЛС
-        let targetCaption = firstPart; // По умолчанию - без "Переходи в комментарии"
+        let targetCaption = baseCaption; // По умолчанию - без "Переходи в комментарии"
 
         if (channelEnabled && user?.channel_id) {
           // Пользователь имеет свой канал - отправляем туда
           targetChatId = user.channel_id;
-          targetCaption = captionWithComment; // С "Переходи в комментарии"
+          // Добавляем "Переходи в комментарии" ТОЛЬКО для канала (не для вводного поста)
+          targetCaption = isIntroPost ? baseCaption : baseCaption + '\n\nПереходи в комментарии и продолжим 😉';
           schedulerLogger.info({ chatId, channelId: user.channel_id }, '📢 Отправка в канал пользователя');
         } else if (channelEnabled && !user?.channel_id) {
           // channel_enabled=1 но channel_id НЕ заполнен - отправляем в ЛС
@@ -2349,10 +2348,10 @@ ${weekendPromptContent}`;
           );
         }
 
-        // Сохраняем сообщение в истории
+        // Сохраняем сообщение в истории (базовый текст без "Переходи в комментарии")
         const { saveMessage } = await import('./db');
         const startTime = new Date().toISOString();
-        saveMessage(chatId, captionWithComment, startTime);
+        saveMessage(chatId, baseCaption, startTime);
 
         // Если это вводный пост - устанавливаем first_evening_post_date
         if (retryData.isIntroPost) {
@@ -2409,7 +2408,7 @@ ${weekendPromptContent}`;
       schedulerLogger.info(
         {
           chatId,
-          messageLength: captionWithComment.length,
+          messageLength: baseCaption.length,
           messageId: sentMessage.message_id,
           sentAt: postSentTime.toISOString(),
           timestamp: postSentTime.getTime(),
@@ -4599,7 +4598,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // ПРОВЕРЯЕМ: нужно ли показать вводное сообщение (только первый раз)
       const { shouldShowMorningIntro, getMorningIntro, buildMorningPost } = await import('./morning-messages');
-      let captionWithComment = '';
+      let morningBaseCaption = ''; // Базовый текст БЕЗ "Переходи в комментарии"
+      let isMorningIntro = false; // Флаг вводного поста
 
       // Определяем день недели заранее (нужен для валидации и логирования)
       const now = new Date();
@@ -4608,7 +4608,8 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       if (shouldShowMorningIntro(userId)) {
         // Это первый пост - используем вводное сообщение
         schedulerLogger.info({ chatId, userId }, '📢 Первый пост - показываем вводное сообщение для утренней лягушки');
-        captionWithComment = getMorningIntro(userId); // БЕЗ добавления "Переходи в комментарии" - текст уже готов
+        morningBaseCaption = getMorningIntro(userId); // Вводное сообщение - текст уже готов
+        isMorningIntro = true;
       } else {
         // Обычный пост - определяем тип по дню недели
         const isFriday = dayOfWeek === 5;
@@ -4621,32 +4622,32 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             const morningPrompt = await readFile('assets/prompts/morning-message.md', 'utf-8');
             const morningText = await generateWithUserContext(userId, morningPrompt);
             const cleanedText = cleanLLMText(morningText);
-            captionWithComment = cleanedText + '\n\nПереходи в комментарии и продолжим 😉';
+            morningBaseCaption = cleanedText; // БЕЗ "Переходи в комментарии" - добавится только для канала
             schedulerLogger.info({ chatId, text: cleanedText }, 'Сгенерирован текст через LLM для пятницы');
           } catch (llmError) {
             schedulerLogger.error(
               { error: llmError, chatId },
               'Ошибка генерации через LLM, используем fallback из списка'
             );
-            // Fallback: используем обычный текст из списка
-            captionWithComment = await buildMorningPost(userId, dayOfWeek, false);
+            // Fallback: используем обычный текст из списка (уже без "Переходи в комментарии")
+            morningBaseCaption = await buildMorningPost(userId, dayOfWeek, false);
           }
         } else {
-          // Остальные дни: используем тексты из списка
+          // Остальные дни: используем тексты из списка (уже без "Переходи в комментарии")
           schedulerLogger.info({ chatId, dayOfWeek }, '📋 Используем текст из списка');
-          captionWithComment = await buildMorningPost(userId, dayOfWeek, false);
+          morningBaseCaption = await buildMorningPost(userId, dayOfWeek, false);
         }
       }
 
       // КРИТИЧЕСКАЯ ВАЛИДАЦИЯ: проверяем что текст не пустой
-      if (!captionWithComment || captionWithComment.trim().length === 0) {
+      if (!morningBaseCaption || morningBaseCaption.trim().length === 0) {
         schedulerLogger.error(
           { chatId, userId, dayOfWeek },
-          '❌ КРИТИЧЕСКАЯ ОШИБКА: captionWithComment пустой! Используем fallback'
+          '❌ КРИТИЧЕСКАЯ ОШИБКА: morningBaseCaption пустой! Используем fallback'
         );
-        // Fallback текст на случай ошибки
-        captionWithComment =
-          'Доброе утро! ☀️\n\nКак прошел твой день вчера?\n\n<b>Делись всем, что волнует тебя</b> 💚🌧️\n\nПереходи в комментарии и продолжим 😉';
+        // Fallback текст на случай ошибки (БЕЗ "Переходи в комментарии")
+        morningBaseCaption =
+          'Доброе утро! ☀️\n\nКак прошел твой день вчера?\n\n<b>Делись всем, что волнует тебя</b> 💚🌧️';
 
         // Уведомляем админа
         const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
@@ -4687,15 +4688,15 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
 
       // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
       // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-      let genderAdaptedCaption = captionWithComment; // fallback
+      let genderAdaptedCaption = morningBaseCaption; // fallback
       try {
         const { parseGenderTemplate } = await import('./utils/gender-template-parser');
         const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-        genderAdaptedCaption = parseGenderTemplate(captionWithComment, userGender).text;
-        schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedCaption !== captionWithComment }, 'Текст утреннего поста адаптирован под пол');
+        genderAdaptedCaption = parseGenderTemplate(morningBaseCaption, userGender).text;
+        schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedCaption !== morningBaseCaption }, 'Текст утреннего поста адаптирован под пол');
       } catch (parseError) {
         schedulerLogger.error(
-          { error: parseError, userId, captionLength: captionWithComment.length },
+          { error: parseError, userId, captionLength: morningBaseCaption.length },
           '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал! Используем оригинальный текст'
         );
         // Уведомляем админа
@@ -4709,8 +4710,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
       }
 
       // Отправляем основной пост БЕЗ кнопок
-      // ✅ Определяем финальный текст: в ЛС без "Переходи в комментарии"
-      const finalCaption = channelEnabled ? genderAdaptedCaption : genderAdaptedCaption.replace('\n\nПереходи в комментарии и продолжим 😉', '');
+      // ✅ Определяем финальный текст: для канала добавляем "Переходи в комментарии" (кроме вводного), для ЛС - без
+      let finalCaption = genderAdaptedCaption;
+      if (channelEnabled && user?.channel_id && !isMorningIntro) {
+        // Для канала (кроме вводного поста) добавляем приглашение в комментарии
+        finalCaption = genderAdaptedCaption + '\n\nПереходи в комментарии и продолжим 😉';
+      }
 
       let sentMessage;
       if (imageBuffer) {
@@ -4873,12 +4878,12 @@ ${errorCount > 0 ? `\n🚨 Ошибки:\n${errors.slice(0, 5).join('\n')}${erro
             }
           }
 
-          // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
+          // Отправляем версию в ЛС (используем genderAdaptedCaption - базовый текст БЕЗ "Переходи в комментарии")
           await this.bot.telegram.sendPhoto(
             chatId,
             { source: dmImageSource },
             {
-              caption: finalCaption.replace('\n\nПереходи в комментарии и продолжим 😉', ''), // Удаляем приглашение в комментарии
+              caption: genderAdaptedCaption, // Базовый текст без "Переходи в комментарии"
               parse_mode: 'HTML',
             }
           );
@@ -8682,23 +8687,21 @@ ${allDayUserMessages}
 
       // 5. ОТПРАВЛЯЕМ ПОСТ В КАНАЛ (только после подготовки всех текстов!)
       // Текст зависит от сценария (вводный или основной)
-      let postText: string;
+      // Базовый текст БЕЗ "Переходи в комментарии" - фраза добавляется только для канала
+      let joyBaseText: string;
       if (isFirstTime) {
-        postText = `Давай соберем <b>твой личный список того, что приносит тебе радость и заряжает энергией</b> 🔥
+        joyBaseText = `Давай соберем <b>твой личный список того, что приносит тебе радость и заряжает энергией</b> 🔥
 
 Что он тебе дает:
 ⚡️не нужно ломать голову – у тебя есть четкое понимание, что именно тебе помогает
 ⚡️возможность быстрее выйти из стресса
 ⚡️легализация радости – так, ты осознаешь, что это не просто развлечения, дурачество или трата времени, а важный вклад в себя, который дает тебе силы
 
-<i>P.S. а когда это встроено в твою жизнь – это профилактика выгорания и помощь в сохранении баланса 🌙</i>
-
-Переходи в комментарии и продолжим 😉`;
+<i>P.S. а когда это встроено в твою жизнь – это профилактика выгорания и помощь в сохранении баланса 🌙</i>`;
       } else {
-        // Для основного сценария берем текст из списка постов
+        // Для основного сценария берем текст из списка постов (уже без "Переходи в комментарии")
         const { getJoyMainMessageText } = await import('./joy-main-messages');
-        const mainPostText = await getJoyMainMessageText(userId);
-        postText = `${mainPostText}\n\nПереходи в комментарии и продолжим 😉`;
+        joyBaseText = await getJoyMainMessageText(userId);
       }
 
       // Функция отправки JOY поста с защитой от повреждённых изображений
@@ -8762,25 +8765,17 @@ ${allDayUserMessages}
           );
         }
 
-        // ✅ Определяем текст: для ЛС убираем "Переходи в комментарии"
-        let targetPostText = postText;
-        if (!sendingToChannel) {
-          targetPostText = postText
-            .replace('\n\nПереходи в комментарии и продолжим 😉', '')
-            .replace('\n\nПереходи в комментарии и продолжим 🤗', '');
-        }
-
-        // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption через parseGenderTemplate
+        // ✅ КРИТИЧЕСКИ ВАЖНО: Сначала адаптируем БАЗОВЫЙ текст под пол
         // Это удалит HTML-комментарии (<!-- gender:both -->) и адаптирует текст под пол
-        let genderAdaptedPostText = targetPostText; // fallback
+        let genderAdaptedBaseText = joyBaseText; // fallback
         try {
           const { parseGenderTemplate } = await import('./utils/gender-template-parser');
           const userGender = (user?.gender === 'male' || user?.gender === 'female') ? user.gender : 'unknown';
-          genderAdaptedPostText = parseGenderTemplate(targetPostText, userGender).text;
-          schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedPostText !== postText }, 'Текст JOY поста адаптирован под пол');
+          genderAdaptedBaseText = parseGenderTemplate(joyBaseText, userGender).text;
+          schedulerLogger.debug({ userId, userGender, hadTemplate: genderAdaptedBaseText !== joyBaseText }, 'Текст JOY поста адаптирован под пол');
         } catch (parseError) {
           schedulerLogger.error(
-            { error: parseError, userId, textLength: postText.length },
+            { error: parseError, userId, textLength: joyBaseText.length },
             '❌ КРИТИЧЕСКАЯ ОШИБКА: parseGenderTemplate упал в JOY посте!'
           );
           const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
@@ -8791,6 +8786,11 @@ ${allDayUserMessages}
             ).catch(() => {/* игнорируем */});
           }
         }
+
+        // ✅ Определяем финальный текст: для канала добавляем "Переходи в комментарии", для ЛС - без
+        const genderAdaptedPostText = sendingToChannel
+          ? genderAdaptedBaseText + '\n\nПереходи в комментарии и продолжим 😉'
+          : genderAdaptedBaseText;
 
         // Отправляем фото с обработкой ошибок изображения
         let result;
@@ -8824,14 +8824,11 @@ ${allDayUserMessages}
         if (channelEnabled && dmEnabled && user?.channel_id) {
           schedulerLogger.info({ userId }, '📬 Отправляем копию JOY поста в ЛС (пост ушёл в канал, дублируем в ЛС)');
           try {
-            // Для ЛС убираем "Переходи в комментарии"
-            const dmCaption = genderAdaptedPostText
-              .replace('\n\nПереходи в комментарии и продолжим 😉', '')
-              .replace('\n\nПереходи в комментарии и продолжим 🤗', '');
+            // Для ЛС используем базовый текст БЕЗ "Переходи в комментарии"
             await this.bot.telegram.sendPhoto(
               userId,
               { source: imageBuffer },
-              { caption: dmCaption, parse_mode: 'HTML' }
+              { caption: genderAdaptedBaseText, parse_mode: 'HTML' }
             );
           } catch (dmError: any) {
             // Копия в ЛС не критична - логируем и продолжаем

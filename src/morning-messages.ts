@@ -449,12 +449,12 @@ export async function buildMorningPost(userId: number, dayOfWeek: number, isFrid
   const messageText = await getMorningMessageText(userId, dayOfWeek);
   const emojis = getRandomEmojis();
 
+  // Текст БЕЗ "Переходи в комментарии" - фраза добавляется в scheduler.ts только при отправке в канал
   const post = `${greeting}
 
 ${messageText}
 
-<b>А я буду ждать твои события за день – делись всем, что волнует тебя</b> ${emojis.positive}${emojis.negative}
-Переходи в комментарии и продолжим 😉`;
+<b>А я буду ждать твои события за день – делись всем, что волнует тебя</b> ${emojis.positive}${emojis.negative}`;
 
   return post;
 }
