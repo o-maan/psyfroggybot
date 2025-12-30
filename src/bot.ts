@@ -80,13 +80,40 @@ bot.command('show_filter', async ctx => {
 createOAuthServer(bot, calendarService, scheduler);
 createWebhookServer(scheduler);
 
-// --- Telegraf polling ---
-clearPendingUpdates()
-  .then(() => bot.launch())
-  .then(() => {
-    logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
+// --- Telegraf polling с автоматическим перезапуском ---
+const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
+let retryCount = 0;
+const MAX_RETRY_DELAY = 60000; // Максимальная задержка 60 секунд
+const BASE_RETRY_DELAY = 5000; // Начальная задержка 5 секунд
+let isShuttingDown = false; // Флаг для graceful shutdown
 
-    // Логируем успешный запуск
+// Функция для отправки уведомления админу
+const notifyAdmin = async (message: string) => {
+  if (adminChatId) {
+    try {
+      await bot.telegram.sendMessage(adminChatId, message, { parse_mode: 'HTML' });
+    } catch (error) {
+      logger.error({ error: (error as Error).message }, 'Ошибка отправки уведомления админу');
+    }
+  }
+};
+
+// Функция запуска бота с retry logic
+const launchBot = async (): Promise<void> => {
+  if (isShuttingDown) {
+    logger.info('🛑 Бот останавливается, отмена перезапуска');
+    return;
+  }
+
+  try {
+    await clearPendingUpdates();
+    await bot.launch();
+
+    // Успешный запуск - сбрасываем счётчик
+    const wasRetrying = retryCount > 0;
+    retryCount = 0;
+
+    logger.info({ pid: process.pid, ppid: process.ppid }, '🚀 Telegram бот запущен в режиме polling');
     logger.info('✅ Polling активен и готов к получению команд');
 
     // Логируем зарегистрированные обработчики
@@ -109,8 +136,15 @@ clearPendingUpdates()
       '📋 Зарегистрированные обработчики кнопок'
     );
 
+    // Уведомляем админа о запуске
+    const processInfo = `PID: ${process.pid}${process.env.pm_id ? ` | PM2 ID: ${process.env.pm_id}` : ''}`;
+    if (wasRetrying) {
+      await notifyAdmin(`🔄 <b>БОТ ВОССТАНОВЛЕН</b>\n\nPolling успешно перезапущен после ошибки\n🔧 ${processInfo}`);
+    } else {
+      await notifyAdmin(`🚀 <b>БОТ ЗАПУЩЕН</b>\n\nТелеграм бот успешно запущен в режиме polling\n🔧 ${processInfo}`);
+    }
+
     // Запускаем восстановление и проверку незавершенных заданий через 5 секунд после старта
-    // Даем время боту полностью инициализироваться
     setTimeout(async () => {
       // Сначала восстанавливаем необработанные сообщения
       logger.info('🔄 Запуск восстановления необработанных сообщений...');
@@ -130,27 +164,46 @@ clearPendingUpdates()
         logger.error({ error: (error as Error).message }, '❌ Ошибка проверки незавершенных заданий после старта');
       }
     }, 5000);
-  })
-  .catch(error => {
-    logger.error({ error: error.message, stack: error.stack }, '❌ Ошибка запуска бота');
-    process.exit(1);
-  });
+  } catch (error) {
+    const errorMessage = (error as Error).message || 'Unknown error';
+    retryCount++;
 
-// Отправляем уведомление админу о запуске
-const adminChatId = Number(process.env.ADMIN_CHAT_ID || 0);
-if (adminChatId) {
-  const processInfo = `PID: ${process.pid}${process.env.pm_id ? ` | PM2 ID: ${process.env.pm_id}` : ''}`;
-  bot.telegram
-    .sendMessage(
-      adminChatId,
-      `🚀 <b>БОТ ЗАПУЩЕН</b>\n\n` + `Телеграм бот успешно запущен в режиме polling\n` + `🔧 ${processInfo}`,
-      { parse_mode: 'HTML' }
-    )
-    .catch(error => {
-      logger.error({ error: error.message, adminChatId }, 'Ошибка отправки уведомления админу о запуске');
-    });
-}
+    // Экспоненциальная задержка: 5с, 10с, 20с, 40с, 60с (макс)
+    const delay = Math.min(BASE_RETRY_DELAY * Math.pow(2, retryCount - 1), MAX_RETRY_DELAY);
+
+    logger.error(
+      {
+        error: errorMessage,
+        retryCount,
+        nextRetryIn: `${delay / 1000}s`,
+      },
+      '❌ Ошибка polling, перезапуск...'
+    );
+
+    // Уведомляем админа каждые 3 попытки
+    if (retryCount % 3 === 0) {
+      await notifyAdmin(
+        `⚠️ <b>ПРОБЛЕМА С POLLING</b>\n\n` +
+          `Ошибка: ${errorMessage}\n` +
+          `Попытка: ${retryCount}\n` +
+          `Следующая попытка через: ${delay / 1000}с`
+      );
+    }
+
+    // Планируем перезапуск
+    setTimeout(launchBot, delay);
+  }
+};
+
+// Запускаем бота
+launchBot();
 
 // Graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => {
+  isShuttingDown = true;
+  bot.stop('SIGINT');
+});
+process.once('SIGTERM', () => {
+  isShuttingDown = true;
+  bot.stop('SIGTERM');
+});
