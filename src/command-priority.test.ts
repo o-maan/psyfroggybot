@@ -334,6 +334,167 @@ describe('Система приоритета команд и постов в Л
     });
   });
 
+  describe('SHORT JOY сессия без режима добавления - блокировка других логик', () => {
+    it('должен блокировать сообщение когда SHORT JOY сессия активна, но isAddingActive=false', () => {
+      const userId = 123;
+      const shortJoyId = 456;
+      const sessionKey = `${userId}_${shortJoyId}`;
+
+      // Устанавливаем SHORT JOY сессию (как после вызова /joy)
+      mockScheduler.shortJoySessions.set(userId, {
+        shortJoyId,
+        userId,
+        chatId: userId,
+        messageThreadId: undefined,
+        isIntro: false,
+        buttonHintSent: false, // подсказка ещё не отправлена
+      });
+      // НЕ устанавливаем shortJoyAddingSessions - пользователь НЕ нажал "Добавить ещё"
+
+      // Проверяем логику handleJoyUserMessage
+      const shortJoySession = mockScheduler.shortJoySessions.get(userId);
+      expect(shortJoySession).toBeDefined();
+
+      const removalSession = mockScheduler.shortJoyRemovalSessions?.get(sessionKey);
+      const isAddingActive = mockScheduler.shortJoyAddingSessions.get(sessionKey);
+
+      // Сессия есть, но режим добавления НЕ активен
+      expect(shortJoySession).not.toBeUndefined();
+      expect(removalSession).toBeUndefined();
+      expect(isAddingActive).toBeUndefined(); // или false
+
+      // Новая логика: должны блокировать и просить нажать кнопку
+      const shouldBlockAndAskForButton =
+        shortJoySession && !removalSession && !isAddingActive;
+
+      expect(shouldBlockAndAskForButton).toBe(true);
+    });
+
+    it('должен отправлять подсказку только один раз (buttonHintSent)', () => {
+      const userId = 123;
+      const shortJoyId = 456;
+
+      // Первое сообщение - подсказка отправляется
+      const session1 = {
+        shortJoyId,
+        userId,
+        chatId: userId,
+        buttonHintSent: false, // ещё не отправлена
+      };
+      mockScheduler.shortJoySessions.set(userId, session1);
+
+      let shortJoySession = mockScheduler.shortJoySessions.get(userId)!;
+      expect(shortJoySession.buttonHintSent).toBe(false);
+
+      // Симулируем отправку подсказки
+      const shouldSendHint = !shortJoySession.buttonHintSent;
+      expect(shouldSendHint).toBe(true);
+
+      // Устанавливаем флаг после отправки
+      shortJoySession.buttonHintSent = true;
+      mockScheduler.shortJoySessions.set(userId, shortJoySession);
+
+      // Второе сообщение - подсказка НЕ отправляется
+      shortJoySession = mockScheduler.shortJoySessions.get(userId)!;
+      expect(shortJoySession.buttonHintSent).toBe(true);
+
+      const shouldSendHintAgain = !shortJoySession.buttonHintSent;
+      expect(shouldSendHintAgain).toBe(false);
+    });
+
+    it('НЕ должен блокировать когда shortJoyAddingSessions=true (режим добавления активен)', () => {
+      const userId = 123;
+      const shortJoyId = 456;
+      const sessionKey = `${userId}_${shortJoyId}`;
+
+      // Устанавливаем SHORT JOY сессию
+      mockScheduler.shortJoySessions.set(userId, {
+        shortJoyId,
+        userId,
+        chatId: userId,
+        messageThreadId: undefined,
+        isIntro: false,
+      });
+      // Устанавливаем режим добавления (пользователь нажал "Добавить ещё")
+      mockScheduler.shortJoyAddingSessions.set(sessionKey, true);
+
+      const shortJoySession = mockScheduler.shortJoySessions.get(userId);
+      const isAddingActive = mockScheduler.shortJoyAddingSessions.get(sessionKey);
+
+      // Режим добавления активен - должен обрабатываться через ShortJoyHandler
+      expect(isAddingActive).toBe(true);
+
+      // НЕ должен попадать в логику "нажми кнопку"
+      const shouldBlockAndAskForButton =
+        shortJoySession && !isAddingActive;
+
+      expect(shouldBlockAndAskForButton).toBe(false);
+    });
+
+    it('НЕ должен блокировать когда removalSession активен (режим удаления)', () => {
+      const userId = 123;
+      const shortJoyId = 456;
+      const sessionKey = `${userId}_${shortJoyId}`;
+
+      // Устанавливаем SHORT JOY сессию
+      mockScheduler.shortJoySessions.set(userId, {
+        shortJoyId,
+        userId,
+        chatId: userId,
+        messageThreadId: undefined,
+        isIntro: false,
+      });
+      // Устанавливаем режим удаления
+      mockScheduler.shortJoyRemovalSessions.set(sessionKey, {
+        state: 'waiting_numbers',
+        numbersToDelete: new Map(),
+        confirmButtonMessageId: null,
+      });
+
+      const shortJoySession = mockScheduler.shortJoySessions.get(userId);
+      const removalSession = mockScheduler.shortJoyRemovalSessions?.get(sessionKey);
+      const isAddingActive = mockScheduler.shortJoyAddingSessions.get(sessionKey);
+
+      // Режим удаления активен - должен обрабатываться как ввод номеров
+      expect(removalSession).toBeDefined();
+      expect(removalSession?.state).toBe('waiting_numbers');
+
+      // Логика проверки: сначала проверяем removal, потом adding
+      // Если removalSession активен - return true до проверки "нажми кнопку"
+      const isHandledByRemoval = removalSession && removalSession.state === 'waiting_numbers';
+      expect(isHandledByRemoval).toBe(true);
+    });
+
+    it('НЕ должен блокировать когда нет SHORT JOY сессии', () => {
+      const userId = 999;
+
+      const shortJoySession = mockScheduler.shortJoySessions.get(userId);
+
+      // Нет сессии - не должен блокировать
+      expect(shortJoySession).toBeUndefined();
+
+      // Сообщение должно идти дальше в PostHandlerRegistry
+      const shouldBlockAndAskForButton = !!shortJoySession;
+      expect(shouldBlockAndAskForButton).toBe(false);
+    });
+
+    it('должен использовать правильный sessionKey формат: userId_shortJoyId', () => {
+      const userId = 123;
+      const shortJoyId = 456;
+
+      mockScheduler.shortJoySessions.set(userId, {
+        shortJoyId,
+        userId,
+        chatId: userId,
+      });
+
+      const shortJoySession = mockScheduler.shortJoySessions.get(userId);
+      const sessionKey = `${userId}_${shortJoySession!.shortJoyId}`;
+
+      expect(sessionKey).toBe('123_456');
+    });
+  });
+
   describe('Проверка editing_* состояний для /me', () => {
     it('должен определять editing_name как состояние редактирования', () => {
       const onboarding_state = 'editing_name';

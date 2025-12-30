@@ -159,6 +159,7 @@ export class Scheduler {
       chatId: number; // ID чата где вызвана команда
       messageThreadId?: number; // ID треда если вызвано в комментариях
       isIntro?: boolean; // Флаг вводной логики
+      buttonHintSent?: boolean; // Флаг что подсказка "нажми кнопку" уже отправлена
     }
   > = new Map(); // userId -> session data
 
@@ -5684,6 +5685,41 @@ ${allDayUserMessages}
         schedulerLogger.info({ userId, source: messageText }, '✅ Сообщение обработано через ShortJoyHandler');
         return true;
       }
+
+      // SHORT JOY сессия активна, но пользователь НЕ в режиме добавления/удаления
+      // Просим нажать кнопку (только один раз!)
+      if (!shortJoySession.buttonHintSent) {
+        // Первый текст - отправляем подсказку
+        schedulerLogger.info(
+          { userId, sessionKey },
+          '⚠️ SHORT JOY сессия активна, но пользователь не в режиме добавления - просим нажать кнопку'
+        );
+
+        const promptOptions: any = {};
+        if (shortJoySession.messageThreadId) {
+          promptOptions.reply_to_message_id = shortJoySession.messageThreadId;
+        }
+
+        await sendToUser(
+          this.bot,
+          shortJoySession.chatId,
+          userId,
+          'Выбери, что хочешь сделать - нажми кнопку выше ☝🏻',
+          promptOptions
+        );
+
+        // Устанавливаем флаг - подсказка отправлена
+        shortJoySession.buttonHintSent = true;
+        this.shortJoySessions.set(userId, shortJoySession);
+      } else {
+        // Последующие тексты - молчим
+        schedulerLogger.info(
+          { userId, sessionKey },
+          '🔇 SHORT JOY - молчим, подсказка о кнопке уже отправлена'
+        );
+      }
+
+      return true; // Блокируем другие логики!
     }
 
     // Проверяем, не является ли это сообщением в обычной joy-сессии
