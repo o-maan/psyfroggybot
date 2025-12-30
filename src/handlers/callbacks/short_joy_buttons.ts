@@ -27,6 +27,13 @@ export async function handleShortJoyAdd(ctx: BotContext, bot: Telegraf, schedule
 
     await ctx.answerCbQuery('Добавляю в список...⚡️');
 
+    // Удаляем сообщение с кнопкой СРАЗУ при нажатии
+    try {
+      await ctx.deleteMessage();
+    } catch (error) {
+      botLogger.warn({ error, messageId: ctx.callbackQuery.message?.message_id }, 'Не удалось удалить сообщение с кнопкой');
+    }
+
     botLogger.info(
       { action: 'short_joy_add', channelMessageId, userId },
       '🔥 Нажата кнопка "Добавить" в SHORT JOY'
