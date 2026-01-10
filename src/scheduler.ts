@@ -8660,6 +8660,7 @@ ${allDayUserMessages}
       // 4. ПОДГОТОВКА: Формируем все тексты для комментариев ДО отправки поста в канал
       let commentText: string;
       let commentKeyboard: any;
+      let validatedEvents = events; // Для проверки в основном сценарии
 
       if (isFirstTime) {
         // ВВОДНЫЙ СЦЕНАРИЙ - готовим текст
@@ -8683,7 +8684,6 @@ ${allDayUserMessages}
         schedulerLogger.info({ userId }, '🔄 Готовим основной сценарий');
 
         // ВАЛИДАЦИЯ: Фильтруем только ДЕЙСТВИТЕЛЬНО позитивные события через LLM
-        let validatedEvents = events;
         if (events.length > 0) {
           validatedEvents = await this.validatePositiveEvents(events);
           schedulerLogger.info(
@@ -8936,8 +8936,8 @@ ${allDayUserMessages}
         this.sendJoyMessageAsync(channelMessageId, commentText, commentKeyboard, 'joy_intro', userId, targetInteractionChatId);
       } else {
         // ОСНОВНОЙ СЦЕНАРИЙ - ДВА сообщения (список + вопрос с кнопками)
-        if (events.length > 0) {
-          // ЕСТЬ СОБЫТИЯ - отправляем список + вопрос с кнопками
+        if (validatedEvents.length > 0) {
+          // ЕСТЬ ВАЛИДНЫЕ СОБЫТИЯ - отправляем список + вопрос с кнопками
           const promptText = `<b>Хочешь добавить что-то из этого в свой список?</b>
 Или другое
 <b>Перечисли ниже ❤️‍🔥</b>`;
