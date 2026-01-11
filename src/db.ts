@@ -621,7 +621,7 @@ export const getUserIncompletePostsByMode = (userId: number, isDmMode: boolean) 
   const get = db.query(`
     SELECT *,
       CASE
-        WHEN current_state IN ('scenario_choice', 'waiting_negative', 'waiting_positive', 'waiting_task3', 'waiting_emotions_clarification', 'waiting_positive_emotions_clarification') THEN 0
+        WHEN current_state IN ('scenario_choice', 'waiting_negative', 'waiting_positive', 'waiting_task3', 'waiting_emotions_clarification', 'waiting_positive_emotions_clarification', 'waiting_emotions_addition') THEN 0
         ELSE 1
       END as state_priority
     FROM interactive_posts
@@ -2347,3 +2347,37 @@ export function findUserActiveDmPosts(userId: number): Array<{
     return [];
   }
 }
+
+// === Вспомогательные функции для тестов ===
+
+// Вставить интерактивный пост напрямую (для тестов)
+export const insertInteractivePost = (
+  channelMessageId: number,
+  userId: number,
+  isDmMode: boolean,
+  messageData: any,
+  currentState: string
+) => {
+  const insert = db.query(`
+    INSERT INTO interactive_posts (
+      channel_message_id, user_id, message_data, relaxation_type,
+      is_dm_mode, current_state, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+  `);
+  insert.run(
+    channelMessageId,
+    userId,
+    JSON.stringify(messageData),
+    'breathing',
+    isDmMode ? 1 : 0,
+    currentState
+  );
+};
+
+// Очистить интерактивные посты для пользователя (для тестов)
+export const clearInteractivePosts = (userId: number) => {
+  const del = db.query(`
+    DELETE FROM interactive_posts WHERE user_id = ?
+  `);
+  del.run(userId);
+};

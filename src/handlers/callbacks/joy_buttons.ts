@@ -454,6 +454,12 @@ export async function handleJoySundaySkip(ctx: BotContext, bot: Telegraf, schedu
       ])
     });
 
+    // Удаляем JOY сессию - переходим к вечерней логике
+    // Без этого handleJoyUserMessage будет перехватывать сообщения вместо вечерней логики
+    scheduler.removeJoySession(userId);
+    const sessionKey = `${userId}_${channelMessageId}`;
+    scheduler.joyAddingSessions?.delete(sessionKey);
+
     botLogger.info({ userId, channelMessageId }, '✅ Переход к вечернему посту выполнен');
   } catch (error) {
     botLogger.error(
@@ -570,6 +576,12 @@ export async function handleJoyContinue(ctx: BotContext, bot: Telegraf, schedule
         [Markup.button.callback('Упрощенный вариант 💫', `scenario_simplified_${channelMessageId}`)]
       ])
     });
+
+    // Удаляем JOY сессию - переходим к вечерней логике
+    // Без этого handleJoyUserMessage будет перехватывать сообщения вместо вечерней логики
+    scheduler.removeJoySession(userId);
+    const sessionKey = `${userId}_${channelMessageId}`;
+    scheduler.joyAddingSessions?.delete(sessionKey);
 
     botLogger.info({ userId, channelMessageId }, '✅ Переход к вечернему посту выполнен');
   } catch (error) {
@@ -1190,6 +1202,12 @@ export async function handleJoyLater(ctx: BotContext, bot: Telegraf, scheduler: 
         [Markup.button.callback('Упрощенный сценарий 💫', `scenario_simplified_${channelMessageId}`)]
       ])
     });
+
+    // Удаляем JOY сессию - переходим к вечерней логике
+    // Без этого handleJoyUserMessage будет перехватывать сообщения вместо вечерней логики
+    scheduler.removeJoySession(userId);
+    const sessionKey = `${userId}_${channelMessageId}`;
+    scheduler.joyAddingSessions?.delete(sessionKey);
 
     botLogger.info({ userId, channelMessageId }, '✅ Показан выбор сценария после отложенного списка');
   } catch (error) {
