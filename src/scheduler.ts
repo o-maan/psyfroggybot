@@ -2420,10 +2420,10 @@ ${weekendPromptContent}`;
         channelEnabled ? 'Основной пост отправлен в канал' : 'Основной пост отправлен в ЛС'
       );
 
-      // ✅ Если оба режима включены И пост ушёл в канал (channel_id заполнен) - дополнительно отправляем копию в ЛС
+      // ✅ Если оба режима включены И пост ушёл в канал - отправляем ПОЛНУЮ копию в ЛС с кнопками
       if (channelEnabled && dmEnabled && user?.channel_id) {
         try {
-          schedulerLogger.info({ chatId }, '📬 Отправка дополнительной копии в ЛС (пост ушёл в канал, дублируем в ЛС)');
+          schedulerLogger.info({ chatId }, '📬 Отправка полной копии в ЛС с кнопками (канал + ЛС режим)');
 
           // ✅ КРИТИЧЕСКИ ВАЖНО: Обрабатываем caption для ЛС через parseGenderTemplate
           let dmCaption = firstPart; // fallback
@@ -2438,8 +2438,8 @@ ${weekendPromptContent}`;
             );
           }
 
-          // Отправляем упрощенную версию в ЛС (без "Переходи в комментарии")
-          await this.bot.telegram.sendPhoto(
+          // Отправляем пост в ЛС
+          const dmMessage = await this.bot.telegram.sendPhoto(
             chatId,
             imageBuffer ? { source: imageBuffer } : { source: await readFile(this.getNextImage(chatId)) },
             {
@@ -2448,9 +2448,31 @@ ${weekendPromptContent}`;
             }
           );
 
-          schedulerLogger.info({ chatId }, '✅ Копия успешно отправлена в ЛС');
+          // ⚡ НОВОЕ: Создаём отдельную запись в БД для ЛС
+          const dmMessageId = dmMessage.message_id;
+          saveInteractivePost(dmMessageId, postUserId, messageDataWithSupport, relaxationType, true); // is_dm_mode = true
+
+          schedulerLogger.info(
+            { chatId, dmMessageId, channelMessageId: sentMessage.message_id },
+            '💾 Создана отдельная запись interactive_post для ЛС (is_dm_mode=1)'
+          );
+
+          // ⚡ НОВОЕ: Отправляем кнопки выбора сценария в ЛС
+          const dmScenarioKeyboard = {
+            inline_keyboard: [
+              [{ text: 'Упрощенный сценарий 🧩', callback_data: `scenario_simplified_${dmMessageId}` }],
+              [{ text: 'Глубокая работа 🧘🏻', callback_data: `scenario_deep_${dmMessageId}` }],
+            ],
+          };
+
+          await sendToUser(this.bot, chatId, chatId, '<b>Как сегодня хочешь поработать?</b>', {
+            parse_mode: 'HTML',
+            reply_markup: dmScenarioKeyboard,
+          });
+
+          schedulerLogger.info({ chatId, dmMessageId }, '✅ Полная копия с кнопками отправлена в ЛС');
         } catch (dmError) {
-          schedulerLogger.error({ error: dmError, chatId }, '❌ Ошибка отправки копии в ЛС');
+          schedulerLogger.error({ error: dmError, chatId }, '❌ Ошибка отправки полной копии в ЛС');
         }
       }
 
