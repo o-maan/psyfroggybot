@@ -70,6 +70,27 @@ import {
   handleShortJoyClearConfirm
 } from './short_joy_remove_buttons';
 
+import {
+  handleHelpAcute,
+  handleHelpAcuteCalled,
+  handleHelpAcuteNoSymptoms,
+  handleHelpAcuteSymptomsYes,
+  handleHelpAcuteSymptomsNo,
+  handleHelpAcuteStep2,
+  handleHelpAcuteStep3,
+  handleHelpAcuteStep4,
+  handleHelpAcuteFinal,
+  handleHelpPanicSigns,
+  handleHelpPanicWhatToDo,
+  handleHelpPanicStep2,
+  handleHelpPanicStep3,
+  handleHelpPanicStep4,
+  handleHelpPanicStep5,
+  handleHelpThoughts,
+  handleHelpBackground,
+  handleHelpPeoplePlaces
+} from './help_buttons';
+
 export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   // Общий обработчик callback_query
   bot.on('callback_query', handleCallbackQuery);
@@ -176,6 +197,26 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action(/joy_clear_confirm_(\d+)/, ctx => handleJoyClearConfirm(ctx, bot, scheduler));
   bot.action(/joy_clear_cancel_(\d+)/, ctx => handleJoyClearCancel(ctx, bot, scheduler));
   bot.action(/joy_later_(\d+)/, ctx => handleJoyLater(ctx, bot, scheduler));
+
+  // Обработчики кнопок команды /help
+  bot.action('help:acute', ctx => handleHelpAcute(ctx, bot));
+  bot.action('help:acute_called', ctx => handleHelpAcuteCalled(ctx, bot));
+  bot.action('help:acute_no_symptoms', ctx => handleHelpAcuteNoSymptoms(ctx, bot));
+  bot.action('help:acute_symptoms_yes', ctx => handleHelpAcuteSymptomsYes(ctx, bot));
+  bot.action('help:acute_symptoms_no', ctx => handleHelpAcuteSymptomsNo(ctx, bot));
+  bot.action('help:acute_step2', ctx => handleHelpAcuteStep2(ctx, bot));
+  bot.action('help:acute_step3', ctx => handleHelpAcuteStep3(ctx, bot));
+  bot.action('help:acute_step4', ctx => handleHelpAcuteStep4(ctx, bot));
+  bot.action('help:acute_final', ctx => handleHelpAcuteFinal(ctx, bot));
+  bot.action('help:panic_signs', ctx => handleHelpPanicSigns(ctx, bot));
+  bot.action('help:panic_what_to_do', ctx => handleHelpPanicWhatToDo(ctx, bot));
+  bot.action('help:panic_step2', ctx => handleHelpPanicStep2(ctx, bot));
+  bot.action('help:panic_step3', ctx => handleHelpPanicStep3(ctx, bot));
+  bot.action('help:panic_step4', ctx => handleHelpPanicStep4(ctx, bot));
+  bot.action('help:panic_step5', ctx => handleHelpPanicStep5(ctx, bot));
+  bot.action('help:thoughts', ctx => handleHelpThoughts(ctx, bot));
+  bot.action('help:background', ctx => handleHelpBackground(ctx, bot));
+  bot.action('help:people_places', ctx => handleHelpPeoplePlaces(ctx, bot));
 }
 
 // Export individual handlers for backwards compatibility

@@ -2381,3 +2381,82 @@ export const clearInteractivePosts = (userId: number) => {
   `);
   del.run(userId);
 };
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ СО СТАТИСТИКОЙ /HELP =============
+
+/**
+ * Сохранить факт использования команды /help с выбором типа тревоги
+ * @param userId - ID пользователя
+ * @param anxietyType - Тип тревоги: 'acute', 'thoughts', 'background', 'people_places'
+ */
+export const saveHelpStatistics = (userId: number, anxietyType: string): void => {
+  try {
+    const stmt = db.query(`
+      INSERT INTO help_statistics (user_id, anxiety_type, created_at)
+      VALUES (?, ?, datetime('now'))
+    `);
+    stmt.run(userId, anxietyType);
+    databaseLogger.info({ userId, anxietyType }, '✅ Сохранена статистика /help');
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, userId, anxietyType },
+      '❌ Ошибка сохранения статистики /help'
+    );
+  }
+};
+
+/**
+ * Получить общую статистику использования команды /help
+ * @param userId - ID пользователя (опционально, если не указан - общая статистика)
+ * @returns Объект со статистикой: общее количество и по типам тревоги
+ */
+export const getHelpStatistics = (userId?: number) => {
+  try {
+    const query = userId
+      ? db.query(`
+          SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN anxiety_type = 'acute' THEN 1 ELSE 0 END) as acute_count,
+            SUM(CASE WHEN anxiety_type = 'thoughts' THEN 1 ELSE 0 END) as thoughts_count,
+            SUM(CASE WHEN anxiety_type = 'background' THEN 1 ELSE 0 END) as background_count,
+            SUM(CASE WHEN anxiety_type = 'people_places' THEN 1 ELSE 0 END) as people_places_count
+          FROM help_statistics
+          WHERE user_id = ?
+        `)
+      : db.query(`
+          SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN anxiety_type = 'acute' THEN 1 ELSE 0 END) as acute_count,
+            SUM(CASE WHEN anxiety_type = 'thoughts' THEN 1 ELSE 0 END) as thoughts_count,
+            SUM(CASE WHEN anxiety_type = 'background' THEN 1 ELSE 0 END) as background_count,
+            SUM(CASE WHEN anxiety_type = 'people_places' THEN 1 ELSE 0 END) as people_places_count
+          FROM help_statistics
+        `);
+
+    const result = userId
+      ? query.get(userId)
+      : query.get();
+
+    return result as {
+      total: number;
+      acute_count: number;
+      thoughts_count: number;
+      background_count: number;
+      people_places_count: number;
+    };
+  } catch (e) {
+    const error = e as Error;
+    databaseLogger.error(
+      { error: error.message, stack: error.stack, userId },
+      '❌ Ошибка получения статистики /help'
+    );
+    return {
+      total: 0,
+      acute_count: 0,
+      thoughts_count: 0,
+      background_count: 0,
+      people_places_count: 0,
+    };
+  }
+};
