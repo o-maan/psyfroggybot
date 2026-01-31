@@ -497,6 +497,586 @@ _Что тут хорошего?_
     }
   }
 
+  // ==================== СЦЕНАРИЙ "МЫСЛИ НЕ ОТПУСКАЮТ" ====================
+
+  /**
+   * Шаг 1: 5 зеленых предметов
+   */
+  async handleThoughts(callbackQueryId: string): Promise<void> {
+    try {
+      // Сохраняем статистику
+      saveHelpStatistics(this.userId, 'thoughts');
+
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Прямо сейчас:
+Посмотри вокруг 👀 и назови вслух 5 ЗЕЛЕНЫХ 💚 предметов.
+Это переключит мозг`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово ✔️', 'help:thoughts_step2')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Начат сценарий "Мысли не отпускают" - Шаг 1');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка Шаг 1 "Мысли не отпускают"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Шаг 2: Потрогать 4 предмета
+   */
+  async handleThoughtsStep2(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Теперь вернемся в настоящий момент:
+Потрогай 4 разных предмета, медленно проведи по ним пальцами, отслеживая движение
+Обрати внимание на их текстуру, форму, цвет, температуру 🌡
+Заметь разницу между ними`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово', 'help:thoughts_step3')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Шаг 2 "Мысли не отпускают"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка Шаг 2 "Мысли не отпускают"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Шаг 3: Счет от 100
+   */
+  async handleThoughtsStep3(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Посчитай от 100 в обратную сторону через 7: 100, 93, 86, 79...
+Продолжи, сделай хотя бы еще 10 раз. Не спеши`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово ✔️', 'help:thoughts_step4')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Шаг 3 "Мысли не отпускают"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка Шаг 3 "Мысли не отпускают"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Шаг 4: Факт или предположение?
+   */
+  async handleThoughtsStep4(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `А теперь вопрос:
+То, о чем ты думаешь - это *факт* или *предположение*?`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Предположение 🤔', 'help:thoughts_assumption')],
+        [Markup.button.callback('Факт 📑', 'help:thoughts_fact')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Шаг 4 "Мысли не отпускают"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка Шаг 4 "Мысли не отпускают"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Ветка "Предположение"
+   */
+  async handleThoughtsAssumption(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Именно! Большинство тревожных мыслей - это не более чем пугающие фантазии в голове, которые чаще всего не имеют ничего общего с реальностью.
+Ты не можешь предсказать будущее. Ты не можешь изменить прошлое.
+Но ты можешь сделать что-то прямо сейчас.`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Дальше', 'help:thoughts_step5')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Ветка "Предположение"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка ветки "Предположение"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Ветка "Факт"
+   */
+  async handleThoughtsFact(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Окей. Даже если это факт - ты можешь контролировать ТОЛЬКО свои действия СЕЙЧАС.
+Давай подумаем что ты можешь сделать для себя.`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Дальше', 'help:thoughts_step5')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Ветка "Факт"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка ветки "Факт"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Шаг 5: Одно маленькое действие
+   */
+  async handleThoughtsStep5(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Выбери ОДНО маленькое действие, которое сделаешь прямо сейчас:
+🔸 Съешь что-то с ярким вкусом
+🔸 Маленькими глотками выпей стакан воды
+🔸 Выйди на балкон/к окну подышать воздухом
+🔸 Поговори с кем-то
+🔸 Что-то свое, что захотелось`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово ✔️', 'help:thoughts_better_question')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Шаг 5 "Мысли не отпускают"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка Шаг 5 "Мысли не отпускают"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Вопрос: Стало ли лучше?
+   */
+  async handleThoughtsBetterQuestion(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Стало лучше?`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Да, спасибо', 'help:thoughts_better')],
+        [Markup.button.callback('Мысли все еще беспокоят 😵‍💫', 'help:thoughts_still_worried')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Вопрос "Стало ли лучше?"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка вопроса "Стало ли лучше?"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Финал: Да, спасибо (стало лучше)
+   */
+  async handleThoughtsBetter(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Ты молодец! 💚
+Ты прервал цикл тревожных мыслей. Мысли могут вернуться, но ты теперь знаешь рецепт:
+1. Переключить внимание (цвета, счет)
+2. Разделить факты и предположения
+3. Сделать действие`;
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Финал "Да, спасибо" - мысли отпустили');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка финала "Да, спасибо"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Мысли все еще беспокоят
+   */
+  async handleThoughtsStillWorried(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Понимаю. Иногда мысли бывают очень навязчивыми 🌀
+Давай разберемся`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Давай 🚀', 'help:thoughts_write_down')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Мысли все еще беспокоят"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Мысли все еще беспокоят"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Выписать мысли на бумагу
+   */
+  async handleThoughtsWriteDown(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Первое - нужно ВЫТАЩИТЬ мысли из головы.
+Возьми лист _(лучше работает, когда пишешь от руки)_
+И напиши ВСЕ, что крутится в голове. Любыми словами, как идет. Не думай о красоте - просто вывали все! 📝
+Когда выпишешь - жми кнопку`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово ✔️', 'help:thoughts_exhale')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Выписать мысли на бумагу"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Выписать мысли"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Выдохни и отпусти
+   */
+  async handleThoughtsExhale(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Выдохни и отпусти то, что тревожило 😤
+Иногда уже на этом этапе можно почувствовать облегчение, тогда можно остановиться`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Да, достаточно', 'help:thoughts_enough')],
+        [Markup.button.callback('Продолжаем 🌪️', 'help:thoughts_continue')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Выдохни и отпусти"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Выдохни и отпусти"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Финал: Да, достаточно
+   */
+  async handleThoughtsEnough(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Рад, что тебе стало лучше 🤗`;
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Финал "Да, достаточно"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка финала "Да, достаточно"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Продолжаем - разделить на категории
+   */
+  async handleThoughtsContinue(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Теперь все, что ты видишь на листке, нужно разделить на 2 категории, обозначив:
+☑️ - то, на что я могу влиять
+❌ - не могу влиять (действия/мысли других людей, внешние события и т.д.)
+Когда сделаешь, нажимай кнопку`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Дальше', 'help:thoughts_accept')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Разделить на категории"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Разделить на категории"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Принять то, что не контролируешь
+   */
+  async handleThoughtsAccept(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `То, на что влиять ты НЕ можешь, нужно принять и отпустить.
+Мысленно или вслух скажи: "Это не в моей власти, я выбираю направить свою энергию на то, что будет для меня полезным"`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Дальше', 'help:thoughts_plan')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Принять и отпустить"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Принять и отпустить"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Прописать план
+   */
+  async handleThoughtsPlan(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `А вот с тем, на что ты влиять МОЖЕШЬ мы сейчас поработаем.
+Пропиши для себя план, что ты будешь делать по каждой из этих мыслей. Это дает мозгу 🧠 ясность и успокаивает`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Дальше', 'help:thoughts_small_action')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Прописать план"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Прописать план"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Маленькое действие
+   */
+  async handleThoughtsSmallAction(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Какое самое маленькое действие я могу сделать прямо сейчас? _(даже если это просто найти что-то в поисковике или отправить сообщение)_
+Сделай это 🔥`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Готово ✔️', 'help:thoughts_final')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Маленькое действие"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Маленькое действие"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Финальное сообщение
+   */
+  async handleThoughtsFinal(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Ура! 🎉 Теперь у тебя есть план действий! Ты со всем справишься
+
+В завершении можешь сделать любое физическое упражнение _(10 приседаний, прогулка, прыжки на месте)_
+Важно: обращай внимание на действия и на ощущения.
+Это поможет перевести внимание и завершить процесс`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Спасибо', 'help:thoughts_thanks')],
+      ]);
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ "Финальное сообщение"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка "Финальное сообщение"'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Спасибо (финал)
+   */
+  async handleThoughtsThanks(callbackQueryId: string): Promise<void> {
+    try {
+      await this.bot.telegram.answerCbQuery(callbackQueryId);
+
+      const text = `Рад, что мы смогли разобраться. Надеюсь, тебе стало лучше 🤗`;
+
+      await sendToUser(this.bot, this.chatId, this.userId, text, {
+        parse_mode: 'Markdown',
+      });
+
+      botLogger.info({ userId: this.userId }, '✅ Финал "Спасибо"');
+    } catch (e) {
+      const error = e as Error;
+      botLogger.error(
+        { error: error.message, stack: error.stack, userId: this.userId },
+        '❌ Ошибка финала "Спасибо"'
+      );
+      throw error;
+    }
+  }
+
+  // ==================== КОНЕЦ СЦЕНАРИЯ "МЫСЛИ НЕ ОТПУСКАЮТ" ====================
+
   /**
    * Обработать другие типы тревоги (пока заглушки)
    */

@@ -87,6 +87,24 @@ import {
   handleHelpPanicStep4,
   handleHelpPanicStep5,
   handleHelpThoughts,
+  handleHelpThoughtsStep2,
+  handleHelpThoughtsStep3,
+  handleHelpThoughtsStep4,
+  handleHelpThoughtsAssumption,
+  handleHelpThoughtsFact,
+  handleHelpThoughtsStep5,
+  handleHelpThoughtsBetterQuestion,
+  handleHelpThoughtsBetter,
+  handleHelpThoughtsStillWorried,
+  handleHelpThoughtsWriteDown,
+  handleHelpThoughtsExhale,
+  handleHelpThoughtsEnough,
+  handleHelpThoughtsContinue,
+  handleHelpThoughtsAccept,
+  handleHelpThoughtsPlan,
+  handleHelpThoughtsSmallAction,
+  handleHelpThoughtsFinal,
+  handleHelpThoughtsThanks,
   handleHelpBackground,
   handleHelpPeoplePlaces
 } from './help_buttons';
@@ -215,6 +233,24 @@ export function registerCallbackHandlers(bot: Telegraf, scheduler: Scheduler) {
   bot.action('help:panic_step4', ctx => handleHelpPanicStep4(ctx, bot));
   bot.action('help:panic_step5', ctx => handleHelpPanicStep5(ctx, bot));
   bot.action('help:thoughts', ctx => handleHelpThoughts(ctx, bot));
+  bot.action('help:thoughts_step2', ctx => handleHelpThoughtsStep2(ctx, bot));
+  bot.action('help:thoughts_step3', ctx => handleHelpThoughtsStep3(ctx, bot));
+  bot.action('help:thoughts_step4', ctx => handleHelpThoughtsStep4(ctx, bot));
+  bot.action('help:thoughts_assumption', ctx => handleHelpThoughtsAssumption(ctx, bot));
+  bot.action('help:thoughts_fact', ctx => handleHelpThoughtsFact(ctx, bot));
+  bot.action('help:thoughts_step5', ctx => handleHelpThoughtsStep5(ctx, bot));
+  bot.action('help:thoughts_better_question', ctx => handleHelpThoughtsBetterQuestion(ctx, bot));
+  bot.action('help:thoughts_better', ctx => handleHelpThoughtsBetter(ctx, bot));
+  bot.action('help:thoughts_still_worried', ctx => handleHelpThoughtsStillWorried(ctx, bot));
+  bot.action('help:thoughts_write_down', ctx => handleHelpThoughtsWriteDown(ctx, bot));
+  bot.action('help:thoughts_exhale', ctx => handleHelpThoughtsExhale(ctx, bot));
+  bot.action('help:thoughts_enough', ctx => handleHelpThoughtsEnough(ctx, bot));
+  bot.action('help:thoughts_continue', ctx => handleHelpThoughtsContinue(ctx, bot));
+  bot.action('help:thoughts_accept', ctx => handleHelpThoughtsAccept(ctx, bot));
+  bot.action('help:thoughts_plan', ctx => handleHelpThoughtsPlan(ctx, bot));
+  bot.action('help:thoughts_small_action', ctx => handleHelpThoughtsSmallAction(ctx, bot));
+  bot.action('help:thoughts_final', ctx => handleHelpThoughtsFinal(ctx, bot));
+  bot.action('help:thoughts_thanks', ctx => handleHelpThoughtsThanks(ctx, bot));
   bot.action('help:background', ctx => handleHelpBackground(ctx, bot));
   bot.action('help:people_places', ctx => handleHelpPeoplePlaces(ctx, bot));
 }

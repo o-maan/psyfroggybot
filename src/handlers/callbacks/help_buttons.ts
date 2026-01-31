@@ -302,10 +302,264 @@ export async function handleHelpThoughts(ctx: Context, bot: Telegraf) {
     if (!chatId || !userId || !callbackQueryId) return;
 
     const handler = new HelpHandler(bot, chatId, userId);
-    await handler.handleOtherAnxietyType(callbackQueryId, 'thoughts');
+    await handler.handleThoughts(callbackQueryId);
   } catch (e) {
     const error = e as Error;
     botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts');
+  }
+}
+
+// ==================== ОБРАБОТЧИКИ СЦЕНАРИЯ "МЫСЛИ НЕ ОТПУСКАЮТ" ====================
+
+export async function handleHelpThoughtsStep2(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsStep2(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_step2');
+  }
+}
+
+export async function handleHelpThoughtsStep3(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsStep3(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_step3');
+  }
+}
+
+export async function handleHelpThoughtsStep4(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsStep4(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_step4');
+  }
+}
+
+export async function handleHelpThoughtsAssumption(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsAssumption(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_assumption');
+  }
+}
+
+export async function handleHelpThoughtsFact(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsFact(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_fact');
+  }
+}
+
+export async function handleHelpThoughtsStep5(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsStep5(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_step5');
+  }
+}
+
+export async function handleHelpThoughtsBetterQuestion(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsBetterQuestion(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_better_question');
+  }
+}
+
+export async function handleHelpThoughtsBetter(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsBetter(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_better');
+  }
+}
+
+export async function handleHelpThoughtsStillWorried(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsStillWorried(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_still_worried');
+  }
+}
+
+export async function handleHelpThoughtsWriteDown(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsWriteDown(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_write_down');
+  }
+}
+
+export async function handleHelpThoughtsExhale(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsExhale(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_exhale');
+  }
+}
+
+export async function handleHelpThoughtsEnough(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsEnough(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_enough');
+  }
+}
+
+export async function handleHelpThoughtsContinue(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsContinue(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_continue');
+  }
+}
+
+export async function handleHelpThoughtsAccept(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsAccept(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_accept');
+  }
+}
+
+export async function handleHelpThoughtsPlan(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsPlan(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_plan');
+  }
+}
+
+export async function handleHelpThoughtsSmallAction(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsSmallAction(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_small_action');
+  }
+}
+
+export async function handleHelpThoughtsFinal(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsFinal(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_final');
+  }
+}
+
+export async function handleHelpThoughtsThanks(ctx: Context, bot: Telegraf) {
+  try {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const callbackQueryId = ctx.callbackQuery?.id;
+    if (!chatId || !userId || !callbackQueryId) return;
+    const handler = new HelpHandler(bot, chatId, userId);
+    await handler.handleThoughtsThanks(callbackQueryId);
+  } catch (e) {
+    const error = e as Error;
+    botLogger.error({ error: error.message, stack: error.stack }, '❌ Ошибка обработки help:thoughts_thanks');
   }
 }
 
