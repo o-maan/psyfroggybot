@@ -1,4 +1,4 @@
-psy-froggy-bot.invntrm.ru {
+psy-froggy-bot.invntrm.ru, psy-froggy-bot.mextner.com {
     reverse_proxy localhost:3456
 
     # Логирование
